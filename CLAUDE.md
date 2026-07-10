@@ -73,6 +73,12 @@ Net worth = totalCashIDR + totalAssetsIDR − totalDebtIDR (USD dikonversi `effe
 - Chart.js dari jsdelivr CDN; kalau belum ke-cache dan offline, chart area menampilkan pesan fallback.
 - iOS Safari bisa evict storage PWA — data master di cloud, jadi worst case re-sync saat login.
 - `attachThousands()` memformat input ribuan live; parse balik pakai `parseAmount()`.
+- GitHub Pages (Fastly, di belakang custom domain xiesandi.cyou) nge-serve `sw.js` dengan
+  `Cache-Control: max-age=14400` (4 jam) dan GH Pages ga bisa dioverride header-nya. Tanpa
+  akal-akalan, `reg.update()` di `app.js` bisa kena HTTP cache basi ini dan ga pernah nemu
+  versi baru. Fix: registrasi SW pakai query string `?v=${Date.now()}` + `updateViaCache:
+  "none"` biar selalu network fresh — jangan dihapus, dan jangan balikin ke `register("./sw.js")`
+  polos.
 
 ## Roadmap (belum dibuat, urutan prioritas)
 

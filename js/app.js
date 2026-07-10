@@ -161,7 +161,10 @@ on(() => {
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try {
-      const reg = await navigator.serviceWorker.register("./sw.js");
+      // GitHub Pages nge-cache sw.js sampe 4 jam (Cache-Control: max-age=14400) dan ga bisa
+      // dioverride — jadi query string berubah tiap load biar fetch selalu tembus cache
+      // browser + CDN, bukan cuma reg.update() (yang tetep bisa kena HTTP cache lama).
+      const reg = await navigator.serviceWorker.register(`./sw.js?v=${Date.now()}`, { updateViaCache: "none" });
       // Cek update setiap app dibuka (jangan nunggu jadwal browser)
       reg.update();
       // Cek ulang tiap kali app balik ke foreground (PWA sering cuma di-resume)
