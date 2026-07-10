@@ -65,10 +65,11 @@ Net worth = totalCashIDR + totalAssetsIDR − totalDebtIDR (USD dikonversi `effe
 
 ## Known Quirks
 
-- iTick response parsing di `js/prices.js` defensif (`ld ?? c ?? close ?? last ?? price`) —
-  belum terverifikasi 100% terhadap response asli (`GET /stock/quotes?region=ID&codes=...`,
-  header `token`); kalau refresh IDX gagal padahal key valid, cek struktur JSON di Network tab
-  dan sesuaikan parsing.
+- iTick (`js/prices.js`, `fetchIDX`) — terverifikasi live: `GET /stock/quotes?region=ID&codes=...`,
+  header `token`, response `{code, msg, data:{SYMBOL:{ld, ...}}}`, harga di field `ld`.
+  **Free/personal tier maks 3 simbol per call** (lebih dari itu → `{code:1, msg:"your request
+  is too much"}` walau HTTP 200) — kode udah nge-chunk per 3 (`ITICK_CHUNK`), jangan dihapus
+  kalau nambahin logic baru di sini.
 - Chart.js dari jsdelivr CDN; kalau belum ke-cache dan offline, chart area menampilkan pesan fallback.
 - iOS Safari bisa evict storage PWA — data master di cloud, jadi worst case re-sync saat login.
 - `attachThousands()` memformat input ribuan live; parse balik pakai `parseAmount()`.

@@ -21,26 +21,33 @@ const keys = () => state.settings.apiKeys || {};
 
 // ---------- Adapters (masing-masing return Map<SYMBOL, price>) ----------
 
+// Free/personal tier iTick batasin /stock/quotes maks 3 simbol per call
+// ("your request is too much" kalau lebih) — jadi di-chunk per 3.
+const ITICK_CHUNK = 3;
+
 async function fetchIDX(symbols) {
   const key = keys().itick;
   if (!key) return { prices: new Map(), error: "itick_no_key" };
-  try {
-    const url = `https://api.itick.org/stock/quotes?region=ID&codes=${encodeURIComponent(symbols.join(","))}`;
-    const res = await fetch(url, { headers: { token: key, "Accept": "application/json" } });
-    if (!res.ok) throw new Error(`iTick HTTP ${res.status}`);
-    const j = await res.json();
-    if (!j?.data) throw new Error(j?.msg || j?.message || "iTick: no data");
-    const entries = Array.isArray(j.data) ? j.data.map((r) => [r.s || r.symbol, r]) : Object.entries(j.data);
-    const prices = new Map();
-    for (const [sym, r] of entries) {
-      const price = Number(r?.ld ?? r?.c ?? r?.close ?? r?.last ?? r?.price);
-      if (sym && price > 0) prices.set(String(sym).toUpperCase(), price);
+  const prices = new Map();
+  let error = null;
+  for (let i = 0; i < symbols.length; i += ITICK_CHUNK) {
+    const chunk = symbols.slice(i, i + ITICK_CHUNK);
+    try {
+      const url = `https://api.itick.org/stock/quotes?region=ID&codes=${encodeURIComponent(chunk.join(","))}`;
+      const res = await fetch(url, { headers: { token: key, "Accept": "application/json" } });
+      if (!res.ok) throw new Error(`iTick HTTP ${res.status}`);
+      const j = await res.json();
+      if (j?.code !== 0 || !j?.data) throw new Error(j?.msg || j?.message || "iTick: no data");
+      for (const [sym, r] of Object.entries(j.data)) {
+        const price = Number(r?.ld ?? r?.c ?? r?.close ?? r?.last ?? r?.price);
+        if (sym && price > 0) prices.set(String(sym).toUpperCase(), price);
+      }
+    } catch (e) {
+      console.warn("[prices:idx]", e);
+      error = String(e.message || e);
     }
-    return { prices };
-  } catch (e) {
-    console.warn("[prices:idx]", e);
-    return { prices: new Map(), error: String(e.message || e) };
   }
+  return { prices, error };
 }
 
 async function fetchUS(symbols) {
