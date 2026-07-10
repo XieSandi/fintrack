@@ -120,6 +120,13 @@ label { display: block; font-size: 11px; color: var(--muted); text-transform: up
   border: 1px solid #1e40af; border-radius: 14px; padding: 18px; margin-bottom: 14px;
 }
 .big-amount { font-size: 28px; font-weight: 800; letter-spacing: -.5px; }
+.nw-head { display: flex; justify-content: space-between; align-items: center; }
+.blur-toggle { background: none; border: none; color: #93c5fd; font-size: 16px; padding: 2px 4px; line-height: 1; opacity: .85; }
+.blur-toggle:active { opacity: 1; }
+
+/* Blur mode — sembunyikan angka nominal (toggle mata di Home) */
+.blur-num { transition: filter .15s ease; }
+body.blur-mode .blur-num { filter: blur(7px); user-select: none; -webkit-user-select: none; }
 .label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 4px; }
 .sub { font-size: 11px; color: var(--muted); margin-top: 4px; }
 .acct-scroll { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 6px; margin-bottom: 8px; scrollbar-width: none; }

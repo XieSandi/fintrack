@@ -58,7 +58,7 @@ export function render(root) {
     const info = document.createElement("div");
     info.className = "sub";
     info.style.margin = "0 2px 4px";
-    info.textContent = `${rows.length} transaksi · total expense ${fmtIDR(totExp)}`;
+    info.innerHTML = `${rows.length} transaksi · total expense ${fmtIDR(totExp)}`;
     list.appendChild(info);
 
     let lastDate = null;

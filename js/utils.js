@@ -1,9 +1,9 @@
 // ---------- Format ----------
 export const fmtIDR = (n) =>
-  "Rp " + Math.round(n || 0).toLocaleString("id-ID");
+  `<span class="blur-num">Rp ${Math.round(n || 0).toLocaleString("id-ID")}</span>`;
 
 export const fmtUSD = (n) =>
-  "$" + (n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  `<span class="blur-num">$${(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>`;
 
 export const fmtMoney = (n, cur = "IDR") => (cur === "USD" ? fmtUSD(n) : fmtIDR(n));
 
@@ -97,3 +97,12 @@ export const escapeHtml = (s) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 export const confirmDialog = (msg) => window.confirm(msg);
+
+// ---------- Blur mode (sembunyikan angka nominal) ----------
+const BLUR_KEY = "fintrack_blur";
+export const isBlurred = () => localStorage.getItem(BLUR_KEY) === "1";
+export const applyBlurred = (on) => document.body.classList.toggle("blur-mode", on);
+export const setBlurred = (on) => {
+  localStorage.setItem(BLUR_KEY, on ? "1" : "0");
+  applyBlurred(on);
+};

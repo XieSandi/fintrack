@@ -2,7 +2,7 @@ import {
   state, activeAccounts, accountBalances, netWorthIDR, monthSummary,
   catById, acctById, effectiveRate, budgetsOfMonth, spentByCategory,
 } from "../store.js";
-import { fmtIDR, fmtMoney, escapeHtml, dateLabel, currentMonth } from "../utils.js";
+import { fmtIDR, fmtMoney, escapeHtml, dateLabel, currentMonth, isBlurred, setBlurred } from "../utils.js";
 import { openTxSheet } from "../tx-sheet.js";
 
 export function render(root) {
@@ -17,7 +17,10 @@ export function render(root) {
 
   root.innerHTML = `
     <div class="networth-banner">
-      <div class="label">Net Worth</div>
+      <div class="nw-head">
+        <div class="label">Net Worth</div>
+        <button class="blur-toggle" data-blur-toggle aria-label="${isBlurred() ? "Tampilkan" : "Sembunyikan"} saldo">${isBlurred() ? "🙈" : "👁️"}</button>
+      </div>
       <div class="big-amount" style="color:#93c5fd">${fmtIDR(nw)}</div>
       <div class="progress" style="margin-top:12px; height:8px;">
         <div class="p-green" style="width:${pctTarget}%; background:linear-gradient(90deg,#3b82f6,#60a5fa)"></div>
@@ -60,6 +63,13 @@ export function render(root) {
       ${recent.length > 0 ? `<a href="#/transactions" class="gear-link" style="display:block;text-align:center;margin-top:8px">Lihat semua →</a>` : ""}
     </div>
   `;
+
+  root.querySelector("[data-blur-toggle]").onclick = (e) => {
+    const next = !isBlurred();
+    setBlurred(next);
+    e.currentTarget.textContent = next ? "🙈" : "👁️";
+    e.currentTarget.setAttribute("aria-label", next ? "Tampilkan saldo" : "Sembunyikan saldo");
+  };
 
   const list = root.querySelector("#recent-list");
   recent.forEach((t) => list.appendChild(txRow(t)));
