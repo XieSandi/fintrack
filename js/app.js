@@ -6,7 +6,7 @@ import { state, on, startListeners, stopListeners, setMonth } from "./store.js";
 import { seedIfNeeded, upsertSnapshot } from "./db.js";
 import { refreshKurs, loadCachedKurs } from "./kurs.js";
 import { autoRefreshIfDue } from "./prices.js";
-import { monthLabel, addMonths, currentMonth, closeSheet, toast } from "./utils.js";
+import { monthLabel, addMonths, currentMonth, closeSheet, toast, isBlurred, applyBlurred } from "./utils.js";
 import { openTxSheet } from "./tx-sheet.js";
 
 import * as homeView from "./views/home.js";
@@ -31,6 +31,9 @@ const ROUTES = {
 
 let currentRoute = "home";
 let snapshotDone = false;
+
+// Terapkan preferensi blur (persist per device) sebelum render pertama
+applyBlurred(isBlurred());
 
 // ================= Router =================
 function routeFromHash() {

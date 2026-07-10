@@ -27,7 +27,7 @@ export function render(root) {
       <span style="width:10px;height:10px;border-radius:50%;background:${a.color || "#60a5fa"};flex-shrink:0"></span>
       <div style="flex:1">
         <div style="font-size:13px;font-weight:600">${escapeHtml(a.name)} ${a.isArchived ? '<span class="badge badge-yellow">arsip</span>' : ""}</div>
-        <div class="set-sub">${ACCT_TYPES[a.type] || a.type} · ${a.currency} · saldo awal ${fmtNum(a.initialBalance || 0)}</div>
+        <div class="set-sub">${ACCT_TYPES[a.type] || a.type} · ${a.currency} · saldo awal <span class="blur-num">${fmtNum(a.initialBalance || 0)}</span></div>
       </div>
       <span style="color:var(--muted)">›</span>`;
     div.onclick = () => openAcctSheet(a);
