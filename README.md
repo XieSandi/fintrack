@@ -38,9 +38,12 @@ icons/
 
 ## Deploy (GitHub Pages)
 
-1. Push semua file ini ke repo (root atau folder sesuai path Pages).
-2. Settings → Pages → Deploy from branch.
-3. Karena pakai custom domain subpath (`xiesandi.cyou/fintrack`), semua path di app sudah relative (`./`) — tidak perlu diubah.
+1. Push semua file ini ke repo. Settings → Pages → Deploy from branch.
+2. Semua path relative (`./`) — aman untuk subpath `xiesandi.cyou/fintrack`.
+
+Config Firebase di `js/firebase.js` memang public (client-side app).
+Keamanan data = Security Rules per-uid + Authorized Domains + API key
+HTTP-referrer restriction di Google Cloud Console.
 
 ## Setup Firebase (sekali saja)
 

@@ -11,8 +11,8 @@ import {
   serverTimestamp, writeBatch,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-// Config ini memang public untuk static site.
-// Data dikunci oleh Security Rules (per-uid) + Authorized Domains.
+// Config ini memang public untuk static site — bukan secret.
+// Keamanan data = Security Rules per-uid + Authorized Domains + API key restriction.
 const firebaseConfig = {
   apiKey: "AIzaSyD2IADkkmCeMx9ERSdBzSRh4hsEkSNk99s",
   authDomain: "xiesandi-finance-tracker.firebaseapp.com",
