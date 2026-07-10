@@ -3,7 +3,7 @@ import { exportAll, importAll, updateSettings } from "../db.js";
 import { auth, signOut } from "../firebase.js";
 import {
   fmtNum, escapeHtml, toast, parseAmount, attachThousands,
-  confirmDialog, todayStr,
+  confirmDialog, todayStr, hardRefresh,
 } from "../utils.js";
 
 export function render(root) {
@@ -64,6 +64,12 @@ export function render(root) {
         <button id="btn-import" class="btn">⬆️ Import</button>
       </div>
       <input type="file" id="import-file" accept=".json,application/json" class="hidden" />
+    </div>
+
+    <div class="card">
+      <div class="card-title">App</div>
+      <div class="sub" style="margin-bottom:10px">Tampilan aneh / kerasa nyangkut di versi lama? Hard refresh bersihin cache & service worker, terus reload dari awal. Data lo aman, ga kehapus (kesimpen di cloud).</div>
+      <button id="btn-hard-refresh" class="btn btn-block">🔄 Hard Refresh</button>
     </div>
 
     <div class="card">
@@ -136,5 +142,11 @@ export function render(root) {
   root.querySelector("#btn-logout").onclick = async () => {
     if (!confirmDialog("Keluar dari akun?")) return;
     await signOut(auth);
+  };
+
+  root.querySelector("#btn-hard-refresh").onclick = async () => {
+    if (!confirmDialog("Hard refresh app? Cache & service worker lama bakal dibersihin, app reload dari awal. Data lo aman (tersimpan di cloud).")) return;
+    toast("Membersihkan cache...");
+    await hardRefresh();
   };
 }
