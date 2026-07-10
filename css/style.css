@@ -248,3 +248,59 @@ canvas { max-width: 100%; }
   html { font-size: 16px; }
   .cat-grid { grid-template-columns: repeat(6, 1fr); }
 }
+
+/* ---------- v1.1 additions ---------- */
+.header-left { display: flex; align-items: center; gap: 6px; }
+.back-btn {
+  background: none; border: none; color: var(--blue);
+  font-size: 26px; line-height: 1; padding: 0 6px 2px 0; font-weight: 700;
+}
+
+/* Budget slider di Home */
+.budget-scroll { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 6px; scrollbar-width: none; }
+.budget-scroll::-webkit-scrollbar { display: none; }
+.budget-mini {
+  flex: 0 0 158px; background: var(--card); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 12px; cursor: pointer;
+}
+.budget-mini .bm-name { font-size: 12px; font-weight: 700; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.budget-mini .bm-nums { font-size: 10px; color: var(--muted2); margin-top: 6px; }
+
+/* Grouping finansial (Wealth) */
+.sumtabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 14px; }
+.sumtabs button {
+  background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+  padding: 10px 6px; text-align: center; color: var(--muted2);
+}
+.sumtabs button .st-label { display: block; font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 3px; }
+.sumtabs button .st-val { display: block; font-size: 11px; font-weight: 800; }
+.sumtabs button.active { border-color: var(--blue); background: var(--blue-dim); }
+.sumtabs button.active .st-label { color: var(--blue); }
+
+/* Chart tabs */
+.chart-tabs { display: flex; gap: 6px; margin-bottom: 10px; }
+.chart-tabs button {
+  background: var(--card2); border: 1px solid var(--border); color: var(--muted2);
+  padding: 6px 12px; border-radius: 20px; font-size: 11px; font-weight: 700;
+}
+.chart-tabs button.active { background: var(--blue-dim); border-color: #1e40af; color: var(--blue); }
+
+/* Asset grouping */
+.group-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-size: 10px; color: var(--muted2); text-transform: uppercase; letter-spacing: 1.5px;
+  font-weight: 700; margin: 14px 0 2px; padding-bottom: 4px; border-bottom: 1px dashed var(--border);
+}
+.group-head:first-child { margin-top: 0; }
+.group-head .gh-total { font-size: 11px; color: var(--text); letter-spacing: 0; text-transform: none; }
+
+/* Settings menu */
+.menu-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 2px; border-bottom: 1px solid var(--border);
+  cursor: pointer; text-decoration: none; color: var(--text); font-size: 14px; font-weight: 600;
+}
+.menu-item:last-child { border-bottom: none; }
+.menu-item .mi-ic { font-size: 18px; width: 26px; text-align: center; }
+.menu-item .mi-sub { font-size: 11px; color: var(--muted); font-weight: 400; margin-top: 2px; }
+.menu-item .mi-arrow { margin-left: auto; color: var(--muted); }

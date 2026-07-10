@@ -1,6 +1,6 @@
 import {
   state, activeAccounts, accountBalances, netWorthIDR, monthSummary,
-  catById, acctById, effectiveRate,
+  catById, acctById, effectiveRate, budgetsOfMonth, spentByCategory,
 } from "../store.js";
 import { fmtIDR, fmtMoney, escapeHtml, dateLabel, currentMonth } from "../utils.js";
 import { openTxSheet } from "../tx-sheet.js";
@@ -46,6 +46,12 @@ export function render(root) {
       </div>
     </div>
 
+    <div style="display:flex; justify-content:space-between; align-items:baseline; margin:2px 2px 8px">
+      <span class="card-title" style="margin:0">Budget bulan ini</span>
+      <a href="#/budget" class="gear-link" style="font-size:11px">Kelola →</a>
+    </div>
+    <div class="budget-scroll" id="budget-slider"></div>
+
     <div class="card">
       <div class="card-title">Transaksi terakhir</div>
       <div id="recent-list">
@@ -57,6 +63,38 @@ export function render(root) {
 
   const list = root.querySelector("#recent-list");
   recent.forEach((t) => list.appendChild(txRow(t)));
+
+  // Budget slider
+  const slider = root.querySelector("#budget-slider");
+  const m = currentMonth();
+  const budgets = budgetsOfMonth(m);
+  const spent = spentByCategory(m);
+  if (budgets.length === 0) {
+    slider.innerHTML = `<div class="budget-mini" style="flex:1" onclick="location.hash='#/budget'">
+      <div class="bm-name">Belum ada budget</div>
+      <div class="bm-nums">Tap untuk set budget bulan ini →</div>
+    </div>`;
+  } else {
+    budgets
+      .slice()
+      .sort((a, b) => (spent[b.categoryId] || 0) / (b.amount || 1) - (spent[a.categoryId] || 0) / (a.amount || 1))
+      .forEach((b) => {
+        const cat = catById(b.categoryId);
+        const used = spent[b.categoryId] || 0;
+        const pct = b.amount > 0 ? (used / b.amount) * 100 : 0;
+        const cls = pct >= 100 ? "p-red" : pct >= 90 ? "p-yellow" : "p-green";
+        const div = document.createElement("div");
+        div.className = "budget-mini";
+        div.innerHTML = `
+          <div class="bm-name">${cat?.icon || "📦"} ${escapeHtml(cat?.name || "?")}</div>
+          <div class="progress"><div class="${cls}" style="width:${Math.min(pct, 100)}%"></div></div>
+          <div class="bm-nums">${fmtIDR(used)} / ${fmtIDR(b.amount)}
+            <span style="color:${pct >= 100 ? "var(--red)" : pct >= 90 ? "var(--yellow)" : "var(--muted)"}">· ${pct.toFixed(0)}%</span>
+          </div>`;
+        div.onclick = () => { location.hash = "#/budget"; };
+        slider.appendChild(div);
+      });
+  }
 }
 
 export function txRow(t) {
