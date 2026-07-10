@@ -1,7 +1,7 @@
 // Integrasi harga otomatis — semua provider dipilih karena CORS-friendly
 // (bisa dipanggil langsung dari browser, cocok untuk static site):
 //
-//   stock_id  → GoAPI (api.goapi.io)     — butuh API key (gratis: goapi.io)
+//   stock_id  → iTick (api.itick.org)    — butuh API key (gratis: itick.org, personal use)
 //   stock_us  → Finnhub (finnhub.io)     — butuh API key (gratis: finnhub.io, 60 call/min)
 //   crypto    → CoinGecko                — TANPA API key
 //
@@ -22,19 +22,19 @@ const keys = () => state.settings.apiKeys || {};
 // ---------- Adapters (masing-masing return Map<SYMBOL, price>) ----------
 
 async function fetchIDX(symbols) {
-  const key = keys().goapi;
-  if (!key) return { prices: new Map(), error: "goapi_no_key" };
+  const key = keys().itick;
+  if (!key) return { prices: new Map(), error: "itick_no_key" };
   try {
-    const url = `https://api.goapi.io/stock/idx/prices?symbols=${encodeURIComponent(symbols.join(","))}&api_key=${encodeURIComponent(key)}`;
-    const res = await fetch(url, { headers: { "X-API-KEY": key, "Accept": "application/json" } });
-    if (!res.ok) throw new Error(`GoAPI HTTP ${res.status}`);
+    const url = `https://api.itick.org/stock/quotes?region=ID&codes=${encodeURIComponent(symbols.join(","))}`;
+    const res = await fetch(url, { headers: { token: key, "Accept": "application/json" } });
+    if (!res.ok) throw new Error(`iTick HTTP ${res.status}`);
     const j = await res.json();
-    const results = j?.data?.results || j?.data || [];
+    if (!j?.data) throw new Error(j?.msg || j?.message || "iTick: no data");
+    const entries = Array.isArray(j.data) ? j.data.map((r) => [r.s || r.symbol, r]) : Object.entries(j.data);
     const prices = new Map();
-    for (const r of results) {
-      const sym = (r.symbol || r.ticker || "").toUpperCase();
-      const price = Number(r.close ?? r.last_price ?? r.price ?? r.last ?? r.previous);
-      if (sym && price > 0) prices.set(sym, price);
+    for (const [sym, r] of entries) {
+      const price = Number(r?.ld ?? r?.c ?? r?.close ?? r?.last ?? r?.price);
+      if (sym && price > 0) prices.set(String(sym).toUpperCase(), price);
     }
     return { prices };
   } catch (e) {
@@ -111,7 +111,7 @@ export async function refreshPrices() {
     crypto.length ? fetchCrypto(crypto) : { prices: new Map() },
   ]);
 
-  if (rIdx.error === "goapi_no_key") out.noKey.push("GoAPI (saham IDX)");
+  if (rIdx.error === "itick_no_key") out.noKey.push("iTick (saham IDX)");
   if (rUs.error === "finnhub_no_key") out.noKey.push("Finnhub (saham US)");
 
   const updates = [];
@@ -126,12 +126,12 @@ export async function refreshPrices() {
       updates.push(patch("assets", a.id, {
         manualPrice: price,
         manualPriceUpdatedAt: todayStr(),
-        priceSource: a.type === "stock_id" ? "goapi" : a.type === "stock_us" ? "finnhub" : "coingecko",
+        priceSource: a.type === "stock_id" ? "itick" : a.type === "stock_us" ? "finnhub" : "coingecko",
       }));
       out.updated++;
     } else {
       const providerMissingKey =
-        (a.type === "stock_id" && rIdx.error === "goapi_no_key") ||
+        (a.type === "stock_id" && rIdx.error === "itick_no_key") ||
         (a.type === "stock_us" && rUs.error === "finnhub_no_key");
       if (!providerMissingKey) out.failed.push(sym);
     }

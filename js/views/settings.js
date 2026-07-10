@@ -39,8 +39,8 @@ export function render(root) {
     <div class="card">
       <div class="card-title">Integrasi Harga (API Keys)</div>
       <div class="sub" style="margin-bottom:4px">Auto-refresh harga asset. Crypto (CoinGecko) gratis tanpa key. Key disimpan di database lo sendiri (per akun, terproteksi rules).</div>
-      <label>GoAPI key — saham IDX <a href="https://goapi.io" target="_blank" rel="noopener" style="color:var(--blue)">daftar gratis ↗</a></label>
-      <input id="s-goapi" type="text" autocomplete="off" placeholder="belum diisi = saham IDX manual" value="${escapeHtml(state.settings.apiKeys?.goapi || "")}" />
+      <label>iTick key — saham IDX <a href="https://itick.org" target="_blank" rel="noopener" style="color:var(--blue)">daftar gratis ↗</a></label>
+      <input id="s-itick" type="text" autocomplete="off" placeholder="belum diisi = saham IDX manual" value="${escapeHtml(state.settings.apiKeys?.itick || "")}" />
       <label>Finnhub key — saham/ETF US <a href="https://finnhub.io" target="_blank" rel="noopener" style="color:var(--blue)">daftar gratis ↗</a></label>
       <input id="s-finnhub" type="text" autocomplete="off" placeholder="belum diisi = saham US manual" value="${escapeHtml(state.settings.apiKeys?.finnhub || "")}" />
       <button id="btn-save-keys" class="btn btn-primary btn-sm" style="margin-top:12px">Simpan Keys</button>
@@ -84,7 +84,7 @@ export function render(root) {
   root.querySelector("#btn-save-keys").onclick = async () => {
     await updateSettings({
       apiKeys: {
-        goapi: root.querySelector("#s-goapi").value.trim() || null,
+        itick: root.querySelector("#s-itick").value.trim() || null,
         finnhub: root.querySelector("#s-finnhub").value.trim() || null,
       },
     });
