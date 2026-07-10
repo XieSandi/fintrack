@@ -152,8 +152,24 @@ on(() => {
 
 // ================= PWA =================
 if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("./sw.js").catch((e) => console.warn("SW:", e));
+  window.addEventListener("load", async () => {
+    try {
+      const reg = await navigator.serviceWorker.register("./sw.js");
+      // Cek update setiap app dibuka (jangan nunggu jadwal browser)
+      reg.update();
+      // Cek ulang tiap kali app balik ke foreground (PWA sering cuma di-resume)
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") reg.update();
+      });
+    } catch (e) { console.warn("SW:", e); }
+  });
+
+  // SW baru aktif (skipWaiting) → reload sekali biar langsung pakai versi baru
+  let refreshing = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (refreshing) return;
+    refreshing = true;
+    location.reload();
   });
 }
 // Minta persistent storage biar data offline ga di-evict browser
