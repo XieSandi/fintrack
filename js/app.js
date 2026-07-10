@@ -5,6 +5,7 @@ import {
 import { state, on, startListeners, stopListeners, setMonth } from "./store.js";
 import { seedIfNeeded, upsertSnapshot } from "./db.js";
 import { refreshKurs, loadCachedKurs } from "./kurs.js";
+import { autoRefreshIfDue } from "./prices.js";
 import { monthLabel, addMonths, currentMonth, closeSheet, toast } from "./utils.js";
 import { openTxSheet } from "./tx-sheet.js";
 
@@ -142,11 +143,14 @@ onAuthStateChanged(auth, async (user) => {
   }
 });
 
-// Snapshot bulanan: sekali per sesi, setelah data ready & online
+// Snapshot bulanan + auto price refresh: sekali per sesi, setelah data ready & online
 on(() => {
   if (state.ready && !snapshotDone && navigator.onLine && state.uid) {
     snapshotDone = true;
-    upsertSnapshot().catch((e) => console.warn("snapshot:", e));
+    // Refresh harga dulu (kalau due), baru snapshot — biar snapshot pakai harga terbaru
+    autoRefreshIfDue()
+      .catch((e) => console.warn("autoprice:", e))
+      .finally(() => upsertSnapshot().catch((e) => console.warn("snapshot:", e)));
   }
 });
 

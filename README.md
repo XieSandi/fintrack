@@ -13,6 +13,7 @@ Vanilla JS, zero build, Firebase Firestore (offline-first), hosted di GitHub Pag
 - 📈 Net worth otomatis (cash + assets − debt), snapshot bulanan, grafik tren ke target
 - 💳 Debt tracker (outstanding, cicilan, jatuh tempo)
 - 💵 Kurs USD/IDR auto (frankfurter.app) dengan override manual
+- ⚡ Auto price asset: saham IDX (GoAPI), saham/ETF US (Finnhub), crypto (CoinGecko, tanpa key) — tombol 🔄 di tab Assets + auto-refresh 1x/hari saat app dibuka; per-asset bisa dikunci manual
 - ⚡ Offline-first: catat transaksi tanpa internet, auto-sync saat online (Firestore persistence)
 - 💾 Backup/restore JSON (Replace All / Merge)
 - 📱 PWA installable
