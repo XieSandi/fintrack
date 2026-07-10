@@ -13,15 +13,19 @@ import * as txView from "./views/transactions.js";
 import * as budgetView from "./views/budget.js";
 import * as wealthView from "./views/wealth.js";
 import * as settingsView from "./views/settings.js";
+import * as accountsView from "./views/accounts.js";
+import * as categoriesView from "./views/categories.js";
 
 const $ = (s) => document.querySelector(s);
 
 const ROUTES = {
-  home:         { view: homeView,     title: "FinTrack",  month: false },
-  transactions: { view: txView,       title: "Transaksi", month: true },
-  budget:       { view: budgetView,   title: "Budget",    month: true },
-  wealth:       { view: wealthView,   title: "Wealth",    month: false },
-  settings:     { view: settingsView, title: "Settings ⚙️", month: false },
+  home:         { view: homeView,       title: "FinTrack",  month: false, nav: "home" },
+  transactions: { view: txView,         title: "History",   month: true,  nav: "transactions" },
+  wealth:       { view: wealthView,     title: "Assets",    month: false, nav: "wealth" },
+  settings:     { view: settingsView,   title: "Setting",   month: false, nav: "settings" },
+  accounts:     { view: accountsView,   title: "Akun",      month: false, nav: "settings", back: "#/settings" },
+  categories:   { view: categoriesView, title: "Kategori",  month: false, nav: "settings", back: "#/settings" },
+  budget:       { view: budgetView,     title: "Budget",    month: true,  nav: "settings", back: "#/settings" },
 };
 
 let currentRoute = "home";
@@ -40,8 +44,12 @@ function renderRoute() {
   $("#month-btn").classList.toggle("hidden", !cfg.month);
   $("#month-label").textContent = monthLabel(state.month);
 
+  const backBtn = $("#back-btn");
+  backBtn.classList.toggle("hidden", !cfg.back);
+  backBtn.onclick = cfg.back ? () => { location.hash = cfg.back; } : null;
+
   document.querySelectorAll(".bottomnav a").forEach((a) => {
-    a.classList.toggle("active", a.dataset.route === currentRoute);
+    a.classList.toggle("active", a.dataset.route === cfg.nav);
   });
 
   if (!state.ready) {
@@ -95,10 +103,6 @@ const updateOnline = () => {
 window.addEventListener("online", () => { updateOnline(); toast("Online — sync jalan ✓"); refreshKurs(); });
 window.addEventListener("offline", () => { updateOnline(); toast("Offline — tenang, data tetap kesimpen"); });
 updateOnline();
-
-// Settings link di header (klik judul)
-$("#header-title").style.cursor = "pointer";
-$("#header-title").onclick = () => { location.hash = "#/settings"; };
 
 // ================= Auth =================
 const loginScreen = $("#login-screen");

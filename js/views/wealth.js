@@ -1,6 +1,7 @@
 import {
-  state, netWorthIDR, totalCashIDR, totalAssetsIDR, totalDebtIDR,
-  assetValueIDR, assetCostIDR, effectiveRate, monthSummary,
+  state, activeAccounts, accountBalances, netWorthIDR, totalCashIDR,
+  totalAssetsIDR, totalDebtIDR, assetValueIDR, assetCostIDR,
+  effectiveRate, monthSummary,
 } from "../store.js";
 import { add, patch, remove } from "../db.js";
 import {
@@ -8,12 +9,14 @@ import {
   parseAmount, attachThousands, lastNMonths, monthLabel, todayStr, confirmDialog,
 } from "../utils.js";
 
-let activeTab = "assets"; // assets | debts
+let groupTab = "total";   // total | assets | liquid | debt
+let chartTab = "nw";      // nw | cashflow
+let assetFilter = "";     // "" = semua tipe
 let charts = [];
 
-const ASSET_TYPES = {
-  stock_id: "Saham IDX (lot)",
-  stock_us: "Saham/ETF US (shares)",
+export const ASSET_TYPES = {
+  stock_id: "Saham IDX",
+  stock_us: "Saham/ETF US",
   mutual_fund: "Reksa Dana",
   deposito: "Deposito",
   gold: "Emas",
@@ -21,65 +24,123 @@ const ASSET_TYPES = {
   other: "Lainnya",
 };
 
+const destroyCharts = () => { charts.forEach((c) => c.destroy()); charts = []; };
+
 export function render(root) {
-  charts.forEach((c) => c.destroy());
-  charts = [];
+  destroyCharts();
 
   const nw = netWorthIDR();
   const cash = totalCashIDR();
   const assets = totalAssetsIDR();
   const debt = totalDebtIDR();
+
+  root.innerHTML = `
+    <div class="sumtabs">
+      ${sumBtn("total", "Total", fmtShort(nw), nw >= 0 ? "#93c5fd" : "var(--red)")}
+      ${sumBtn("assets", "Assets", fmtShort(assets), "var(--green)")}
+      ${sumBtn("liquid", "Liquid", fmtShort(cash), "#93c5fd")}
+      ${sumBtn("debt", "Debt", fmtShort(debt), "var(--red)")}
+    </div>
+    <div id="group-content"></div>
+  `;
+
+  root.querySelectorAll(".sumtabs button").forEach((b) => {
+    b.onclick = () => { groupTab = b.dataset.group; render(root); };
+  });
+
+  const content = root.querySelector("#group-content");
+  if (groupTab === "total") renderTotal(content);
+  else if (groupTab === "assets") renderAssets(content);
+  else if (groupTab === "liquid") renderLiquid(content);
+  else renderDebts(content);
+}
+
+const sumBtn = (key, label, val, color) => `
+  <button data-group="${key}" class="${groupTab === key ? "active" : ""}">
+    <span class="st-label">${label}</span>
+    <span class="st-val" style="color:${color}">${val}</span>
+  </button>`;
+
+const fmtShort = (n) => {
+  const abs = Math.abs(n);
+  if (abs >= 1e9) return (n / 1e9).toFixed(2) + "M";
+  if (abs >= 1e6) return (n / 1e6).toFixed(1) + "JT";
+  if (abs >= 1e3) return (n / 1e3).toFixed(0) + "rb";
+  return String(Math.round(n));
+};
+
+// ================= TOTAL =================
+function renderTotal(root) {
+  const nw = netWorthIDR();
+  const cash = totalCashIDR();
+  const assets = totalAssetsIDR();
+  const debt = totalDebtIDR();
   const target = Number(state.settings.targetNetWorth) || 100_000_000;
+  const pctTarget = Math.max(0, Math.min(100, (nw / target) * 100));
   const rate = effectiveRate();
 
   root.innerHTML = `
     <div class="networth-banner">
       <div class="label">Net Worth</div>
       <div class="big-amount" style="color:#93c5fd">${fmtIDR(nw)}</div>
-      <div class="sub" style="color:#7da3d8">
-        Cash ${fmtIDR(cash)} + Assets ${fmtIDR(assets)} − Debt ${fmtIDR(debt)}
+      <div class="progress" style="margin-top:12px; height:8px;">
+        <div style="width:${pctTarget}%; background:linear-gradient(90deg,#3b82f6,#60a5fa)"></div>
       </div>
+      <div class="sub" style="color:#7da3d8">${pctTarget.toFixed(1)}% menuju target ${fmtIDR(target)}</div>
       <div class="sub" style="color:#5a789f">Kurs USD ${fmtNum(rate)}${state.settings.usdIdrManual ? " (manual)" : state.usdIdr ? ` · auto per ${state.usdIdr.date}` : ""}</div>
     </div>
 
     <div class="card">
-      <div class="card-title">Tren Net Worth</div>
-      <canvas id="chart-nw" height="150"></canvas>
+      <div class="table-like">
+        ${totalRow("💧 Liquid (cash semua akun)", cash, "#93c5fd")}
+        ${totalRow("📈 Assets (investasi)", assets, "var(--green)")}
+        ${totalRow("💳 Debt", -debt, "var(--red)")}
+        <div style="border-top:1px solid var(--border); margin-top:8px; padding-top:10px; display:flex; justify-content:space-between">
+          <span style="font-weight:800; font-size:13px">NET WORTH</span>
+          <span style="font-weight:800; font-size:13px; color:#93c5fd">${fmtIDR(nw)}</span>
+        </div>
+      </div>
     </div>
 
     <div class="card">
-      <div class="card-title">Income vs Expense (6 bulan)</div>
-      <canvas id="chart-cashflow" height="150"></canvas>
+      <div class="chart-tabs">
+        <button data-chart="nw" class="${chartTab === "nw" ? "active" : ""}">📈 Tren Net Worth</button>
+        <button data-chart="cashflow" class="${chartTab === "cashflow" ? "active" : ""}">💸 Income vs Expense</button>
+      </div>
+      <div id="chart-wrap"><canvas id="chart-main" height="170"></canvas></div>
     </div>
-
-    <div class="tabs">
-      <button data-tab="assets" class="${activeTab === "assets" ? "active" : ""}">📈 Assets</button>
-      <button data-tab="debts" class="${activeTab === "debts" ? "active" : ""}">💳 Debt</button>
-    </div>
-    <div id="tab-content"></div>
   `;
 
-  root.querySelectorAll("[data-tab]").forEach((b) => {
-    b.onclick = () => { activeTab = b.dataset.tab; render(root); };
+  root.querySelectorAll("[data-chart]").forEach((b) => {
+    b.onclick = () => { chartTab = b.dataset.chart; render(root.parentElement); };
   });
 
-  renderCharts(root, target);
-  if (activeTab === "assets") renderAssets(root.querySelector("#tab-content"));
-  else renderDebts(root.querySelector("#tab-content"));
+  renderChart(root, target);
 }
 
-// ================= Charts =================
-function renderCharts(root, target) {
-  if (!window.Chart) return; // CDN belum ke-load / offline first visit
+const totalRow = (label, val, color) => `
+  <div style="display:flex; justify-content:space-between; padding:7px 0; font-size:13px">
+    <span style="color:var(--muted2)">${label}</span>
+    <span style="font-weight:700; color:${color}">${val < 0 ? "−" : ""}${fmtIDR(Math.abs(val))}</span>
+  </div>`;
 
-  const gridColor = "#1e293b", tickColor = "#64748b";
-  Chart.defaults.color = tickColor;
+function renderChart(root, target) {
+  if (!window.Chart) {
+    root.querySelector("#chart-wrap").innerHTML = `<div class="empty">Chart library belum ke-load (butuh online sekali).</div>`;
+    return;
+  }
+  const gridColor = "#1e293b";
+  Chart.defaults.color = "#64748b";
   Chart.defaults.font.size = 10;
+  const canvas = root.querySelector("#chart-main");
 
-  // Net worth trend dari snapshots
-  const snaps = state.snapshots.slice(-12);
-  if (snaps.length > 0) {
-    charts.push(new Chart(root.querySelector("#chart-nw"), {
+  if (chartTab === "nw") {
+    const snaps = state.snapshots.slice(-12);
+    if (snaps.length === 0) {
+      root.querySelector("#chart-wrap").innerHTML = `<div class="empty">Snapshot bulanan akan terisi otomatis tiap app dibuka.</div>`;
+      return;
+    }
+    charts.push(new Chart(canvas, {
       type: "line",
       data: {
         labels: snaps.map((s) => monthLabel(s.month || s.id)),
@@ -99,73 +160,104 @@ function renderCharts(root, target) {
       },
     }));
   } else {
-    root.querySelector("#chart-nw").closest(".card").querySelector(".card-title")
-      .insertAdjacentHTML("afterend", `<div class="empty">Snapshot bulanan akan terisi otomatis tiap app dibuka.</div>`);
-  }
-
-  // Income vs expense 6 bulan
-  const months = lastNMonths(6);
-  const sums = months.map((m) => monthSummary(m));
-  charts.push(new Chart(root.querySelector("#chart-cashflow"), {
-    type: "bar",
-    data: {
-      labels: months.map(monthLabel),
-      datasets: [
-        { label: "Income", data: sums.map((s) => s.income), backgroundColor: "#4ade80", borderRadius: 4 },
-        { label: "Expense", data: sums.map((s) => s.expense), backgroundColor: "#f87171", borderRadius: 4 },
-      ],
-    },
-    options: {
-      plugins: { legend: { labels: { boxWidth: 10 } } },
-      scales: {
-        y: { grid: { color: gridColor }, ticks: { callback: (v) => (v / 1e6).toFixed(1) + "JT" } },
-        x: { grid: { display: false } },
+    const months = lastNMonths(6);
+    const sums = months.map((m) => monthSummary(m));
+    charts.push(new Chart(canvas, {
+      type: "bar",
+      data: {
+        labels: months.map(monthLabel),
+        datasets: [
+          { label: "Income", data: sums.map((s) => s.income), backgroundColor: "#4ade80", borderRadius: 4 },
+          { label: "Expense", data: sums.map((s) => s.expense), backgroundColor: "#f87171", borderRadius: 4 },
+        ],
       },
-    },
-  }));
+      options: {
+        plugins: { legend: { labels: { boxWidth: 10 } } },
+        scales: {
+          y: { grid: { color: gridColor }, ticks: { callback: (v) => (v / 1e6).toFixed(1) + "JT" } },
+          x: { grid: { display: false } },
+        },
+      },
+    }));
+  }
 }
 
-// ================= Assets =================
+// ================= ASSETS =================
 function renderAssets(root) {
-  const rows = state.assets.slice().sort((a, b) => assetValueIDR(b) - assetValueIDR(a));
+  const all = state.assets.slice();
+  const typesPresent = [...new Set(all.map((a) => a.type))];
+  const rows = assetFilter ? all.filter((a) => a.type === assetFilter) : all;
+  const filteredTotal = rows.reduce((s, a) => s + assetValueIDR(a), 0);
+
   root.innerHTML = `
+    <div class="filterbar">
+      <select id="asset-filter">
+        <option value="">Semua tipe (${all.length})</option>
+        ${typesPresent.map((t) => `<option value="${t}" ${t === assetFilter ? "selected" : ""}>${ASSET_TYPES[t] || t} (${all.filter((a) => a.type === t).length})</option>`).join("")}
+      </select>
+    </div>
     <div class="card">
+      ${rows.length > 0 ? `<div class="sub" style="margin-bottom:6px">Total ${assetFilter ? (ASSET_TYPES[assetFilter] || "") : "assets"}: <b style="color:var(--green)">${fmtIDR(filteredTotal)}</b></div>` : ""}
       <div id="asset-list">
-        ${rows.length === 0 ? `<div class="empty">Belum ada asset.<br/>Tambahin saham, deposito, dll.</div>` : ""}
+        ${all.length === 0 ? `<div class="empty">Belum ada asset.<br/>Tambahin saham, deposito, dll.</div>` : ""}
+        ${all.length > 0 && rows.length === 0 ? `<div class="empty">Ga ada asset di tipe ini.</div>` : ""}
       </div>
     </div>
     <button id="btn-add-asset" class="btn btn-primary btn-block">＋ Tambah Asset</button>
   `;
 
+  root.querySelector("#asset-filter").onchange = (e) => {
+    assetFilter = e.target.value;
+    render(root.parentElement);
+  };
+
   const list = root.querySelector("#asset-list");
-  rows.forEach((a) => {
-    const val = assetValueIDR(a);
-    const cost = assetCostIDR(a);
-    const pnl = val - cost;
-    const pnlPct = cost > 0 ? (pnl / cost) * 100 : 0;
-    const qtyLabel = a.type === "stock_id" ? `${fmtNum(a.quantity)} lot` : `${a.quantity} ${a.type === "stock_us" ? "sh" : ""}`;
-    const div = document.createElement("div");
-    div.className = "asset-item";
-    div.innerHTML = `
-      <div>
-        <div class="asset-sym">${escapeHtml(a.symbol || a.name)}</div>
-        <div class="asset-meta">${ASSET_TYPES[a.type] || a.type} · ${qtyLabel} · avg ${fmtMoney(a.avgBuyPrice, a.currency)}</div>
-        <div class="stale-note">harga ${fmtMoney(a.manualPrice, a.currency)} per ${a.manualPriceUpdatedAt || "?"}</div>
-      </div>
-      <div class="asset-right">
-        <div class="asset-val">${fmtIDR(val)}</div>
-        <div class="${pnl >= 0 ? "pnl-pos" : "pnl-neg"}">${pnl >= 0 ? "+" : ""}${fmtIDR(pnl)} (${pnlPct.toFixed(1)}%)</div>
-      </div>`;
-    div.onclick = () => openAssetSheet(a);
-    list.appendChild(div);
+
+  // Grouping per tipe (urut sesuai ASSET_TYPES), dalam group sort by nilai
+  const order = Object.keys(ASSET_TYPES);
+  const groups = order
+    .filter((t) => rows.some((a) => a.type === t))
+    .map((t) => ({ type: t, items: rows.filter((a) => a.type === t).sort((x, y) => assetValueIDR(y) - assetValueIDR(x)) }));
+
+  groups.forEach((g) => {
+    const subtotal = g.items.reduce((s, a) => s + assetValueIDR(a), 0);
+    if (!assetFilter) {
+      const head = document.createElement("div");
+      head.className = "group-head";
+      head.innerHTML = `<span>${ASSET_TYPES[g.type]}</span><span class="gh-total">${fmtIDR(subtotal)}</span>`;
+      list.appendChild(head);
+    }
+    g.items.forEach((a) => list.appendChild(assetRow(a)));
   });
 
-  root.querySelector("#btn-add-asset").onclick = () => openAssetSheet(null);
+  root.querySelector("#btn-add-asset").onclick = () => openAssetSheet(null, root);
 }
 
-function openAssetSheet(existing) {
+function assetRow(a) {
+  const val = assetValueIDR(a);
+  const cost = assetCostIDR(a);
+  const pnl = val - cost;
+  const pnlPct = cost > 0 ? (pnl / cost) * 100 : 0;
+  const qtyLabel = a.type === "stock_id" ? `${fmtNum(a.quantity)} lot` : `${a.quantity}${a.type === "stock_us" ? " sh" : ""}`;
+  const div = document.createElement("div");
+  div.className = "asset-item";
+  div.innerHTML = `
+    <div>
+      <div class="asset-sym">${escapeHtml(a.symbol || a.name)}</div>
+      <div class="asset-meta">${qtyLabel} · avg ${fmtMoney(a.avgBuyPrice, a.currency)}</div>
+      <div class="stale-note">harga ${fmtMoney(a.manualPrice, a.currency)} per ${a.manualPriceUpdatedAt || "?"}</div>
+    </div>
+    <div class="asset-right">
+      <div class="asset-val">${fmtIDR(val)}</div>
+      <div class="${pnl >= 0 ? "pnl-pos" : "pnl-neg"}">${pnl >= 0 ? "+" : ""}${fmtIDR(pnl)} (${pnlPct.toFixed(1)}%)</div>
+    </div>`;
+  div.onclick = () => openAssetSheet(a, div.closest("#group-content"));
+  return div;
+}
+
+function openAssetSheet(existing, contentRoot) {
   const a = existing || {
-    type: "stock_id", symbol: "", name: "", quantity: "", avgBuyPrice: "",
+    type: assetFilter || "stock_id", symbol: "", name: "", quantity: "", avgBuyPrice: "",
     currency: "IDR", manualPrice: "",
   };
 
@@ -209,7 +301,7 @@ function openAssetSheet(existing) {
   };
   typeSel.onchange = syncType;
   syncType();
-  if (existing) curSel.value = a.currency; // jangan override saat edit
+  if (existing) curSel.value = a.currency;
 
   el.querySelector("[data-close]").onclick = closeSheet;
 
@@ -229,10 +321,8 @@ function openAssetSheet(existing) {
     if (!data.quantity) return toast("Isi jumlah");
     if (String(data.manualPrice) !== String(existing?.manualPrice ?? "")) {
       data.manualPriceUpdatedAt = todayStr();
-    } else if (existing) {
-      data.manualPriceUpdatedAt = existing.manualPriceUpdatedAt || todayStr();
     } else {
-      data.manualPriceUpdatedAt = todayStr();
+      data.manualPriceUpdatedAt = existing?.manualPriceUpdatedAt || todayStr();
     }
     closeSheet();
     if (existing) await patch("assets", existing.id, data);
@@ -250,7 +340,51 @@ function openAssetSheet(existing) {
   }
 }
 
-// ================= Debts =================
+// ================= LIQUID =================
+function renderLiquid(root) {
+  const accounts = activeAccounts();
+  const bal = accountBalances();
+  const rate = effectiveRate();
+  const total = totalCashIDR();
+
+  root.innerHTML = `
+    <div class="card">
+      <div class="sub" style="margin-bottom:6px">Total liquid: <b style="color:#93c5fd">${fmtIDR(total)}</b></div>
+      <div id="liq-list">
+        ${accounts.length === 0 ? `<div class="empty">Belum ada akun. Buat di Setting → Akun.</div>` : ""}
+      </div>
+      <div class="sub" style="margin-top:10px">Saldo dihitung otomatis dari saldo awal + semua transaksi. Kelola akun di <a href="#/accounts" style="color:var(--blue)">Setting → Akun</a>.</div>
+    </div>
+  `;
+
+  const list = root.querySelector("#liq-list");
+  accounts
+    .slice()
+    .sort((a, b) => {
+      const bv = (x) => (x.currency === "USD" ? (bal[x.id] || 0) * rate : bal[x.id] || 0);
+      return bv(b) - bv(a);
+    })
+    .forEach((a) => {
+      const b = bal[a.id] || 0;
+      const idr = a.currency === "USD" ? b * rate : b;
+      const div = document.createElement("div");
+      div.className = "asset-item";
+      div.style.cursor = "default";
+      div.innerHTML = `
+        <span style="width:10px;height:10px;border-radius:50%;background:${a.color || "#60a5fa"};flex-shrink:0"></span>
+        <div>
+          <div class="asset-sym" style="font-size:13px">${escapeHtml(a.name)}</div>
+          <div class="asset-meta">${a.currency}</div>
+        </div>
+        <div class="asset-right">
+          <div class="asset-val">${fmtMoney(b, a.currency)}</div>
+          ${a.currency === "USD" ? `<div class="stale-note">≈ ${fmtIDR(idr)}</div>` : ""}
+        </div>`;
+      list.appendChild(div);
+    });
+}
+
+// ================= DEBT =================
 function renderDebts(root) {
   const rows = state.debts.slice().sort((a, b) => (a.dueDay || 99) - (b.dueDay || 99));
   const totalInstalment = rows.reduce((s, d) => s + (Number(d.monthlyInstalment) || 0), 0);
