@@ -24,7 +24,7 @@ js/app.js             entry: auth flow, hash router (ROUTES), month picker, SW r
 js/firebase.js        init SDK via CDN gstatic + offline persistence
 js/store.js           state global + onSnapshot listeners + SEMUA derived calc (saldo, net worth, dll)
 js/db.js              repository: CRUD generik, seeding kategori, snapshot bulanan, export/import backup
-js/prices.js          auto price: GoAPI (IDX), Finnhub (US), CoinGecko (crypto, tanpa key)
+js/prices.js          auto price: iTick (IDX), Finnhub (US), CoinGecko (crypto, tanpa key)
 js/kurs.js            kurs USD/IDR auto via frankfurter.app, cache localStorage
 js/tx-sheet.js        bottom sheet tambah/edit transaksi (quick-add)
 js/utils.js           format, tanggal, toast, openSheet/closeSheet, escapeHtml
@@ -46,7 +46,7 @@ Budget/Akun/Kategori = subpage di dalam Setting (punya `back` di ROUTES).
   dll. `manualPrice` + `manualPriceUpdatedAt` + `priceSource`. `manualOnly:true` = skip auto-refresh.
 - `debts` — outstanding, monthlyInstalment, dueDay, remainingMonths. Mengurangi net worth.
 - `snapshots/{YYYY-MM}` — net worth bulanan, di-upsert otomatis saat app dibuka (`upsertSnapshot`).
-- `settings/main` — targetNetWorth, usdIdrManual, apiKeys:{goapi, finnhub}, lastBackupAt.
+- `settings/main` — targetNetWorth, usdIdrManual, apiKeys:{itick, finnhub}, lastBackupAt.
 
 Net worth = totalCashIDR + totalAssetsIDR − totalDebtIDR (USD dikonversi `effectiveRate()`).
 
@@ -65,9 +65,10 @@ Net worth = totalCashIDR + totalAssetsIDR − totalDebtIDR (USD dikonversi `effe
 
 ## Known Quirks
 
-- GoAPI response parsing di `js/prices.js` defensif (`close ?? last_price ?? price ?? last`) —
-  belum terverifikasi 100% terhadap response asli; kalau refresh IDX gagal padahal key valid,
-  cek struktur JSON di Network tab dan sesuaikan parsing.
+- iTick response parsing di `js/prices.js` defensif (`ld ?? c ?? close ?? last ?? price`) —
+  belum terverifikasi 100% terhadap response asli (`GET /stock/quotes?region=ID&codes=...`,
+  header `token`); kalau refresh IDX gagal padahal key valid, cek struktur JSON di Network tab
+  dan sesuaikan parsing.
 - Chart.js dari jsdelivr CDN; kalau belum ke-cache dan offline, chart area menampilkan pesan fallback.
 - iOS Safari bisa evict storage PWA — data master di cloud, jadi worst case re-sync saat login.
 - `attachThousands()` memformat input ribuan live; parse balik pakai `parseAmount()`.

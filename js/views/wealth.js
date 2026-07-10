@@ -317,7 +317,7 @@ function openAssetSheet(existing, contentRoot) {
   `);
 
   const AUTO_HINTS = {
-    stock_id: "⚡ Auto price via GoAPI — isi API key di Setting → Integrasi Harga.",
+    stock_id: "⚡ Auto price via iTick — isi API key di Setting → Integrasi Harga.",
     stock_us: "⚡ Auto price via Finnhub — isi API key di Setting → Integrasi Harga.",
     crypto: "⚡ Auto price via CoinGecko — gratis, ga butuh API key.",
   };
