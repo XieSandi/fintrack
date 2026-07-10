@@ -8,6 +8,7 @@ import {
   fmtIDR, fmtMoney, fmtNum, escapeHtml, toast, openSheet, closeSheet, sheetHead,
   parseAmount, attachThousands, lastNMonths, monthLabel, todayStr, confirmDialog,
 } from "../utils.js";
+import { refreshPrices, refreshableAssets } from "../prices.js";
 
 let groupTab = "total";   // total | assets | liquid | debt
 let chartTab = "nw";      // nw | cashflow
@@ -188,6 +189,7 @@ function renderAssets(root) {
   const typesPresent = [...new Set(all.map((a) => a.type))];
   const rows = assetFilter ? all.filter((a) => a.type === assetFilter) : all;
   const filteredTotal = rows.reduce((s, a) => s + assetValueIDR(a), 0);
+  const nRefreshable = refreshableAssets().length;
 
   root.innerHTML = `
     <div class="filterbar">
@@ -195,6 +197,7 @@ function renderAssets(root) {
         <option value="">Semua tipe (${all.length})</option>
         ${typesPresent.map((t) => `<option value="${t}" ${t === assetFilter ? "selected" : ""}>${ASSET_TYPES[t] || t} (${all.filter((a) => a.type === t).length})</option>`).join("")}
       </select>
+      <button id="btn-refresh-prices" class="btn" style="flex:0 0 auto" ${nRefreshable === 0 ? "disabled" : ""}>🔄 Harga</button>
     </div>
     <div class="card">
       ${rows.length > 0 ? `<div class="sub" style="margin-bottom:6px">Total ${assetFilter ? (ASSET_TYPES[assetFilter] || "") : "assets"}: <b style="color:var(--green)">${fmtIDR(filteredTotal)}</b></div>` : ""}
@@ -209,6 +212,21 @@ function renderAssets(root) {
   root.querySelector("#asset-filter").onchange = (e) => {
     assetFilter = e.target.value;
     render(root.parentElement);
+  };
+
+  const refreshBtn = root.querySelector("#btn-refresh-prices");
+  refreshBtn.onclick = async () => {
+    if (!navigator.onLine) return toast("Lagi offline — harga ga bisa di-refresh");
+    refreshBtn.disabled = true;
+    refreshBtn.textContent = "⏳...";
+    try {
+      const r = await refreshPrices();
+      let msg = r.updated > 0 ? `${r.updated} harga terupdate ✓` : "Ga ada harga yang terupdate";
+      if (r.noKey.length) msg += ` · butuh API key: ${r.noKey.join(", ")} (Setting)`;
+      if (r.failed.length) msg += ` · gagal: ${r.failed.join(", ")}`;
+      toast(msg, 3500);
+    } catch (e) { console.error(e); toast("Refresh gagal"); }
+    // re-render otomatis via store emit setelah patch
   };
 
   const list = root.querySelector("#asset-list");
@@ -239,13 +257,15 @@ function assetRow(a) {
   const pnl = val - cost;
   const pnlPct = cost > 0 ? (pnl / cost) * 100 : 0;
   const qtyLabel = a.type === "stock_id" ? `${fmtNum(a.quantity)} lot` : `${a.quantity}${a.type === "stock_us" ? " sh" : ""}`;
+  const srcLabel = a.manualOnly === true ? "🔒 manual"
+    : a.priceSource ? `⚡ ${a.priceSource}` : "manual";
   const div = document.createElement("div");
   div.className = "asset-item";
   div.innerHTML = `
     <div>
       <div class="asset-sym">${escapeHtml(a.symbol || a.name)}</div>
       <div class="asset-meta">${qtyLabel} · avg ${fmtMoney(a.avgBuyPrice, a.currency)}</div>
-      <div class="stale-note">harga ${fmtMoney(a.manualPrice, a.currency)} per ${a.manualPriceUpdatedAt || "?"}</div>
+      <div class="stale-note">harga ${fmtMoney(a.manualPrice, a.currency)} per ${a.manualPriceUpdatedAt || "?"} · ${srcLabel}</div>
     </div>
     <div class="asset-right">
       <div class="asset-val">${fmtIDR(val)}</div>
@@ -284,12 +304,23 @@ function openAssetSheet(existing, contentRoot) {
       <div><label>Avg Buy / unit</label><input id="a-avg" inputmode="decimal" placeholder="6710" value="${a.avgBuyPrice ?? ""}" /></div>
       <div><label>Harga sekarang / unit</label><input id="a-price" inputmode="decimal" placeholder="6175" value="${a.manualPrice ?? ""}" /></div>
     </div>
-    <div class="sub">💡 Saham IDX: jumlah dalam <b>lot</b> (1 lot = 100 lembar), harga per <b>lembar</b>. US: jumlah dalam shares (boleh desimal), harga per share USD. Harga diupdate manual — timestamp dicatat otomatis.</div>
+    <div class="sub">💡 Saham IDX: jumlah dalam <b>lot</b> (1 lot = 100 lembar), harga per <b>lembar</b>. US: jumlah dalam shares (boleh desimal), harga per share USD. Crypto: symbol umum (BTC, ETH, SOL...) atau CoinGecko ID.</div>
+    <label id="a-manual-wrap" style="margin-top:12px; font-size:12px; text-transform:none; letter-spacing:0; color:var(--muted2)">
+      <input type="checkbox" id="a-manual-only" style="width:auto" ${a.manualOnly === true ? "checked" : ""}/>
+      🔒 Harga manual saja (skip auto-refresh)
+    </label>
+    <div class="sub" id="a-auto-hint"></div>
     <div style="margin-top:18px; display:flex; gap:8px;">
       ${existing ? `<button id="a-delete" class="btn btn-danger">Hapus</button>` : ""}
       <button id="a-save" class="btn btn-primary" style="flex:1">Simpan</button>
     </div>
   `);
+
+  const AUTO_HINTS = {
+    stock_id: "⚡ Auto price via GoAPI — isi API key di Setting → Integrasi Harga.",
+    stock_us: "⚡ Auto price via Finnhub — isi API key di Setting → Integrasi Harga.",
+    crypto: "⚡ Auto price via CoinGecko — gratis, ga butuh API key.",
+  };
 
   const typeSel = el.querySelector("#a-type");
   const curSel = el.querySelector("#a-currency");
@@ -298,6 +329,9 @@ function openAssetSheet(existing, contentRoot) {
     qtyLabel.textContent = typeSel.value === "stock_id" ? "Jumlah (lot)" : "Jumlah";
     if (typeSel.value === "stock_id") curSel.value = "IDR";
     if (typeSel.value === "stock_us") curSel.value = "USD";
+    const isAuto = !!AUTO_HINTS[typeSel.value];
+    el.querySelector("#a-auto-hint").textContent = AUTO_HINTS[typeSel.value] || "";
+    el.querySelector("#a-manual-wrap").classList.toggle("hidden", !isAuto);
   };
   typeSel.onchange = syncType;
   syncType();
@@ -315,7 +349,7 @@ function openAssetSheet(existing, contentRoot) {
       avgBuyPrice: parseDec(el.querySelector("#a-avg").value),
       manualPrice: parseDec(el.querySelector("#a-price").value),
       currency: curSel.value,
-      autoPriceEnabled: false,
+      manualOnly: el.querySelector("#a-manual-only").checked,
     };
     if (!data.symbol && !data.name) return toast("Isi symbol atau nama");
     if (!data.quantity) return toast("Isi jumlah");

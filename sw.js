@@ -1,6 +1,6 @@
 // FinTrack Service Worker — offline app shell
 // Naikin CACHE_VERSION setiap deploy perubahan file, biar user dapet versi baru.
-const CACHE_VERSION = "fintrack-v3";
+const CACHE_VERSION = "fintrack-v4";
 const RUNTIME_CACHE = "fintrack-runtime-v1";
 
 const PRECACHE = [
@@ -14,6 +14,7 @@ const PRECACHE = [
   "./js/db.js",
   "./js/utils.js",
   "./js/kurs.js",
+  "./js/prices.js",
   "./js/tx-sheet.js",
   "./js/views/home.js",
   "./js/views/transactions.js",

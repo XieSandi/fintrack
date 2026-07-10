@@ -37,6 +37,16 @@ export function render(root) {
     </div>
 
     <div class="card">
+      <div class="card-title">Integrasi Harga (API Keys)</div>
+      <div class="sub" style="margin-bottom:4px">Auto-refresh harga asset. Crypto (CoinGecko) gratis tanpa key. Key disimpan di database lo sendiri (per akun, terproteksi rules).</div>
+      <label>GoAPI key — saham IDX <a href="https://goapi.io" target="_blank" rel="noopener" style="color:var(--blue)">daftar gratis ↗</a></label>
+      <input id="s-goapi" type="text" autocomplete="off" placeholder="belum diisi = saham IDX manual" value="${escapeHtml(state.settings.apiKeys?.goapi || "")}" />
+      <label>Finnhub key — saham/ETF US <a href="https://finnhub.io" target="_blank" rel="noopener" style="color:var(--blue)">daftar gratis ↗</a></label>
+      <input id="s-finnhub" type="text" autocomplete="off" placeholder="belum diisi = saham US manual" value="${escapeHtml(state.settings.apiKeys?.finnhub || "")}" />
+      <button id="btn-save-keys" class="btn btn-primary btn-sm" style="margin-top:12px">Simpan Keys</button>
+    </div>
+
+    <div class="card">
       <div class="card-title">Target & Kurs</div>
       <label>Target Net Worth (Rp)</label>
       <input id="s-target" inputmode="numeric" value="${fmtNum(state.settings.targetNetWorth || 100000000)}" />
@@ -70,6 +80,17 @@ export function render(root) {
 
   attachThousands(root.querySelector("#s-target"));
   attachThousands(root.querySelector("#s-kurs"));
+
+  root.querySelector("#btn-save-keys").onclick = async () => {
+    await updateSettings({
+      apiKeys: {
+        goapi: root.querySelector("#s-goapi").value.trim() || null,
+        finnhub: root.querySelector("#s-finnhub").value.trim() || null,
+      },
+    });
+    toast("API keys disimpan ✓ — coba 🔄 Harga di tab Assets");
+  };
+
   root.querySelector("#btn-save-settings").onclick = async () => {
     const target = parseAmount(root.querySelector("#s-target").value);
     const kursManual = parseAmount(root.querySelector("#s-kurs").value);
