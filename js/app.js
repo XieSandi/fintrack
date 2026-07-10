@@ -158,28 +158,18 @@ on(() => {
 });
 
 // ================= PWA =================
+// Update SW pasif: sw.js baru cuma masuk state "waiting", TIDAK auto-activate/reload.
+// (skipWaiting() udah dilepas dari sw.js — auto-activate + auto-reload kombinasi itu
+// riskan infinite-reload-loop. User yang trigger update via tombol Hard Refresh di Setting.)
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try {
-      // GitHub Pages nge-cache sw.js sampe 4 jam (Cache-Control: max-age=14400) dan ga bisa
-      // dioverride — jadi query string berubah tiap load biar fetch selalu tembus cache
-      // browser + CDN, bukan cuma reg.update() (yang tetep bisa kena HTTP cache lama).
-      const reg = await navigator.serviceWorker.register(`./sw.js?v=${Date.now()}`, { updateViaCache: "none" });
-      // Cek update setiap app dibuka (jangan nunggu jadwal browser)
+      const reg = await navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" });
       reg.update();
-      // Cek ulang tiap kali app balik ke foreground (PWA sering cuma di-resume)
       document.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "visible") reg.update();
       });
     } catch (e) { console.warn("SW:", e); }
-  });
-
-  // SW baru aktif (skipWaiting) → reload sekali biar langsung pakai versi baru
-  let refreshing = false;
-  navigator.serviceWorker.addEventListener("controllerchange", () => {
-    if (refreshing) return;
-    refreshing = true;
-    location.reload();
   });
 }
 // Minta persistent storage biar data offline ga di-evict browser

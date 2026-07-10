@@ -74,11 +74,16 @@ Net worth = totalCashIDR + totalAssetsIDR − totalDebtIDR (USD dikonversi `effe
 - iOS Safari bisa evict storage PWA — data master di cloud, jadi worst case re-sync saat login.
 - `attachThousands()` memformat input ribuan live; parse balik pakai `parseAmount()`.
 - GitHub Pages (Fastly, di belakang custom domain xiesandi.cyou) nge-serve `sw.js` dengan
-  `Cache-Control: max-age=14400` (4 jam) dan GH Pages ga bisa dioverride header-nya. Tanpa
-  akal-akalan, `reg.update()` di `app.js` bisa kena HTTP cache basi ini dan ga pernah nemu
-  versi baru. Fix: registrasi SW pakai query string `?v=${Date.now()}` + `updateViaCache:
-  "none"` biar selalu network fresh — jangan dihapus, dan jangan balikin ke `register("./sw.js")`
-  polos.
+  `Cache-Control: max-age=14400` (4 jam), ga bisa dioverride header-nya. Update SW jadi bisa
+  ke-detect telat. Register pakai `{ updateViaCache: "none" }` biar `reg.update()` minimal
+  ga kena HTTP cache browser sendiri.
+  **JANGAN** pasang query string cache-buster (`?v=${Date.now()}`) di URL registrasi SW dan
+  **JANGAN** panggil `self.skipWaiting()` otomatis di `install` — kombinasi itu + `clients.claim()`
+  + auto-`location.reload()` on `controllerchange` pernah bikin app kejebak infinite-reload-loop
+  di HP (pernah kejadian, lihat commit fix-nya). Sekarang SW baru sengaja nunggu pasif
+  ("waiting") sampe user trigger sendiri lewat tombol **Hard Refresh** di Setting
+  (`hardRefresh()` di `utils.js`: unregister semua SW + `caches.delete()` semua + reload) —
+  jangan tambahin balik auto-activate/auto-reload tanpa mikir ulang soal loop risk ini.
 
 ## Roadmap (belum dibuat, urutan prioritas)
 

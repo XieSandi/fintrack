@@ -1,6 +1,6 @@
 // FinTrack Service Worker — offline app shell
 // Naikin CACHE_VERSION setiap deploy perubahan file, biar user dapet versi baru.
-const CACHE_VERSION = "fintrack-v8";
+const CACHE_VERSION = "fintrack-v9";
 const RUNTIME_CACHE = "fintrack-runtime-v1";
 
 const PRECACHE = [
@@ -28,9 +28,10 @@ const PRECACHE = [
 ];
 
 self.addEventListener("install", (e) => {
-  e.waitUntil(
-    caches.open(CACHE_VERSION).then((c) => c.addAll(PRECACHE)).then(() => self.skipWaiting())
-  );
+  // Sengaja TIDAK skipWaiting() — SW baru nunggu di state "waiting" sampe semua tab
+  // ke-close, atau user trigger manual lewat tombol Hard Refresh di Setting.
+  // (skipWaiting otomatis + clients.claim() + auto-reload = riskan infinite-reload-loop.)
+  e.waitUntil(caches.open(CACHE_VERSION).then((c) => c.addAll(PRECACHE)));
 });
 
 self.addEventListener("activate", (e) => {

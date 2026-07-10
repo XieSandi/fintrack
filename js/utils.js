@@ -106,3 +106,23 @@ export const setBlurred = (on) => {
   localStorage.setItem(BLUR_KEY, on ? "1" : "0");
   applyBlurred(on);
 };
+
+// ---------- Hard refresh (user-triggered) ----------
+// Unregister semua SW + hapus semua Cache Storage, baru reload — buat lepas dari
+// versi app yang nyangkut (SW lama/cache basi) tanpa nunggu update otomatis.
+export async function hardRefresh() {
+  try {
+    if ("serviceWorker" in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map((r) => r.unregister()));
+    }
+    if (window.caches) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((k) => caches.delete(k)));
+    }
+  } catch (e) {
+    console.warn("hardRefresh:", e);
+  } finally {
+    location.reload();
+  }
+}
