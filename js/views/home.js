@@ -118,12 +118,12 @@ export function render(root) {
     </div>
     <div class="budget-scroll" id="budget-slider"></div>
 
-    <div class="card">
-      <div class="card-title">Transaksi terakhir</div>
-      <div id="recent-list">
-        ${recent.length === 0 ? `<div class="empty">Belum ada transaksi.<br/>Tap tombol ＋ untuk mulai catat.</div>` : ""}
-      </div>
-      ${recent.length > 0 ? `<a href="#/transactions" class="gear-link" style="display:block;text-align:center;margin-top:8px">Lihat semua →</a>` : ""}
+    <div style="display:flex; justify-content:space-between; align-items:baseline; margin:2px 2px 8px">
+      <span class="card-title" style="margin:0">Transaksi Terakhir</span>
+      ${recent.length > 0 ? `<a href="#/transactions" class="gear-link" style="font-size:11px">Lihat semua →</a>` : ""}
+    </div>
+    <div id="recent-list">
+      ${recent.length === 0 ? `<div class="empty">Belum ada transaksi.<br/>Tap tombol ＋ untuk mulai catat.</div>` : ""}
     </div>
   `;
 
