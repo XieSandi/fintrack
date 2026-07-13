@@ -1,6 +1,6 @@
 // FinTrack Service Worker — offline app shell
 // Naikin CACHE_VERSION setiap deploy perubahan file, biar user dapet versi baru.
-const CACHE_VERSION = "fintrack-v16";
+const CACHE_VERSION = "fintrack-v17";
 const RUNTIME_CACHE = "fintrack-runtime-v2";
 
 const PRECACHE = [
