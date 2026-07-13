@@ -93,9 +93,15 @@ export function accountBalances() {
     if (t.type === "expense") bal[t.accountId] = (bal[t.accountId] || 0) - amt;
     else if (t.type === "income") bal[t.accountId] = (bal[t.accountId] || 0) + amt;
     else if (t.type === "transfer") {
-      bal[t.accountId] = (bal[t.accountId] || 0) - amt;
-      // toGoalId (topup goal): uang keluar dari cash system, ga ada kredit ke akun manapun
-      if (t.toAccountId) bal[t.toAccountId] = (bal[t.toAccountId] || 0) + amt;
+      if (t.fromGoalId) {
+        // Pencairan goal: goal → akun. accountId di sini = akun TUJUAN (di-kredit),
+        // ga ada akun yang di-debit (sumbernya goal, bukan akun cash).
+        bal[t.accountId] = (bal[t.accountId] || 0) + amt;
+      } else {
+        bal[t.accountId] = (bal[t.accountId] || 0) - amt;
+        // toGoalId (topup goal): uang keluar dari cash system, ga ada kredit ke akun manapun
+        if (t.toAccountId) bal[t.toAccountId] = (bal[t.toAccountId] || 0) + amt;
+      }
     }
   }
   return bal;
@@ -133,17 +139,20 @@ export function assetCostIDR(a) {
 export const totalAssetsIDR = () => state.assets.reduce((s, a) => s + assetValueIDR(a), 0);
 export const totalDebtIDR = () => state.debts.reduce((s, d) => s + (Number(d.totalOutstanding) || 0), 0);
 
-// Uang yang udah di-topup ke goal (transfer keluar dari akun, toGoalId diisi).
-// Dihitung IDR pakai currency akun sumbernya, biar konsisten sama totalCashIDR().
+// Saldo goal = total topup (toGoalId) − total pencairan (fromGoalId).
+// Dihitung IDR pakai currency akun lawan-nya, biar konsisten sama totalCashIDR().
 export function goalSavedIDR(goalId) {
   const rate = effectiveRate();
-  return state.transactions
-    .filter((t) => t.type === "transfer" && t.toGoalId === goalId)
-    .reduce((sum, t) => {
-      const acct = acctById(t.accountId);
-      const amt = Number(t.amount) || 0;
-      return sum + (acct?.currency === "USD" ? amt * rate : amt);
-    }, 0);
+  let sum = 0;
+  for (const t of state.transactions) {
+    if (t.type !== "transfer") continue;
+    if (t.toGoalId !== goalId && t.fromGoalId !== goalId) continue;
+    const acct = acctById(t.accountId);
+    const amt = Number(t.amount) || 0;
+    const amtIDR = acct?.currency === "USD" ? amt * rate : amt;
+    sum += t.toGoalId === goalId ? amtIDR : -amtIDR;
+  }
+  return sum;
 }
 export const totalGoalSavingsIDR = () => state.goals.reduce((s, g) => s + goalSavedIDR(g.id), 0);
 

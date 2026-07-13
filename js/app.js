@@ -3,7 +3,7 @@ import {
   auth, googleProvider, signInWithPopup, onAuthStateChanged,
 } from "./firebase.js";
 import { state, on, startListeners, stopListeners, setMonth } from "./store.js";
-import { seedIfNeeded, upsertSnapshot } from "./db.js";
+import { seedIfNeeded, upsertSnapshot, ensurePresetCategories } from "./db.js";
 import { refreshKurs, loadCachedKurs } from "./kurs.js";
 import { autoRefreshIfDue } from "./prices.js";
 import { monthLabel, addMonths, currentMonth, closeSheet, toast, isBlurred, applyBlurred } from "./utils.js";
@@ -33,6 +33,7 @@ const ROUTES = {
 
 let currentRoute = "home";
 let snapshotDone = false;
+let categoriesEnsured = false;
 
 // Terapkan preferensi blur (persist per device) sebelum render pertama
 applyBlurred(isBlurred());
@@ -145,6 +146,16 @@ onAuthStateChanged(auth, async (user) => {
     appEl.classList.add("hidden");
     loginScreen.classList.remove("hidden");
     snapshotDone = false;
+    categoriesEnsured = false;
+  }
+});
+
+// Kategori preset Reconcile: sekali per sesi, ga perlu nunggu online (Firestore
+// offline persistence yang antre write-nya kalau lagi offline)
+on(() => {
+  if (state.ready && !categoriesEnsured && state.uid) {
+    categoriesEnsured = true;
+    ensurePresetCategories().catch((e) => console.warn("ensureCategories:", e));
   }
 });
 

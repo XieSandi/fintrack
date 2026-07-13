@@ -1,7 +1,8 @@
-import { state } from "../store.js";
-import { add, patch, remove } from "../db.js";
+import { state, accountBalances } from "../store.js";
+import { add, patch, remove, upsertSnapshot } from "../db.js";
 import {
-  fmtNum, escapeHtml, toast, openSheet, closeSheet, sheetHead, confirmDialog,
+  fmtNum, fmtMoney, escapeHtml, toast, openSheet, closeSheet, sheetHead, confirmDialog,
+  attachThousands, parseAmount, todayStr, monthOf,
 } from "../utils.js";
 
 const ACCT_TYPES = { bank: "Bank", ewallet: "E-Wallet", cash: "Cash", rdn: "RDN Sekuritas", broker: "Broker (Bibit/Pluang)" };
@@ -61,6 +62,7 @@ function openAcctSheet(existing) {
       ${COLORS.map((c) => `<span class="color-dot" data-color="${c}" style="width:26px;height:26px;border-radius:50%;background:${c};cursor:pointer;border:2px solid ${c === a.color ? "#fff" : "transparent"}"></span>`).join("")}
     </div>
     ${existing ? `<label style="margin-top:14px"><input type="checkbox" id="ac-arch" style="width:auto" ${a.isArchived ? "checked" : ""}/> Arsipkan akun (sembunyikan)</label>` : ""}
+    ${existing ? `<button id="ac-reconcile" class="btn btn-block" style="margin-top:14px">⚖️ Sesuaikan Saldo</button>` : ""}
     <div style="margin-top:18px; display:flex; gap:8px;">
       ${existing ? `<button id="ac-delete" class="btn btn-danger">Hapus</button>` : ""}
       <button id="ac-save" class="btn btn-primary" style="flex:1">Simpan</button>
@@ -102,5 +104,80 @@ function openAcctSheet(existing) {
       await remove("accounts", existing.id);
       toast("Dihapus");
     };
+    el.querySelector("#ac-reconcile").onclick = () => openReconcileSheet(existing);
   }
+}
+
+// ================= Reconcile saldo =================
+// Saldo akun TIDAK PERNAH di-overwrite — penyesuaian dicatat sebagai 1 transaksi
+// adjustment (expense/income) sebesar selisihnya, biar ada audit trail di History
+// dan tetap konsisten sama accountBalances() yang selalu dihitung dari jurnal.
+function openReconcileSheet(account) {
+  const recorded = accountBalances()[account.id] || 0;
+  const isUSD = account.currency === "USD";
+
+  const el = openSheet(`
+    ${sheetHead(`Sesuaikan Saldo`)}
+    <div class="sub" style="margin-bottom:10px">${escapeHtml(account.name)} · saldo tercatat: <b>${fmtMoney(recorded, account.currency)}</b></div>
+    <label>Saldo aktual sekarang</label>
+    <input id="rc-actual" class="amount-input" inputmode="decimal" placeholder="0" autocomplete="off" />
+    <div id="rc-diff" class="sub" style="margin-top:6px; min-height:14px"></div>
+    <label>Tanggal</label>
+    <input id="rc-date" type="date" value="${todayStr()}" />
+    <label>Catatan (opsional)</label>
+    <input id="rc-note" type="text" value="Reconcile saldo" />
+    <button id="rc-save" class="btn btn-primary btn-block" style="margin-top:18px">Simpan Penyesuaian</button>
+  `);
+
+  const actualInput = el.querySelector("#rc-actual");
+  if (!isUSD) attachThousands(actualInput);
+  setTimeout(() => actualInput.focus(), 250);
+
+  const parseActual = () => (isUSD
+    ? parseFloat(String(actualInput.value).replace(",", ".")) || 0
+    : parseAmount(actualInput.value));
+
+  const diffEl = el.querySelector("#rc-diff");
+  const updateDiff = () => {
+    if (!actualInput.value) { diffEl.textContent = ""; return; }
+    const diff = parseActual() - recorded;
+    if (diff === 0) {
+      diffEl.textContent = "Saldo udah sesuai ✓";
+      diffEl.style.color = "var(--muted)";
+    } else if (diff < 0) {
+      diffEl.innerHTML = `− ${fmtMoney(Math.abs(diff), account.currency)} → dicatat sebagai expense Penyesuaian`;
+      diffEl.style.color = "var(--red)";
+    } else {
+      diffEl.innerHTML = `+ ${fmtMoney(diff, account.currency)} → dicatat sebagai income Penyesuaian`;
+      diffEl.style.color = "var(--green)";
+    }
+  };
+  actualInput.addEventListener("input", updateDiff);
+
+  el.querySelector("[data-close]").onclick = closeSheet;
+
+  el.querySelector("#rc-save").onclick = async () => {
+    if (!actualInput.value) return toast("Isi saldo aktual dulu");
+    const date = el.querySelector("#rc-date").value;
+    if (!date) return toast("Tanggal belum diisi");
+    const note = el.querySelector("#rc-note").value.trim() || "Reconcile saldo";
+    const diff = parseActual() - recorded;
+
+    if (diff === 0) {
+      closeSheet();
+      return toast("Saldo udah sesuai ✓");
+    }
+
+    closeSheet();
+    await add("transactions", {
+      type: diff < 0 ? "expense" : "income",
+      amount: Math.abs(diff),
+      date, month: monthOf(date),
+      accountId: account.id,
+      categoryId: diff < 0 ? "cat_adjust_out" : "cat_adjust_in",
+      note,
+    });
+    await upsertSnapshot();
+    toast(`Saldo disesuaikan ✓ (${diff < 0 ? "−" : "+"}${fmtMoney(Math.abs(diff), account.currency).replace(/<[^>]+>/g, "")})`);
+  };
 }

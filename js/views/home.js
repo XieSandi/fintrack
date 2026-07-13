@@ -7,7 +7,7 @@ import {
   isBlurred, setBlurred, openSheet, closeSheet, sheetHead, toast,
 } from "../utils.js";
 import { openTxSheet } from "../tx-sheet.js";
-import { openTopupSheet } from "./goals.js";
+import { openTopupSheet, openWithdrawSheet } from "./goals.js";
 
 // Filter periode Home — persist selama sesi (module-level, bukan di store global)
 const period = { mode: "month", from: null, to: null };
@@ -157,6 +157,8 @@ export function render(root) {
     goals.forEach((g) => {
       const target = Number(g.targetAmount) || 0;
       const saved = goalSavedIDR(g.id);
+      const hasHistory = state.transactions.some((t) => t.toGoalId === g.id || t.fromGoalId === g.id);
+      const isDone = saved <= 0 && hasHistory;
       const pct = target > 0 ? Math.max(0, Math.min(100, (saved / target) * 100)) : 0;
       const cls = pct >= 100 ? "p-green" : pct >= 50 ? "p-yellow" : "p-red";
       const div = document.createElement("div");
@@ -164,7 +166,7 @@ export function render(root) {
       div.innerHTML = `
         <div class="bm-name">🎯 ${escapeHtml(g.name)}</div>
         <div class="progress"><div class="${cls}" style="width:${pct}%"></div></div>
-        <div class="bm-nums">${fmtIDR(saved)} / ${fmtIDR(target)} <span style="color:${pct >= 100 ? "var(--green)" : "var(--muted)"}">· ${pct.toFixed(0)}%</span></div>`;
+        <div class="bm-nums">${isDone ? "Selesai 🎉" : `${fmtIDR(saved)} / ${fmtIDR(target)} <span style="color:${pct >= 100 ? "var(--green)" : "var(--muted)"}">· ${pct.toFixed(0)}%</span>`}</div>`;
       div.onclick = () => { location.hash = "#/goals"; };
       goalSlider.appendChild(div);
     });
@@ -228,7 +230,9 @@ function openCustomRangeSheet(root) {
 }
 
 export function txRow(t) {
-  const goal = t.toGoalId ? state.goals.find((g) => g.id === t.toGoalId) : null;
+  const isWithdraw = !!t.fromGoalId;
+  const goalId = t.toGoalId || t.fromGoalId;
+  const goal = goalId ? state.goals.find((g) => g.id === goalId) : null;
   const cat = t.type === "transfer" ? null : catById(t.categoryId);
   const acct = acctById(t.accountId);
   const toAcct = t.toAccountId ? acctById(t.toAccountId) : null;
@@ -239,14 +243,20 @@ export function txRow(t) {
     <div class="tx-ic">${goal ? "🎯" : t.type === "transfer" ? "🔁" : (cat?.icon || "📦")}</div>
     <div class="tx-main">
       <div class="tx-cat">${goal
-        ? `Topup: ${escapeHtml(goal.name)}`
+        ? `${isWithdraw ? "Pencairan" : "Topup"}: ${escapeHtml(goal.name)}`
         : t.type === "transfer" ? `Transfer` : escapeHtml(cat?.name || "—")}</div>
       <div class="tx-note">${escapeHtml(t.note || dateLabel(t.date))}</div>
     </div>
     <div>
       <div class="tx-amt ${t.type}">${sign} ${fmtMoney(t.amount, acct?.currency)}</div>
-      <div class="tx-acct">${escapeHtml(acct?.name || "?")}${toAcct ? ` → ${escapeHtml(toAcct.name)}` : ""}${goal ? ` → 🎯 ${escapeHtml(goal.name)}` : ""}</div>
+      <div class="tx-acct">${isWithdraw
+        ? `🎯 ${escapeHtml(goal?.name || "?")} → ${escapeHtml(acct?.name || "?")}`
+        : `${escapeHtml(acct?.name || "?")}${toAcct ? ` → ${escapeHtml(toAcct.name)}` : ""}${goal ? ` → 🎯 ${escapeHtml(goal.name)}` : ""}`}</div>
     </div>`;
-  div.onclick = () => (goal ? openTopupSheet(goal, t) : openTxSheet(t));
+  div.onclick = () => {
+    if (goal && isWithdraw) openWithdrawSheet(goal, t);
+    else if (goal) openTopupSheet(goal, t);
+    else openTxSheet(t);
+  };
   return div;
 }

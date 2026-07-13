@@ -65,6 +65,18 @@ export async function seedIfNeeded() {
   return true;
 }
 
+// ================= Kategori preset tambahan (migrasi idempotent) =================
+// Dipanggil tiap sesi (bukan cuma first-run kayak seedIfNeeded) — put() pakai id
+// deterministik + merge, jadi aman dipanggil berkali-kali, ga bakal duplikat.
+const RECONCILE_CATEGORIES = [
+  { id: "cat_adjust_out", name: "Penyesuaian Saldo", icon: "⚖️", type: "expense", isPreset: true },
+  { id: "cat_adjust_in",  name: "Penyesuaian Saldo", icon: "⚖️", type: "income",  isPreset: true },
+];
+
+export async function ensurePresetCategories() {
+  await Promise.all(RECONCILE_CATEGORIES.map(({ id, ...data }) => put("categories", id, data)));
+}
+
 // ================= Snapshot bulanan =================
 // Dipanggil saat app load (setelah data ready): upsert snapshot bulan berjalan.
 export async function upsertSnapshot() {

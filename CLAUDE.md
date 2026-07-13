@@ -52,20 +52,28 @@ Blur mode (toggle 👁️ di card Total Balance) nge-blur semua `<span class="bl
 
 - `accounts` — kantong uang (bank/ewallet/cash/rdn/broker), currency IDR/USD, initialBalance.
   **Saldo TIDAK disimpan** — dihitung dari jurnal: initialBalance ± transaksi (lihat `accountBalances()`).
+  Reconcile ("⚖️ Sesuaikan Saldo" di sheet edit akun, `accounts.js`) TIDAK overwrite saldo —
+  bikin 1 transaksi adjustment (expense/income, kategori `cat_adjust_out`/`cat_adjust_in`)
+  sebesar selisih aktual vs tercatat, biar tetap auditable di History.
 - `transactions` — {date, month:"YYYY-MM", amount, type: expense|income|transfer, accountId,
-  toAccountId?, toGoalId?, categoryId, note}. Transfer = 1 record, BUKAN expense.
-  **Topup goal** = transfer juga, tapi `toGoalId` diisi (bukan `toAccountId`) — akun sumber
-  ke-debit, TAPI ga ada akun tujuan yang ke-kredit (lihat `accountBalances()`). Dibuat/diedit
-  lewat `openTopupSheet()` di `goals.js`, BUKAN `openTxSheet()` generik di `tx-sheet.js` (yang
-  itu ga ngerti `toGoalId`).
+  toAccountId?, toGoalId?, fromGoalId?, categoryId, note}. Transfer = 1 record, BUKAN expense.
+  **Topup goal** = transfer, `toGoalId` diisi (bukan `toAccountId`) — `accountId` = akun SUMBER
+  (ke-debit), ga ada akun yang ke-kredit. **Pencairan goal** = kebalikannya, `fromGoalId` diisi
+  — `accountId` di sini malah jadi akun TUJUAN (ke-kredit), ga ada akun yang ke-debit (lihat
+  `accountBalances()`). Jadi peran `accountId` kebalik tergantung arahnya — sengaja, biar field
+  akun tetap satu & generic di seluruh app (filter History, txRow, dll) ga perlu tau bedanya.
+  Dibuat/diedit lewat `openTopupSheet()`/`openWithdrawSheet()` di `goals.js`, BUKAN
+  `openTxSheet()` generik di `tx-sheet.js` (yang itu ga ngerti `toGoalId`/`fromGoalId`).
 - `budgets` — id deterministik `{month}_{categoryId}`.
 - `assets` — saham IDX (quantity dalam **LOT**, ×100 lembar saat hitung nilai), US fractional shares,
   dll. `manualPrice` + `manualPriceUpdatedAt` + `priceSource`. `manualOnly:true` = skip auto-refresh.
 - `debts` — outstanding, monthlyInstalment, dueDay, remainingMonths. Mengurangi net worth.
 - `goals` — {name, targetAmount, targetDate? ("YYYY-MM"), color}. Bisa lebih dari satu (dikelola
-  di `#/goals`, menu baru di Setting). **Sistem topup**, bukan target pasif: progress = jumlah
-  topup asli (`goalSavedIDR()`), bukan net worth. Goal yang punya topup ga bisa dihapus langsung
-  (harus hapus topup-nya dulu di History) — pola sama kayak proteksi hapus akun.
+  di `#/goals`, menu baru di Setting). **Sistem topup + pencairan**, bukan target pasif: saldo
+  goal = topup − pencairan asli (`goalSavedIDR()`), bukan net worth. Goal saldo 0 SETELAH pernah
+  ada topup/pencairan → badge "Selesai 🎉" (bukan auto-delete, tetep bisa di-topup lagi). Goal
+  yang punya riwayat topup ATAU pencairan ga bisa dihapus langsung (harus beresin transaksinya
+  dulu di History) — pola sama kayak proteksi hapus akun.
 - `snapshots/{YYYY-MM}` — net worth bulanan, di-upsert otomatis saat app dibuka (`upsertSnapshot`).
 - `settings/main` — targetNetWorth (target lama, masih dipakai banner Wealth), usdIdrManual,
   apiKeys:{itick, finnhub}, lastBackupAt.
@@ -95,6 +103,13 @@ sebagai baris terpisah "🎯 Goals" di breakdown Total tab Wealth biar rows-nya 
   **Free/personal tier maks 3 simbol per call** (lebih dari itu → `{code:1, msg:"your request
   is too much"}` walau HTTP 200) — kode udah nge-chunk per 3 (`ITICK_CHUNK`), jangan dihapus
   kalau nambahin logic baru di sini.
+- Dua mekanisme seeding kategori di `db.js`, sengaja beda: `seedIfNeeded()` = sekali doang
+  (guard `settings.seeded`), buat kategori awal saat akun baru pertama kali dipakai.
+  `ensurePresetCategories()` = jalan tiap sesi (`put()` id deterministik + merge, idempotent),
+  buat nambahin kategori sistem baru (mis. Penyesuaian Saldo) ke user LAMA yang udah lewat
+  seedIfNeeded. Kalau nambah kategori sistem baru lagi ke depannya, tambahin ke
+  `ensurePresetCategories()`, jangan ke `PRESET_CATEGORIES`/`seedIfNeeded` (user lama ga bakal
+  ke-migrasi).
 - Chart.js dari jsdelivr CDN; kalau belum ke-cache dan offline, chart area menampilkan pesan fallback.
 - iOS Safari bisa evict storage PWA — data master di cloud, jadi worst case re-sync saat login.
 - `attachThousands()` memformat input ribuan live; parse balik pakai `parseAmount()`.
@@ -109,12 +124,13 @@ sebagai baris terpisah "🎯 Goals" di breakdown Total tab Wealth biar rows-nya 
   ("waiting") sampe user trigger sendiri lewat tombol **Hard Refresh** di Setting
   (`hardRefresh()` di `utils.js`: unregister semua SW + `caches.delete()` semua + reload) —
   jangan tambahin balik auto-activate/auto-reload tanpa mikir ulang soal loop risk ini.
-- Transaksi dengan `toGoalId` (topup goal) HARUS selalu dibuka lewat `openTopupSheet()` (goals.js),
-  jangan lewat `openTxSheet()` generik (tx-sheet.js) — sheet itu cuma tau `toAccountId`, kalau
-  transaksi topup ke-save ulang lewat situ `toGoalId`-nya bakal hilang (data ke-corrupt). Titik
-  masuknya udah dijaga di `txRow()` (`home.js`, dipakai bareng `transactions.js`) — cek `t.toGoalId`
-  dulu sebelum decide sheet mana yang dibuka. Kalau nambah entry point baru buat klik transaksi
-  (search, dll), inget guard ini juga.
+- Transaksi dengan `toGoalId` (topup) atau `fromGoalId` (pencairan) HARUS selalu dibuka lewat
+  `openTopupSheet()` / `openWithdrawSheet()` (goals.js), jangan lewat `openTxSheet()` generik
+  (tx-sheet.js) — sheet itu cuma tau `toAccountId`, kalau transaksi ini ke-save ulang lewat situ
+  field goal-nya bakal hilang (data ke-corrupt). Titik masuknya udah dijaga di `txRow()`
+  (`home.js`, dipakai bareng `transactions.js`) — cek `t.toGoalId || t.fromGoalId` dulu sebelum
+  decide sheet mana yang dibuka. Kalau nambah entry point baru buat klik transaksi (search, dll),
+  inget guard ini juga.
 
 ## Roadmap (belum dibuat, urutan prioritas)
 
