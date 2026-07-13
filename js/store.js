@@ -15,6 +15,7 @@ export const state = {
   budgets: [],           // semua budget docs
   assets: [],
   debts: [],
+  goals: [],
   snapshots: [],
   settings: {},
   usdIdr: null,          // { rate, date, source }
@@ -51,6 +52,7 @@ export function startListeners(uid) {
   track("budgets", query(col("budgets")));
   track("assets", query(col("assets")));
   track("debts", query(col("debts")));
+  track("goals", query(col("goals")));
   track("snapshots", query(col("snapshots"), orderBy("__name__")));
 
   pending.add("settings");
@@ -154,3 +156,15 @@ export function spentByCategory(month) {
 }
 
 export const budgetsOfMonth = (month) => state.budgets.filter((b) => b.month === month);
+
+// Ringkasan cashflow untuk rentang tanggal bebas (dipakai filter periode di Home)
+export function rangeSummary(fromDate, toDate) {
+  let income = 0, expense = 0;
+  for (const t of state.transactions) {
+    if (t.date < fromDate || t.date > toDate) continue;
+    const amt = Number(t.amount) || 0;
+    if (t.type === "income") income += amt;
+    else if (t.type === "expense") expense += amt;
+  }
+  return { income, expense, surplus: income - expense };
+}

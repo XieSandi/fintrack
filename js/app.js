@@ -16,6 +16,7 @@ import * as wealthView from "./views/wealth.js";
 import * as settingsView from "./views/settings.js";
 import * as accountsView from "./views/accounts.js";
 import * as categoriesView from "./views/categories.js";
+import * as goalsView from "./views/goals.js";
 
 const $ = (s) => document.querySelector(s);
 
@@ -27,6 +28,7 @@ const ROUTES = {
   accounts:     { view: accountsView,   title: "Akun",      month: false, nav: "settings", back: "#/settings" },
   categories:   { view: categoriesView, title: "Kategori",  month: false, nav: "settings", back: "#/settings" },
   budget:       { view: budgetView,     title: "Budget",    month: true,  nav: "settings", back: "#/settings" },
+  goals:        { view: goalsView,      title: "Goals & Target", month: false, nav: "settings", back: "#/settings" },
 };
 
 let currentRoute = "home";

@@ -12,6 +12,7 @@ export function render(root) {
   const nAcct = state.accounts.length;
   const nCat = state.categories.length;
   const nBudget = state.budgets.filter((b) => b.month === state.month).length;
+  const nGoals = state.goals.length;
 
   root.innerHTML = `
     ${backupOld ? `<div class="card" style="border-color:#a16207; background:#1c1400">
@@ -32,6 +33,11 @@ export function render(root) {
       <a class="menu-item" href="#/budget">
         <span class="mi-ic">📊</span>
         <span>Budget Bulanan<div class="mi-sub">${nBudget} budget aktif bulan ini</div></span>
+        <span class="mi-arrow">›</span>
+      </a>
+      <a class="menu-item" href="#/goals">
+        <span class="mi-ic">🎯</span>
+        <span>Goals / Target<div class="mi-sub">${nGoals} goal aktif</div></span>
         <span class="mi-arrow">›</span>
       </a>
     </div>
