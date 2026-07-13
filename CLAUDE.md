@@ -2,7 +2,7 @@
 
 Personal finance tracker PWA milik satu user (owner repo). Live di https://xiesandi.cyou/fintrack
 (GitHub Pages, custom domain, subpath). Track expense harian, budget bulanan, assets, debt,
-net worth menuju target Rp 100 juta akhir 2028.
+custom goals (topup system), net worth menuju target Rp 100 juta akhir 2028.
 
 ## Stack & Prinsip (JANGAN diubah tanpa diskusi)
 
@@ -27,28 +27,53 @@ js/db.js              repository: CRUD generik, seeding kategori, snapshot bulan
 js/prices.js          auto price: iTick (IDX), Finnhub (US), CoinGecko (crypto, tanpa key)
 js/kurs.js            kurs USD/IDR auto via frankfurter.app, cache localStorage
 js/tx-sheet.js        bottom sheet tambah/edit transaksi (quick-add)
-js/utils.js           format, tanggal, toast, openSheet/closeSheet, escapeHtml
-js/views/             home, transactions, budget, wealth, settings, accounts, categories
+js/utils.js           format, tanggal, toast, openSheet/closeSheet, escapeHtml, blur mode, hardRefresh
+js/views/             home, transactions, budget, wealth, settings, accounts, categories, goals
 sw.js                 service worker: precache shell, runtime cache gstatic+jsdelivr
 ```
 
 Routing: hash (`#/home`). Nav: Home · History (transactions) · Assets (wealth) · Setting.
-Budget/Akun/Kategori = subpage di dalam Setting (punya `back` di ROUTES).
+Budget/Akun/Kategori/Goals = subpage di dalam Setting (punya `back` di ROUTES).
+
+### Home page (`js/views/home.js`)
+
+Urutan section (top→bottom): **Filter periode** (tabs Hari/Minggu/Bulan/Tahun + Custom range
+via sheet date picker, state module-level `period`, ga persist ke Firestore) → **Card Total
+Balance** (cash-only by default; toggle "+ Assets" nge-include `totalAssetsIDR()` +
+`totalGoalSavingsIDR()`, plus Income/Expense/Surplus yang ke-filter sesuai periode di atas) →
+**Akun** (horizontal scroll saldo per akun) → **Goals** (preview horizontal scroll, "Kelola →"
+ke `#/goals`) → **Budget bulan ini** (preview, "Kelola →" ke `#/budget`) → **Transaksi terakhir**
+(3 terbaru, txRow() di-share ke `transactions.js`).
+
+Blur mode (toggle 👁️ di card Total Balance) nge-blur semua `<span class="blur-num">` (dihasilkan
+`fmtIDR`/`fmtUSD` di `utils.js`) lewat CSS `body.blur-mode`, state di localStorage — bukan re-render.
 
 ## Data Model (Firestore `users/{uid}/`)
 
 - `accounts` — kantong uang (bank/ewallet/cash/rdn/broker), currency IDR/USD, initialBalance.
   **Saldo TIDAK disimpan** — dihitung dari jurnal: initialBalance ± transaksi (lihat `accountBalances()`).
 - `transactions` — {date, month:"YYYY-MM", amount, type: expense|income|transfer, accountId,
-  toAccountId?, categoryId, note}. Transfer = 1 record, BUKAN expense.
+  toAccountId?, toGoalId?, categoryId, note}. Transfer = 1 record, BUKAN expense.
+  **Topup goal** = transfer juga, tapi `toGoalId` diisi (bukan `toAccountId`) — akun sumber
+  ke-debit, TAPI ga ada akun tujuan yang ke-kredit (lihat `accountBalances()`). Dibuat/diedit
+  lewat `openTopupSheet()` di `goals.js`, BUKAN `openTxSheet()` generik di `tx-sheet.js` (yang
+  itu ga ngerti `toGoalId`).
 - `budgets` — id deterministik `{month}_{categoryId}`.
 - `assets` — saham IDX (quantity dalam **LOT**, ×100 lembar saat hitung nilai), US fractional shares,
   dll. `manualPrice` + `manualPriceUpdatedAt` + `priceSource`. `manualOnly:true` = skip auto-refresh.
 - `debts` — outstanding, monthlyInstalment, dueDay, remainingMonths. Mengurangi net worth.
+- `goals` — {name, targetAmount, targetDate? ("YYYY-MM"), color}. Bisa lebih dari satu (dikelola
+  di `#/goals`, menu baru di Setting). **Sistem topup**, bukan target pasif: progress = jumlah
+  topup asli (`goalSavedIDR()`), bukan net worth. Goal yang punya topup ga bisa dihapus langsung
+  (harus hapus topup-nya dulu di History) — pola sama kayak proteksi hapus akun.
 - `snapshots/{YYYY-MM}` — net worth bulanan, di-upsert otomatis saat app dibuka (`upsertSnapshot`).
-- `settings/main` — targetNetWorth, usdIdrManual, apiKeys:{itick, finnhub}, lastBackupAt.
+- `settings/main` — targetNetWorth (target lama, masih dipakai banner Wealth), usdIdrManual,
+  apiKeys:{itick, finnhub}, lastBackupAt.
 
-Net worth = totalCashIDR + totalAssetsIDR − totalDebtIDR (USD dikonversi `effectiveRate()`).
+Net worth = totalCashIDR + totalAssetsIDR + totalGoalSavingsIDR − totalDebtIDR (USD dikonversi
+`effectiveRate()`). Goal savings dihitung terpisah dari `totalAssetsIDR()` (bukan di-fold ke situ)
+biar tab Assets di Wealth (isinya cuma investasi) ga ikut kebawa angka goal — tapi tetep ditambah
+sebagai baris terpisah "🎯 Goals" di breakdown Total tab Wealth biar rows-nya sum ke net worth.
 
 ## ATURAN WAJIB saat mengubah kode
 
@@ -84,14 +109,22 @@ Net worth = totalCashIDR + totalAssetsIDR − totalDebtIDR (USD dikonversi `effe
   ("waiting") sampe user trigger sendiri lewat tombol **Hard Refresh** di Setting
   (`hardRefresh()` di `utils.js`: unregister semua SW + `caches.delete()` semua + reload) —
   jangan tambahin balik auto-activate/auto-reload tanpa mikir ulang soal loop risk ini.
+- Transaksi dengan `toGoalId` (topup goal) HARUS selalu dibuka lewat `openTopupSheet()` (goals.js),
+  jangan lewat `openTxSheet()` generik (tx-sheet.js) — sheet itu cuma tau `toAccountId`, kalau
+  transaksi topup ke-save ulang lewat situ `toGoalId`-nya bakal hilang (data ke-corrupt). Titik
+  masuknya udah dijaga di `txRow()` (`home.js`, dipakai bareng `transactions.js`) — cek `t.toGoalId`
+  dulu sebelum decide sheet mana yang dibuka. Kalau nambah entry point baru buat klik transaksi
+  (search, dll), inget guard ini juga.
 
 ## Roadmap (belum dibuat, urutan prioritas)
 
 1. Recurring transactions — template (kost tgl 1, transfer ortu tgl 28) → prompt "catat sekarang?"
-2. Blur mode saldo (sembunyikan angka di tempat umum, toggle mata)
-3. Copy budget otomatis tiap awal bulan
-4. Import CSV mutasi bank; laporan tahunan; enkripsi backup (Web Crypto)
-5. Harga emas & NAV reksa dana: BELUM ada API gratis+CORS yang stabil → tetap manual
+2. Copy budget otomatis tiap awal bulan
+3. Import CSV mutasi bank; laporan tahunan; enkripsi backup (Web Crypto)
+4. Harga emas & NAV reksa dana: BELUM ada API gratis+CORS yang stabil → tetap manual
+5. Konsolidasi target: masih ada 2 sistem target terpisah — `settings.targetNetWorth` (dipakai
+   banner Wealth, single value, auto vs net worth) dan `goals` collection (multi, topup-based).
+   Belum diputusin apa perlu disatuin.
 
 ## Konteks Owner (untuk fitur/copy)
 
