@@ -12,8 +12,8 @@ export function render(root) {
 
   root.innerHTML = `
     <div class="card">
-      <div class="card-title">Goals / Target</div>
-      <div class="sub" style="margin-bottom:4px">Sistem topup: transfer saldo dari akun ke goal buat nabung. Uang yang udah ke-topup tetep dihitung sebagai bagian net worth lo (masuk kategori assets).</div>
+      <div class="card-title">🎯 Short Term Goals</div>
+      <div class="sub" style="margin-bottom:4px">Target jangka pendek yang bisa lebih dari satu — beda dari Main Milestone (satu angka besar di Setting). Sistem topup: transfer saldo dari akun ke goal buat nabung. Uang yang udah ke-topup tetep dihitung sebagai bagian net worth lo (masuk kategori assets).</div>
       <div id="goal-list"></div>
       ${goals.length === 0 ? `<div class="empty">Belum ada goals.<br/>Tap tombol di bawah buat bikin target pertama.</div>` : ""}
     </div>

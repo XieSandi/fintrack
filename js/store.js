@@ -16,6 +16,7 @@ export const state = {
   assets: [],
   debts: [],
   goals: [],
+  recurring: [],
   snapshots: [],
   settings: {},
   usdIdr: null,          // { rate, date, source }
@@ -53,6 +54,7 @@ export function startListeners(uid) {
   track("assets", query(col("assets")));
   track("debts", query(col("debts")));
   track("goals", query(col("goals")));
+  track("recurring", query(col("recurring")));
   track("snapshots", query(col("snapshots"), orderBy("__name__")));
 
   pending.add("settings");

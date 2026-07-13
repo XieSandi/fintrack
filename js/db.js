@@ -99,7 +99,7 @@ export async function upsertSnapshot() {
 }
 
 // ================= Backup / Restore =================
-const COLLECTIONS = ["accounts", "categories", "transactions", "budgets", "assets", "debts", "goals", "snapshots"];
+const COLLECTIONS = ["accounts", "categories", "transactions", "budgets", "assets", "debts", "goals", "recurring", "snapshots"];
 
 export async function exportAll() {
   const out = { app: "fintrack", schemaVersion: 1, exportedAt: new Date().toISOString(), data: {} };

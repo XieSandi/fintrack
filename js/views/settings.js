@@ -1,9 +1,9 @@
 import { state, effectiveRate } from "../store.js";
-import { exportAll, importAll, updateSettings } from "../db.js";
+import { exportAll, importAll, updateSettings, put } from "../db.js";
 import { auth, signOut } from "../firebase.js";
 import {
-  fmtNum, escapeHtml, toast, parseAmount, attachThousands,
-  confirmDialog, todayStr, hardRefresh,
+  fmtNum, fmtIDR, escapeHtml, toast, parseAmount, attachThousands,
+  confirmDialog, todayStr, hardRefresh, currentMonth, monthLabel, addMonths,
 } from "../utils.js";
 
 export function render(root) {
@@ -13,6 +13,7 @@ export function render(root) {
   const nCat = state.categories.length;
   const nBudget = state.budgets.filter((b) => b.month === state.month).length;
   const nGoals = state.goals.length;
+  const nRecurring = state.recurring.filter((r) => r.active !== false).length;
 
   root.innerHTML = `
     ${backupOld ? `<div class="card" style="border-color:#a16207; background:#1c1400">
@@ -37,7 +38,12 @@ export function render(root) {
       </a>
       <a class="menu-item" href="#/goals">
         <span class="mi-ic">🎯</span>
-        <span>Goals / Target<div class="mi-sub">${nGoals} goal aktif</div></span>
+        <span>Short Term Goals<div class="mi-sub">${nGoals} goal aktif</div></span>
+        <span class="mi-arrow">›</span>
+      </a>
+      <a class="menu-item" href="#/recurring">
+        <span class="mi-ic">🔁</span>
+        <span>Transaksi Berulang<div class="mi-sub">${nRecurring} template aktif</div></span>
         <span class="mi-arrow">›</span>
       </a>
     </div>
@@ -53,13 +59,24 @@ export function render(root) {
     </div>
 
     <div class="card">
-      <div class="card-title">Target & Kurs</div>
-      <label>Target Net Worth (Rp)</label>
+      <div class="card-title">🏆 Main Milestone & Kurs</div>
+      <div class="sub" style="margin-bottom:4px">Main Milestone = benchmark net worth jangka panjang lo, satu angka besar (beda dari Short Term Goals yang bisa banyak & topup-based). Progress-nya otomatis dari net worth keseluruhan — muncul di card Total Balance (Home) & banner Net Worth (Assets).</div>
+      <label>Target Net Worth — Main Milestone (Rp)</label>
       <input id="s-target" inputmode="numeric" value="${fmtNum(state.settings.targetNetWorth || 100000000)}" />
       <label>Kurs USD/IDR manual (kosongkan = auto)</label>
       <input id="s-kurs" inputmode="numeric" placeholder="auto: ${fmtNum(state.usdIdr?.rate || 0)} ${state.usdIdr ? `(per ${state.usdIdr.date})` : ""}" value="${state.settings.usdIdrManual ? fmtNum(state.settings.usdIdrManual) : ""}" />
       <div class="sub">Kurs efektif sekarang: ${fmtNum(effectiveRate())}</div>
       <button id="btn-save-settings" class="btn btn-primary btn-sm" style="margin-top:12px">Simpan</button>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Snapshot Historis</div>
+      <div class="sub" style="margin-bottom:10px">Buat isi data net worth dari sebelum mulai pakai app (misal dari catatan manual lama), biar grafik tren di Assets lengkap. Cuma bisa buat bulan SEBELUM bulan berjalan — bulan berjalan otomatis ke-update sendiri tiap app dibuka.</div>
+      <label>Bulan</label>
+      <input id="snap-month" type="month" max="${addMonths(currentMonth(), -1)}" />
+      <label>Net Worth (Rp)</label>
+      <input id="snap-nw" inputmode="numeric" placeholder="cth: 15000000 atau -2000000" autocomplete="off" />
+      <button id="btn-add-snapshot" class="btn btn-primary btn-sm" style="margin-top:12px">Simpan Snapshot</button>
     </div>
 
     <div class="card">
@@ -108,6 +125,22 @@ export function render(root) {
     const kursManual = parseAmount(root.querySelector("#s-kurs").value);
     await updateSettings({ targetNetWorth: target || 100000000, usdIdrManual: kursManual || null });
     toast("Settings disimpan ✓");
+  };
+
+  root.querySelector("#btn-add-snapshot").onclick = async () => {
+    const month = root.querySelector("#snap-month").value;
+    const nwInput = root.querySelector("#snap-nw").value.trim();
+    if (!month) return toast("Pilih bulan dulu");
+    if (month >= currentMonth()) return toast("Cuma bisa buat bulan sebelum bulan ini — bulan berjalan ke-update otomatis");
+    if (!nwInput) return toast("Isi net worth-nya");
+    const netWorth = parseAmount(nwInput);
+
+    const existing = state.snapshots.find((s) => s.id === month);
+    if (existing && !confirmDialog(`Snapshot ${monthLabel(month)} udah ada (Net Worth: ${fmtIDR(existing.netWorth).replace(/<[^>]+>/g, "")}). Timpa dengan nilai baru?`)) return;
+
+    await put("snapshots", month, { month, netWorth, manual: true });
+    root.querySelector("#snap-nw").value = "";
+    toast(`Snapshot ${monthLabel(month)} disimpan ✓`);
   };
 
   root.querySelector("#btn-export").onclick = async () => {
