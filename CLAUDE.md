@@ -71,6 +71,10 @@ Blur mode (toggle 👁️ di card Total Balance) nge-blur semua `<span class="bl
   Reconcile ("⚖️ Sesuaikan Saldo" di sheet edit akun, `accounts.js`) TIDAK overwrite saldo —
   bikin 1 transaksi adjustment (expense/income, kategori `cat_adjust_out`/`cat_adjust_in`)
   sebesar selisih aktual vs tercatat, biar tetap auditable di History.
+- `categories` — {name, icon, type: expense|income, isPreset}. Preset awal via `seedIfNeeded()`
+  (sekali doang, first-run); preset baru buat user lama via `ensurePresetCategories()` (tiap
+  sesi, idempotent) — lihat Known Quirks. Ga bisa dihapus kalau masih dipakai transaksi
+  (guard di `categories.js`).
 - `transactions` — {date, month:"YYYY-MM", amount, type: expense|income|transfer, accountId,
   toAccountId?, toGoalId?, fromGoalId?, categoryId, note}. Transfer = 1 record, BUKAN expense.
   **Topup goal** = transfer, `toGoalId` diisi (bukan `toAccountId`) — `accountId` = akun SUMBER
@@ -144,6 +148,16 @@ sebagai baris terpisah "🎯 Goals" di breakdown Total tab Wealth biar rows-nya 
 - Chart.js dari jsdelivr CDN; kalau belum ke-cache dan offline, chart area menampilkan pesan fallback.
 - iOS Safari bisa evict storage PWA — data master di cloud, jadi worst case re-sync saat login.
 - `attachThousands()` memformat input ribuan live; parse balik pakai `parseAmount()`.
+- **Tanggal kalender WAJIB pakai `toDateStr()`/`todayStr()` di `utils.js`** (local time, dari
+  `getFullYear()/getMonth()/getDate()`) — **JANGAN** `new Date().toISOString().slice(0,10)` buat
+  representasi "hari ini"/tanggal kalender. Di WIB (UTC+7) jam 00:00–07:00, `toISOString()`
+  mundur satu hari (masih UTC kemarin) — pernah bikin transaksi default kecatat tanggal salah,
+  `currentMonth()` salah bulan awal bulan (snapshot bisa nimpa bulan lalu), sheet Awal Bulan ga
+  ke-trigger. `toISOString()` sendiri tetep valid buat timestamp MOMEN (`createdAt`,
+  `lastBackupAt`, `exportedAt` di db.js/settings.js) — itu memang harus UTC/absolute, bukan
+  tanggal kalender, jangan diubah. Kalau nambah kode baru yang butuh format Date → string
+  tanggal, pakai `toDateStr(d)`, jangan bikin ulang pad/getFullYear manual (udah pernah
+  ke-duplikasi di 3 file sebelum di-konsolidasi: utils.js, home.js, recurring-sheet.js).
 - GitHub Pages (Fastly, di belakang custom domain xiesandi.cyou) nge-serve `sw.js` dengan
   `Cache-Control: max-age=14400` (4 jam), ga bisa dioverride header-nya. Update SW jadi bisa
   ke-detect telat. Register pakai `{ updateViaCache: "none" }` biar `reg.update()` minimal
