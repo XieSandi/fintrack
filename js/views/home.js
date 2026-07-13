@@ -1,6 +1,6 @@
 import {
   state, activeAccounts, accountBalances, totalCashIDR, totalAssetsIDR, totalGoalSavingsIDR,
-  goalSavedIDR, rangeSummary, catById, acctById, effectiveRate, budgetsOfMonth, spentByCategory,
+  goalSavedIDR, netWorthIDR, rangeSummary, catById, acctById, effectiveRate, budgetsOfMonth, spentByCategory,
 } from "../store.js";
 import {
   fmtIDR, fmtMoney, escapeHtml, dateLabel, currentMonth, todayStr, monthLabel,
@@ -63,6 +63,8 @@ export function render(root) {
   const savingRate = sum.income > 0 ? ((sum.surplus / sum.income) * 100).toFixed(0) : null;
   const recent = state.transactions.slice(0, 3);
   const goals = state.goals.slice().sort((a, b) => (a.targetAmount || 0) - (b.targetAmount || 0));
+  const milestoneTarget = Number(state.settings.targetNetWorth) || 100_000_000;
+  const milestonePct = Math.max(0, Math.min(100, (netWorthIDR() / milestoneTarget) * 100));
 
   root.innerHTML = `
     <div class="chart-tabs period-tabs">
@@ -87,6 +89,10 @@ export function render(root) {
         <div><div class="label">Surplus</div><div class="v" style="color:${sum.surplus >= 0 ? "var(--green)" : "var(--red)"}">${fmtIDR(sum.surplus)}</div>
         ${savingRate !== null ? `<div class="sub">saving rate ${savingRate}%</div>` : ""}</div>
       </div>
+      <div class="progress" style="margin-top:14px; height:6px">
+        <div style="width:${milestonePct}%; background:linear-gradient(90deg,#3b82f6,#60a5fa)"></div>
+      </div>
+      <div class="sub" style="color:#7da3d8; margin-top:4px">🏆 Main Milestone: ${milestonePct.toFixed(1)}% menuju ${fmtIDR(milestoneTarget)}</div>
     </div>
 
     <div class="card-title" style="margin:2px 2px 8px">Akun</div>
@@ -101,7 +107,7 @@ export function render(root) {
     </div>
 
     <div style="display:flex; justify-content:space-between; align-items:baseline; margin:2px 2px 8px">
-      <span class="card-title" style="margin:0">Goals</span>
+      <span class="card-title" style="margin:0">🎯 Short Term Goals</span>
       <a href="#/goals" class="gear-link" style="font-size:11px">Kelola →</a>
     </div>
     <div class="budget-scroll" id="goal-slider"></div>

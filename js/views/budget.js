@@ -58,15 +58,8 @@ export function render(root) {
 
   root.querySelector("#btn-add-budget").onclick = () => openBudgetSheet(month, null);
   root.querySelector("#btn-copy-budget").onclick = async () => {
-    const prev = budgetsOfMonth(addMonths(month, -1));
-    if (prev.length === 0) return toast("Bulan lalu belum ada budget");
-    const existing = new Set(budgets.map((b) => b.categoryId));
-    let copied = 0;
-    for (const p of prev) {
-      if (existing.has(p.categoryId)) continue;
-      await put("budgets", `${month}_${p.categoryId}`, { month, categoryId: p.categoryId, amount: p.amount });
-      copied++;
-    }
+    const { copied, hadPrev } = await copyBudgetFromLastMonth(month);
+    if (!hadPrev) return toast("Bulan lalu belum ada budget");
     toast(copied ? `${copied} budget disalin ✓` : "Semua kategori sudah ada budgetnya");
   };
 }
@@ -126,4 +119,20 @@ function openBudgetSheet(month, existing) {
       toast("Dihapus");
     };
   }
+}
+
+// Dipakai tombol "Salin bulan lalu" di atas, dan dipanggil ulang dari sheet
+// "Awal Bulan" (recurring-sheet.js) — satu implementasi, jangan duplikasi.
+export async function copyBudgetFromLastMonth(month) {
+  const budgets = budgetsOfMonth(month);
+  const prev = budgetsOfMonth(addMonths(month, -1));
+  if (prev.length === 0) return { copied: 0, hadPrev: false };
+  const existing = new Set(budgets.map((b) => b.categoryId));
+  let copied = 0;
+  for (const p of prev) {
+    if (existing.has(p.categoryId)) continue;
+    await put("budgets", `${month}_${p.categoryId}`, { month, categoryId: p.categoryId, amount: p.amount });
+    copied++;
+  }
+  return { copied, hadPrev: true };
 }

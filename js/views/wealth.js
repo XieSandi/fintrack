@@ -88,7 +88,7 @@ function renderTotal(root) {
       <div class="progress" style="margin-top:12px; height:8px;">
         <div style="width:${pctTarget}%; background:linear-gradient(90deg,#3b82f6,#60a5fa)"></div>
       </div>
-      <div class="sub" style="color:#7da3d8">${pctTarget.toFixed(1)}% menuju target ${fmtIDR(target)}</div>
+      <div class="sub" style="color:#7da3d8">🏆 Main Milestone: ${pctTarget.toFixed(1)}% menuju ${fmtIDR(target)}</div>
       <div class="sub" style="color:#5a789f">Kurs USD ${fmtNum(rate)}${state.settings.usdIdrManual ? " (manual)" : state.usdIdr ? ` · auto per ${state.usdIdr.date}` : ""}</div>
     </div>
 
@@ -96,7 +96,7 @@ function renderTotal(root) {
       <div class="table-like">
         ${totalRow("💧 Liquid (cash semua akun)", cash, "#93c5fd")}
         ${totalRow("📈 Assets (investasi)", assets, "var(--green)")}
-        ${goalSavings > 0 ? totalRow("🎯 Goals (topup tersimpan)", goalSavings, "#c084fc") : ""}
+        ${goalSavings > 0 ? totalRow("🎯 Short Term Goals (topup tersimpan)", goalSavings, "#c084fc") : ""}
         ${totalRow("💳 Debt", -debt, "var(--red)")}
         <div style="border-top:1px solid var(--border); margin-top:8px; padding-top:10px; display:flex; justify-content:space-between">
           <span style="font-weight:800; font-size:13px">NET WORTH</span>

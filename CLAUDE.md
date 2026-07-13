@@ -2,7 +2,17 @@
 
 Personal finance tracker PWA milik satu user (owner repo). Live di https://xiesandi.cyou/fintrack
 (GitHub Pages, custom domain, subpath). Track expense harian, budget bulanan, assets, debt,
-custom goals (topup system), net worth menuju target Rp 100 juta akhir 2028.
+net worth menuju target Rp 100 juta akhir 2028.
+
+**Konsep target — sengaja 2 sistem terpisah (keputusan owner, TASK-5):**
+- **🏆 Main Milestone** — SATU angka besar (`settings.targetNetWorth`), benchmark net worth
+  jangka panjang, pasif (progress otomatis dari `netWorthIDR()`, ga ada topup). Setup di
+  Setting → "Main Milestone & Kurs". Ditampilkan di card Total Balance (Home) + banner Net
+  Worth (Assets/Wealth).
+- **🎯 Short Term Goals** — BISA BANYAK, topup/pencairan aktif (collection `goals`). Setup +
+  kelola di `#/goals` (menu di Setting). Ditampilkan preview-nya di Home.
+Jangan gabungin dua konsep ini atau rename salah satunya tanpa sadar bedanya — Milestone itu
+"North Star" tunggal, Goals itu daftar target aktif yang bisa nabung/cair beneran.
 
 ## Stack & Prinsip (JANGAN diubah tanpa diskusi)
 
@@ -27,23 +37,26 @@ js/db.js              repository: CRUD generik, seeding kategori, snapshot bulan
 js/prices.js          auto price: iTick (IDX), Finnhub (US), CoinGecko (crypto, tanpa key)
 js/kurs.js            kurs USD/IDR auto via frankfurter.app, cache localStorage
 js/tx-sheet.js        bottom sheet tambah/edit transaksi (quick-add)
+js/recurring-sheet.js sheet "Awal Bulan": konfirmasi post recurring + opsi salin budget
 js/utils.js           format, tanggal, toast, openSheet/closeSheet, escapeHtml, blur mode, hardRefresh
-js/views/             home, transactions, budget, wealth, settings, accounts, categories, goals
+js/views/             home, transactions, budget, wealth, settings, accounts, categories, goals, recurring
 sw.js                 service worker: precache shell, runtime cache gstatic+jsdelivr
 ```
 
 Routing: hash (`#/home`). Nav: Home · History (transactions) · Assets (wealth) · Setting.
-Budget/Akun/Kategori/Goals = subpage di dalam Setting (punya `back` di ROUTES).
+Budget/Akun/Kategori/Goals/Recurring = subpage di dalam Setting (punya `back` di ROUTES).
 
 ### Home page (`js/views/home.js`)
 
 Urutan section (top→bottom): **Filter periode** (tabs Hari/Minggu/Bulan/Tahun + Custom range
 via sheet date picker, state module-level `period`, ga persist ke Firestore) → **Card Total
 Balance** (cash-only by default; toggle "+ Assets" nge-include `totalAssetsIDR()` +
-`totalGoalSavingsIDR()`, plus Income/Expense/Surplus yang ke-filter sesuai periode di atas) →
-**Akun** (horizontal scroll saldo per akun) → **Goals** (preview horizontal scroll, "Kelola →"
-ke `#/goals`) → **Budget bulan ini** (preview, "Kelola →" ke `#/budget`) → **Transaksi terakhir**
-(3 terbaru, txRow() di-share ke `transactions.js`).
+`totalGoalSavingsIDR()`, plus Income/Expense/Surplus yang ke-filter sesuai periode di atas, plus
+progress bar **🏆 Main Milestone** di bagian bawah card — vs `netWorthIDR()`, target-nya sama
+dengan yang di banner Wealth) → **Akun** (horizontal scroll saldo per akun) →
+**🎯 Short Term Goals** (preview horizontal scroll, "Kelola →" ke `#/goals`) → **Budget bulan
+ini** (preview, "Kelola →" ke `#/budget`) → **Transaksi terakhir** (3 terbaru, txRow()
+di-share ke `transactions.js`).
 
 Blur mode (toggle 👁️ di card Total Balance) nge-blur semua `<span class="blur-num">` (dihasilkan
 `fmtIDR`/`fmtUSD` di `utils.js`) lewat CSS `body.blur-mode`, state di localStorage — bukan re-render.
@@ -68,14 +81,29 @@ Blur mode (toggle 👁️ di card Total Balance) nge-blur semua `<span class="bl
 - `assets` — saham IDX (quantity dalam **LOT**, ×100 lembar saat hitung nilai), US fractional shares,
   dll. `manualPrice` + `manualPriceUpdatedAt` + `priceSource`. `manualOnly:true` = skip auto-refresh.
 - `debts` — outstanding, monthlyInstalment, dueDay, remainingMonths. Mengurangi net worth.
-- `goals` — {name, targetAmount, targetDate? ("YYYY-MM"), color}. Bisa lebih dari satu (dikelola
-  di `#/goals`, menu baru di Setting). **Sistem topup + pencairan**, bukan target pasif: saldo
-  goal = topup − pencairan asli (`goalSavedIDR()`), bukan net worth. Goal saldo 0 SETELAH pernah
-  ada topup/pencairan → badge "Selesai 🎉" (bukan auto-delete, tetep bisa di-topup lagi). Goal
-  yang punya riwayat topup ATAU pencairan ga bisa dihapus langsung (harus beresin transaksinya
-  dulu di History) — pola sama kayak proteksi hapus akun.
+- `goals` — Short Term Goals. {name, targetAmount, targetDate? ("YYYY-MM"), color}. Bisa lebih
+  dari satu (dikelola di `#/goals`, menu di Setting). **Sistem topup + pencairan**, bukan target
+  pasif: saldo goal = topup − pencairan asli (`goalSavedIDR()`), bukan net worth. Goal saldo 0
+  SETELAH pernah ada topup/pencairan → badge "Selesai 🎉" (bukan auto-delete, tetep bisa
+  di-topup lagi). Goal yang punya riwayat topup ATAU pencairan ga bisa dihapus langsung (harus
+  beresin transaksinya dulu di History) — pola sama kayak proteksi hapus akun. Beda konsep dari
+  Main Milestone (`settings.targetNetWorth`) — lihat catatan di atas.
+- `recurring` — {name, type, amount, accountId, toAccountId?, categoryId?, dayOfMonth (1–31),
+  active, lastPostedMonth? ("YYYY-MM")}. Dikelola di `#/recurring`. Tiap app dibuka, item aktif
+  yang `dayOfMonth` ≤ hari ini DAN `lastPostedMonth` ≠ bulan berjalan dianggap "jatuh tempo" →
+  muncul sheet **Awal Bulan** (`recurring-sheet.js`) buat konfirmasi (checklist, default semua
+  tercentang) + opsi salin budget bulan lalu kalau budget bulan ini kosong. **JANGAN AUTO-POST**
+  — transaksi baru dibuat pas user klik "Catat Semua". Tanggal transaksi yang di-post pakai
+  `dayOfMonth` template di bulan berjalan (bukan tanggal user konfirmasi) — representasi kejadian
+  riil, bukan kapan usernya buka app. Edit template TIDAK reset `lastPostedMonth` (biar ga dobel
+  post bulan yang sama). Sheet muncul maks 1x/hari kalau di-"Nanti"-in (flag tanggal di
+  localStorage, key `fintrack_recurring_dismissed_date`), dipanggil sekali per sesi dari app.js.
 - `snapshots/{YYYY-MM}` — net worth bulanan, di-upsert otomatis saat app dibuka (`upsertSnapshot`).
-- `settings/main` — targetNetWorth (target lama, masih dipakai banner Wealth), usdIdrManual,
+  Bisa juga di-backfill manual buat bulan pra-app lewat card "Snapshot Historis" di Setting
+  (`{month, netWorth, manual:true}`, minimal field — chart Tren Net Worth cuma butuh `netWorth`
+  + `month`/id). Cuma boleh untuk bulan < bulan berjalan (bulan berjalan wilayah `upsertSnapshot`).
+- `settings/main` — targetNetWorth (= **Main Milestone**, dipakai card Total Balance Home DAN
+  banner Wealth — SATU sumber, jangan bikin duplikat field), usdIdrManual,
   apiKeys:{itick, finnhub}, lastBackupAt.
 
 Net worth = totalCashIDR + totalAssetsIDR + totalGoalSavingsIDR − totalDebtIDR (USD dikonversi
@@ -131,16 +159,14 @@ sebagai baris terpisah "🎯 Goals" di breakdown Total tab Wealth biar rows-nya 
   (`home.js`, dipakai bareng `transactions.js`) — cek `t.toGoalId || t.fromGoalId` dulu sebelum
   decide sheet mana yang dibuka. Kalau nambah entry point baru buat klik transaksi (search, dll),
   inget guard ini juga.
+- Logic salin budget bulan lalu cuma ada SATU implementasi: `copyBudgetFromLastMonth()`,
+  exported dari `views/budget.js`, dipakai tombol "⧉ Salin bulan lalu" DAN sheet Awal Bulan
+  (`recurring-sheet.js`). Jangan re-implement inline lagi di tempat lain.
 
 ## Roadmap (belum dibuat, urutan prioritas)
 
-1. Recurring transactions — template (kost tgl 1, transfer ortu tgl 28) → prompt "catat sekarang?"
-2. Copy budget otomatis tiap awal bulan
-3. Import CSV mutasi bank; laporan tahunan; enkripsi backup (Web Crypto)
-4. Harga emas & NAV reksa dana: BELUM ada API gratis+CORS yang stabil → tetap manual
-5. Konsolidasi target: masih ada 2 sistem target terpisah — `settings.targetNetWorth` (dipakai
-   banner Wealth, single value, auto vs net worth) dan `goals` collection (multi, topup-based).
-   Belum diputusin apa perlu disatuin.
+1. Import CSV mutasi bank; laporan tahunan; enkripsi backup (Web Crypto)
+2. Harga emas & NAV reksa dana: BELUM ada API gratis+CORS yang stabil → tetap manual
 
 ## Konteks Owner (untuk fitur/copy)
 

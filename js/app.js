@@ -8,6 +8,7 @@ import { refreshKurs, loadCachedKurs } from "./kurs.js";
 import { autoRefreshIfDue } from "./prices.js";
 import { monthLabel, addMonths, currentMonth, closeSheet, toast, isBlurred, applyBlurred } from "./utils.js";
 import { openTxSheet } from "./tx-sheet.js";
+import { checkMonthlyRitual } from "./recurring-sheet.js";
 
 import * as homeView from "./views/home.js";
 import * as txView from "./views/transactions.js";
@@ -17,6 +18,7 @@ import * as settingsView from "./views/settings.js";
 import * as accountsView from "./views/accounts.js";
 import * as categoriesView from "./views/categories.js";
 import * as goalsView from "./views/goals.js";
+import * as recurringView from "./views/recurring.js";
 
 const $ = (s) => document.querySelector(s);
 
@@ -28,12 +30,14 @@ const ROUTES = {
   accounts:     { view: accountsView,   title: "Akun",      month: false, nav: "settings", back: "#/settings" },
   categories:   { view: categoriesView, title: "Kategori",  month: false, nav: "settings", back: "#/settings" },
   budget:       { view: budgetView,     title: "Budget",    month: true,  nav: "settings", back: "#/settings" },
-  goals:        { view: goalsView,      title: "Goals & Target", month: false, nav: "settings", back: "#/settings" },
+  goals:        { view: goalsView,      title: "Short Term Goals", month: false, nav: "settings", back: "#/settings" },
+  recurring:    { view: recurringView,  title: "Transaksi Berulang", month: false, nav: "settings", back: "#/settings" },
 };
 
 let currentRoute = "home";
 let snapshotDone = false;
 let categoriesEnsured = false;
+let ritualChecked = false;
 
 // Terapkan preferensi blur (persist per device) sebelum render pertama
 applyBlurred(isBlurred());
@@ -147,6 +151,7 @@ onAuthStateChanged(auth, async (user) => {
     loginScreen.classList.remove("hidden");
     snapshotDone = false;
     categoriesEnsured = false;
+    ritualChecked = false;
   }
 });
 
@@ -156,6 +161,15 @@ on(() => {
   if (state.ready && !categoriesEnsured && state.uid) {
     categoriesEnsured = true;
     ensurePresetCategories().catch((e) => console.warn("ensureCategories:", e));
+  }
+});
+
+// Sheet "Awal Bulan" (recurring due + copy budget): sekali per sesi juga, ga perlu
+// online — posting-nya di-queue offline persistence kayak transaksi manual biasa.
+on(() => {
+  if (state.ready && !ritualChecked && state.uid) {
+    ritualChecked = true;
+    try { checkMonthlyRitual(); } catch (e) { console.warn("ritual:", e); }
   }
 });
 
