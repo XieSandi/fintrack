@@ -1,20 +1,19 @@
-import { state, netWorthIDR } from "../store.js";
+import { state, activeAccounts, goalSavedIDR } from "../store.js";
 import { add, patch, remove } from "../db.js";
 import {
   fmtIDR, fmtNum, escapeHtml, toast, openSheet, closeSheet, sheetHead,
-  parseAmount, attachThousands, confirmDialog, monthLabel,
+  parseAmount, attachThousands, confirmDialog, monthLabel, todayStr, monthOf,
 } from "../utils.js";
 
 const COLORS = ["#60a5fa", "#4ade80", "#facc15", "#f87171", "#c084fc", "#fb923c", "#2dd4bf"];
 
 export function render(root) {
   const goals = state.goals.slice().sort((a, b) => (a.targetAmount || 0) - (b.targetAmount || 0));
-  const nw = netWorthIDR();
 
   root.innerHTML = `
     <div class="card">
       <div class="card-title">Goals / Target</div>
-      <div class="sub" style="margin-bottom:4px">Progress dihitung otomatis dari Net Worth lo sekarang (${fmtIDR(nw)}). Bikin beberapa target sekaligus — misal dana darurat, DP rumah, atau target akhir tahun.</div>
+      <div class="sub" style="margin-bottom:4px">Sistem topup: transfer saldo dari akun ke goal buat nabung. Uang yang udah ke-topup tetep dihitung sebagai bagian net worth lo (masuk kategori assets).</div>
       <div id="goal-list"></div>
       ${goals.length === 0 ? `<div class="empty">Belum ada goals.<br/>Tap tombol di bawah buat bikin target pertama.</div>` : ""}
     </div>
@@ -24,19 +23,26 @@ export function render(root) {
   const list = root.querySelector("#goal-list");
   goals.forEach((g) => {
     const target = Number(g.targetAmount) || 0;
-    const pct = target > 0 ? Math.max(0, Math.min(100, (nw / target) * 100)) : 0;
+    const saved = goalSavedIDR(g.id);
+    const pct = target > 0 ? Math.max(0, Math.min(100, (saved / target) * 100)) : 0;
     const cls = pct >= 100 ? "p-green" : pct >= 50 ? "p-yellow" : "p-red";
     const div = document.createElement("div");
     div.className = "budget-item";
-    div.style.cursor = "pointer";
     div.innerHTML = `
       <div class="budget-top">
         <span class="budget-name" style="color:${g.color || "#60a5fa"}">● ${escapeHtml(g.name)}</span>
         <span class="budget-nums">${pct.toFixed(0)}%</span>
       </div>
       <div class="progress"><div class="${cls}" style="width:${pct}%"></div></div>
-      <div class="sub">${fmtIDR(Math.min(nw, target))} / ${fmtIDR(target)}${g.targetDate ? ` · target ${monthLabel(g.targetDate)}` : ""}</div>`;
-    div.onclick = () => openGoalSheet(g);
+      <div class="sub" style="display:flex; justify-content:space-between; align-items:center">
+        <span>${fmtIDR(saved)} / ${fmtIDR(target)}${g.targetDate ? ` · target ${monthLabel(g.targetDate)}` : ""}</span>
+      </div>
+      <div style="margin-top:8px; display:flex; gap:8px;">
+        <button class="btn btn-sm" data-topup style="flex:1">💰 Topup</button>
+        <button class="btn btn-sm" data-edit style="flex:1">✎ Edit</button>
+      </div>`;
+    div.querySelector("[data-topup]").onclick = () => openTopupSheet(g);
+    div.querySelector("[data-edit]").onclick = () => openGoalSheet(g);
     list.appendChild(div);
   });
 
@@ -91,9 +97,74 @@ function openGoalSheet(existing) {
 
   if (existing) {
     el.querySelector("#g-delete").onclick = async () => {
+      const used = state.transactions.some((t) => t.toGoalId === existing.id);
+      if (used) return toast("Goal ini punya topup — hapus dulu topup-nya di History, baru hapus goal-nya");
       if (!confirmDialog("Hapus goal ini?")) return;
       closeSheet();
       await remove("goals", existing.id);
+      toast("Dihapus");
+    };
+  }
+}
+
+// ================= Topup =================
+// Topup = transfer keluar dari akun ke goal (bukan expense). existingTx dipakai
+// buat edit topup yang udah ada (dibuka dari klik item di History/Transaksi terakhir).
+export function openTopupSheet(goal, existingTx = null) {
+  const accounts = activeAccounts();
+  if (accounts.length === 0) {
+    toast("Buat akun dulu di Settings ⚙️");
+    location.hash = "#/settings";
+    return;
+  }
+  const t = existingTx || { accountId: accounts[0].id, amount: "", date: todayStr(), note: "" };
+
+  const el = openSheet(`
+    ${sheetHead(existingTx ? "Edit Topup" : `Topup: ${escapeHtml(goal.name)}`)}
+    <input id="tp-amount" class="amount-input" inputmode="numeric" placeholder="0"
+      value="${t.amount ? fmtNum(t.amount) : ""}" autocomplete="off" />
+    <label>Dari Akun</label>
+    <select id="tp-account">
+      ${accounts.map((a) => `<option value="${a.id}" ${a.id === t.accountId ? "selected" : ""}>${escapeHtml(a.name)} (${a.currency})</option>`).join("")}
+    </select>
+    <label>Tanggal</label>
+    <input id="tp-date" type="date" value="${t.date || todayStr()}" />
+    <label>Catatan (opsional)</label>
+    <input id="tp-note" type="text" placeholder="cth: gajian bulan ini" value="${escapeHtml(t.note || "")}" />
+    <div style="margin-top:18px; display:flex; gap:8px;">
+      ${existingTx ? `<button id="tp-delete" class="btn btn-danger">Hapus</button>` : ""}
+      <button id="tp-save" class="btn btn-primary" style="flex:1">Simpan</button>
+    </div>
+  `);
+  const amountInput = el.querySelector("#tp-amount");
+  attachThousands(amountInput);
+  if (!existingTx) setTimeout(() => amountInput.focus(), 250);
+  el.querySelector("[data-close]").onclick = closeSheet;
+
+  el.querySelector("#tp-save").onclick = async () => {
+    const amount = parseAmount(amountInput.value);
+    const date = el.querySelector("#tp-date").value;
+    const accountId = el.querySelector("#tp-account").value;
+    const note = el.querySelector("#tp-note").value.trim();
+    if (!amount || amount <= 0) return toast("Isi nominal topup");
+    if (!date) return toast("Tanggal belum diisi");
+
+    const data = {
+      type: "transfer", amount, date, month: monthOf(date),
+      accountId, toAccountId: null, toGoalId: goal.id,
+      categoryId: null, note: note || `Topup: ${goal.name}`,
+    };
+    closeSheet();
+    if (existingTx) await patch("transactions", existingTx.id, data);
+    else await add("transactions", data);
+    toast("Topup tersimpan ✓");
+  };
+
+  if (existingTx) {
+    el.querySelector("#tp-delete").onclick = async () => {
+      if (!confirmDialog("Hapus topup ini? Saldo akun & goal bakal disesuaikan lagi.")) return;
+      closeSheet();
+      await remove("transactions", existingTx.id);
       toast("Dihapus");
     };
   }

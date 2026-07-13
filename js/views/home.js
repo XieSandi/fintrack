@@ -1,15 +1,20 @@
 import {
-  state, activeAccounts, accountBalances, totalCashIDR, netWorthIDR, rangeSummary,
-  catById, acctById, effectiveRate, budgetsOfMonth, spentByCategory,
+  state, activeAccounts, accountBalances, totalCashIDR, totalAssetsIDR, totalGoalSavingsIDR,
+  goalSavedIDR, rangeSummary, catById, acctById, effectiveRate, budgetsOfMonth, spentByCategory,
 } from "../store.js";
 import {
   fmtIDR, fmtMoney, escapeHtml, dateLabel, currentMonth, todayStr, monthLabel,
   isBlurred, setBlurred, openSheet, closeSheet, sheetHead, toast,
 } from "../utils.js";
 import { openTxSheet } from "../tx-sheet.js";
+import { openTopupSheet } from "./goals.js";
 
 // Filter periode Home — persist selama sesi (module-level, bukan di store global)
 const period = { mode: "month", from: null, to: null };
+
+// Toggle "include assets" di card Total Balance — persist per device
+const INCLUDE_ASSETS_KEY = "fintrack_home_include_assets";
+let includeAssets = localStorage.getItem(INCLUDE_ASSETS_KEY) === "1";
 
 const PERIOD_LABELS = { day: "Hari", week: "Minggu", month: "Bulan", year: "Tahun" };
 
@@ -52,8 +57,7 @@ function periodRangeLabel(from, to) {
 export function render(root) {
   const bal = accountBalances();
   const accounts = activeAccounts();
-  const totalBalance = totalCashIDR();
-  const nw = netWorthIDR();
+  const totalBalance = totalCashIDR() + (includeAssets ? totalAssetsIDR() + totalGoalSavingsIDR() : 0);
   const { from, to } = periodRange();
   const sum = rangeSummary(from, to);
   const savingRate = sum.income > 0 ? ((sum.surplus / sum.income) * 100).toFixed(0) : null;
@@ -70,7 +74,10 @@ export function render(root) {
     <div class="networth-banner">
       <div class="nw-head">
         <div class="label">Total Balance</div>
-        <button class="blur-toggle" data-blur-toggle aria-label="${isBlurred() ? "Tampilkan" : "Sembunyikan"} saldo">${isBlurred() ? "🙈" : "👁️"}</button>
+        <div style="display:flex; gap:6px; align-items:center">
+          <button class="asset-toggle ${includeAssets ? "active" : ""}" data-asset-toggle>+ Assets</button>
+          <button class="blur-toggle" data-blur-toggle aria-label="${isBlurred() ? "Tampilkan" : "Sembunyikan"} saldo">${isBlurred() ? "🙈" : "👁️"}</button>
+        </div>
       </div>
       <div class="big-amount" style="color:#93c5fd">${fmtIDR(totalBalance)}</div>
       <div class="sub" style="color:#7da3d8">${periodRangeLabel(from, to)}</div>
@@ -121,6 +128,12 @@ export function render(root) {
     e.currentTarget.setAttribute("aria-label", next ? "Tampilkan saldo" : "Sembunyikan saldo");
   };
 
+  root.querySelector("[data-asset-toggle]").onclick = () => {
+    includeAssets = !includeAssets;
+    localStorage.setItem(INCLUDE_ASSETS_KEY, includeAssets ? "1" : "0");
+    render(root);
+  };
+
   root.querySelectorAll("[data-period]").forEach((btn) => {
     btn.onclick = () => {
       const key = btn.dataset.period;
@@ -143,14 +156,15 @@ export function render(root) {
   } else {
     goals.forEach((g) => {
       const target = Number(g.targetAmount) || 0;
-      const pct = target > 0 ? Math.max(0, Math.min(100, (nw / target) * 100)) : 0;
+      const saved = goalSavedIDR(g.id);
+      const pct = target > 0 ? Math.max(0, Math.min(100, (saved / target) * 100)) : 0;
       const cls = pct >= 100 ? "p-green" : pct >= 50 ? "p-yellow" : "p-red";
       const div = document.createElement("div");
       div.className = "budget-mini";
       div.innerHTML = `
         <div class="bm-name">🎯 ${escapeHtml(g.name)}</div>
         <div class="progress"><div class="${cls}" style="width:${pct}%"></div></div>
-        <div class="bm-nums">${fmtIDR(target)} <span style="color:${pct >= 100 ? "var(--green)" : "var(--muted)"}">· ${pct.toFixed(0)}%</span></div>`;
+        <div class="bm-nums">${fmtIDR(saved)} / ${fmtIDR(target)} <span style="color:${pct >= 100 ? "var(--green)" : "var(--muted)"}">· ${pct.toFixed(0)}%</span></div>`;
       div.onclick = () => { location.hash = "#/goals"; };
       goalSlider.appendChild(div);
     });
@@ -214,6 +228,7 @@ function openCustomRangeSheet(root) {
 }
 
 export function txRow(t) {
+  const goal = t.toGoalId ? state.goals.find((g) => g.id === t.toGoalId) : null;
   const cat = t.type === "transfer" ? null : catById(t.categoryId);
   const acct = acctById(t.accountId);
   const toAcct = t.toAccountId ? acctById(t.toAccountId) : null;
@@ -221,16 +236,17 @@ export function txRow(t) {
   div.className = "tx-item";
   const sign = t.type === "expense" ? "−" : t.type === "income" ? "+" : "⇄";
   div.innerHTML = `
-    <div class="tx-ic">${t.type === "transfer" ? "🔁" : (cat?.icon || "📦")}</div>
+    <div class="tx-ic">${goal ? "🎯" : t.type === "transfer" ? "🔁" : (cat?.icon || "📦")}</div>
     <div class="tx-main">
-      <div class="tx-cat">${t.type === "transfer"
-        ? `Transfer` : escapeHtml(cat?.name || "—")}</div>
+      <div class="tx-cat">${goal
+        ? `Topup: ${escapeHtml(goal.name)}`
+        : t.type === "transfer" ? `Transfer` : escapeHtml(cat?.name || "—")}</div>
       <div class="tx-note">${escapeHtml(t.note || dateLabel(t.date))}</div>
     </div>
     <div>
       <div class="tx-amt ${t.type}">${sign} ${fmtMoney(t.amount, acct?.currency)}</div>
-      <div class="tx-acct">${escapeHtml(acct?.name || "?")}${toAcct ? ` → ${escapeHtml(toAcct.name)}` : ""}</div>
+      <div class="tx-acct">${escapeHtml(acct?.name || "?")}${toAcct ? ` → ${escapeHtml(toAcct.name)}` : ""}${goal ? ` → 🎯 ${escapeHtml(goal.name)}` : ""}</div>
     </div>`;
-  div.onclick = () => openTxSheet(t);
+  div.onclick = () => (goal ? openTopupSheet(goal, t) : openTxSheet(t));
   return div;
 }
