@@ -1,5 +1,5 @@
 import {
-  state, activeAccounts, accountBalances, totalCashIDR, totalAssetsIDR, totalGoalSavingsIDR,
+  state, activeAccounts, accountBalances, totalCashIDR,
   goalSavedIDR, netWorthIDR, rangeSummary, catById, acctById, effectiveRate, budgetsOfMonth, spentByCategory,
 } from "../store.js";
 import {
@@ -57,7 +57,9 @@ function periodRangeLabel(from, to) {
 export function render(root) {
   const bal = accountBalances();
   const accounts = activeAccounts();
-  const totalBalance = totalCashIDR() + (includeAssets ? totalAssetsIDR() + totalGoalSavingsIDR() : 0);
+  // includeAssets ON = net worth beneran (cash + assets + goal savings − debt),
+  // bukan cuma nambahin assets doang — kalau ga dikurangin debt, angkanya nge-gembung salah.
+  const totalBalance = includeAssets ? netWorthIDR() : totalCashIDR();
   const { from, to } = periodRange();
   const sum = rangeSummary(from, to);
   const savingRate = sum.income > 0 ? ((sum.surplus / sum.income) * 100).toFixed(0) : null;
