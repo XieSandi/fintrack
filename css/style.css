@@ -292,6 +292,11 @@ canvas { max-width: 100%; }
 }
 .chart-tabs button.active { background: var(--blue-dim); border-color: #1e40af; color: var(--blue); }
 
+/* Period tabs (Home) — horizontal scroll biar ga wrap di layar sempit */
+.period-tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.period-tabs::-webkit-scrollbar { display: none; }
+.period-tabs button { flex: 0 0 auto; white-space: nowrap; }
+
 /* Asset grouping */
 .group-head {
   display: flex; justify-content: space-between; align-items: baseline;
