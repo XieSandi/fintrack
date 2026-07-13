@@ -50,12 +50,15 @@ Budget/Akun/Kategori/Goals/Recurring = subpage di dalam Setting (punya `back` di
 
 Urutan section (top→bottom): **Filter periode** (tabs Hari/Minggu/Bulan/Tahun + Custom range
 via sheet date picker, state module-level `period`, ga persist ke Firestore) → **Card Total
-Balance** (cash-only by default; toggle "+ Assets" nge-include `totalAssetsIDR()` +
-`totalGoalSavingsIDR()`, plus Income/Expense/Surplus yang ke-filter sesuai periode di atas, plus
-progress bar **🏆 Main Milestone** di bagian bawah card — vs `netWorthIDR()`, target-nya sama
-dengan yang di banner Wealth) → **Akun** (horizontal scroll saldo per akun) →
-**🎯 Short Term Goals** (preview horizontal scroll, "Kelola →" ke `#/goals`) → **Budget bulan
-ini** (preview, "Kelola →" ke `#/budget`) → **Transaksi terakhir** (3 terbaru, txRow()
+Balance** (cash-only by default (`totalCashIDR()`); toggle "+ Assets" ganti ke `netWorthIDR()`
+penuh — cash + assets + goal savings **− debt**, BUKAN cuma nambahin assets doang. Jangan lupa
+subtract debt lagi kalau ada yang refactor bagian ini, pernah kelewat sebelumnya — plus
+Income/Expense/Surplus yang ke-filter sesuai periode di atas, plus progress bar
+**🏆 Main Milestone** di bagian bawah card — vs `netWorthIDR()`, target-nya sama dengan yang di
+banner Wealth) → **Akun** (horizontal scroll saldo per akun) → **🎯 Short Term Goals** (preview
+horizontal scroll, "Kelola →" ke `#/goals`) → **Budget bulan ini** (preview, "Kelola →" ke
+`#/budget`) → **Transaksi terakhir** (di luar `.card`, sama pola header row-nya kayak
+Akun/Goals/Budget — bukan section terpisah yang punya card sendiri; 3 terbaru, txRow()
 di-share ke `transactions.js`).
 
 Blur mode (toggle 👁️ di card Total Balance) nge-blur semua `<span class="blur-num">` (dihasilkan
