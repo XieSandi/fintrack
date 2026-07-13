@@ -1,6 +1,6 @@
 import {
   state, activeAccounts, accountBalances, netWorthIDR, totalCashIDR,
-  totalAssetsIDR, totalDebtIDR, assetValueIDR, assetCostIDR,
+  totalAssetsIDR, totalDebtIDR, totalGoalSavingsIDR, assetValueIDR, assetCostIDR,
   effectiveRate, monthSummary,
 } from "../store.js";
 import { add, patch, remove } from "../db.js";
@@ -75,6 +75,7 @@ function renderTotal(root) {
   const nw = netWorthIDR();
   const cash = totalCashIDR();
   const assets = totalAssetsIDR();
+  const goalSavings = totalGoalSavingsIDR();
   const debt = totalDebtIDR();
   const target = Number(state.settings.targetNetWorth) || 100_000_000;
   const pctTarget = Math.max(0, Math.min(100, (nw / target) * 100));
@@ -95,6 +96,7 @@ function renderTotal(root) {
       <div class="table-like">
         ${totalRow("💧 Liquid (cash semua akun)", cash, "#93c5fd")}
         ${totalRow("📈 Assets (investasi)", assets, "var(--green)")}
+        ${goalSavings > 0 ? totalRow("🎯 Goals (topup tersimpan)", goalSavings, "#c084fc") : ""}
         ${totalRow("💳 Debt", -debt, "var(--red)")}
         <div style="border-top:1px solid var(--border); margin-top:8px; padding-top:10px; display:flex; justify-content:space-between">
           <span style="font-weight:800; font-size:13px">NET WORTH</span>

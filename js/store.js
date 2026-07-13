@@ -94,7 +94,8 @@ export function accountBalances() {
     else if (t.type === "income") bal[t.accountId] = (bal[t.accountId] || 0) + amt;
     else if (t.type === "transfer") {
       bal[t.accountId] = (bal[t.accountId] || 0) - amt;
-      bal[t.toAccountId] = (bal[t.toAccountId] || 0) + amt;
+      // toGoalId (topup goal): uang keluar dari cash system, ga ada kredit ke akun manapun
+      if (t.toAccountId) bal[t.toAccountId] = (bal[t.toAccountId] || 0) + amt;
     }
   }
   return bal;
@@ -131,7 +132,23 @@ export function assetCostIDR(a) {
 
 export const totalAssetsIDR = () => state.assets.reduce((s, a) => s + assetValueIDR(a), 0);
 export const totalDebtIDR = () => state.debts.reduce((s, d) => s + (Number(d.totalOutstanding) || 0), 0);
-export const netWorthIDR = () => totalCashIDR() + totalAssetsIDR() - totalDebtIDR();
+
+// Uang yang udah di-topup ke goal (transfer keluar dari akun, toGoalId diisi).
+// Dihitung IDR pakai currency akun sumbernya, biar konsisten sama totalCashIDR().
+export function goalSavedIDR(goalId) {
+  const rate = effectiveRate();
+  return state.transactions
+    .filter((t) => t.type === "transfer" && t.toGoalId === goalId)
+    .reduce((sum, t) => {
+      const acct = acctById(t.accountId);
+      const amt = Number(t.amount) || 0;
+      return sum + (acct?.currency === "USD" ? amt * rate : amt);
+    }, 0);
+}
+export const totalGoalSavingsIDR = () => state.goals.reduce((s, g) => s + goalSavedIDR(g.id), 0);
+
+// Goal savings dihitung sebagai bagian net worth (uangnya ga hilang, cuma pindah "kantong").
+export const netWorthIDR = () => totalCashIDR() + totalAssetsIDR() + totalGoalSavingsIDR() - totalDebtIDR();
 
 // Ringkasan cashflow satu bulan (transfer tidak dihitung)
 export function monthSummary(month) {
