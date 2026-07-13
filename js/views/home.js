@@ -3,7 +3,7 @@ import {
   goalSavedIDR, netWorthIDR, rangeSummary, catById, acctById, effectiveRate, budgetsOfMonth, spentByCategory,
 } from "../store.js";
 import {
-  fmtIDR, fmtMoney, escapeHtml, dateLabel, currentMonth, todayStr, monthLabel,
+  fmtIDR, fmtMoney, escapeHtml, dateLabel, currentMonth, todayStr, toDateStr, monthLabel,
   isBlurred, setBlurred, openSheet, closeSheet, sheetHead, toast,
 } from "../utils.js";
 import { openTxSheet } from "../tx-sheet.js";
@@ -18,8 +18,6 @@ let includeAssets = localStorage.getItem(INCLUDE_ASSETS_KEY) === "1";
 
 const PERIOD_LABELS = { day: "Hari", week: "Minggu", month: "Bulan", year: "Tahun" };
 
-function pad2(n) { return String(n).padStart(2, "0"); }
-function isoDate(d) { return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; }
 function shortDate(iso) {
   const d = new Date(iso + "T00:00:00");
   return d.toLocaleDateString("id-ID", { day: "numeric", month: "short" });
@@ -27,24 +25,24 @@ function shortDate(iso) {
 
 function periodRange() {
   const today = new Date();
-  if (period.mode === "day") { const s = isoDate(today); return { from: s, to: s }; }
+  if (period.mode === "day") { const s = toDateStr(today); return { from: s, to: s }; }
   if (period.mode === "week") {
     const day = today.getDay(); // 0=Min..6=Sab
     const diffToMon = day === 0 ? -6 : 1 - day;
     const mon = new Date(today); mon.setDate(today.getDate() + diffToMon);
     const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
-    return { from: isoDate(mon), to: isoDate(sun) };
+    return { from: toDateStr(mon), to: toDateStr(sun) };
   }
   if (period.mode === "year") {
     return { from: `${today.getFullYear()}-01-01`, to: `${today.getFullYear()}-12-31` };
   }
   if (period.mode === "custom") {
-    return { from: period.from || isoDate(today), to: period.to || isoDate(today) };
+    return { from: period.from || toDateStr(today), to: period.to || toDateStr(today) };
   }
   // month (default)
   const first = new Date(today.getFullYear(), today.getMonth(), 1);
   const last = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-  return { from: isoDate(first), to: isoDate(last) };
+  return { from: toDateStr(first), to: toDateStr(last) };
 }
 
 function periodRangeLabel(from, to) {

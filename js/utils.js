@@ -25,7 +25,16 @@ export const attachThousands = (input) => {
 };
 
 // ---------- Dates ----------
-export const todayStr = () => new Date().toISOString().slice(0, 10);
+// Format Date object -> "YYYY-MM-DD" pakai komponen LOCAL device (getFullYear/getMonth/getDate),
+// BUKAN toISOString() (itu UTC -- di WIB antara jam 00:00-07:00 bisa mundur satu hari kalender).
+// toISOString() sendiri tetep OK buat timestamp MOMEN (createdAt, lastBackupAt, dll), cuma
+// jangan dipakai buat representasi tanggal kalender.
+export const toDateStr = (d) => {
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
+
+export const todayStr = () => toDateStr(new Date());
 export const monthOf = (dateStr) => dateStr.slice(0, 7);
 export const currentMonth = () => todayStr().slice(0, 7);
 
@@ -52,7 +61,7 @@ export const dateLabel = (dateStr) => {
   const today = todayStr();
   if (dateStr === today) return "Hari ini";
   const yest = new Date(); yest.setDate(yest.getDate() - 1);
-  if (dateStr === yest.toISOString().slice(0, 10)) return "Kemarin";
+  if (dateStr === toDateStr(yest)) return "Kemarin";
   return d.toLocaleDateString("id-ID", { weekday: "short", day: "numeric", month: "short" });
 };
 

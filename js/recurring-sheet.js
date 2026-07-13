@@ -6,7 +6,7 @@ import { add, patch } from "./db.js";
 import { copyBudgetFromLastMonth } from "./views/budget.js";
 import {
   openSheet, closeSheet, sheetHead, toast, escapeHtml, fmtMoney,
-  todayStr, currentMonth,
+  todayStr, toDateStr, currentMonth,
 } from "./utils.js";
 
 const DISMISS_KEY = "fintrack_recurring_dismissed_date"; // tanggal terakhir user klik "Nanti"/tutup
@@ -23,8 +23,7 @@ function lastDayOfCurrentMonth() {
 function dateForDay(dayOfMonth) {
   const today = new Date();
   const day = Math.min(Number(dayOfMonth) || 1, lastDayOfCurrentMonth());
-  const pad = (n) => String(n).padStart(2, "0");
-  return `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(day)}`;
+  return toDateStr(new Date(today.getFullYear(), today.getMonth(), day));
 }
 
 function dueRecurring() {
