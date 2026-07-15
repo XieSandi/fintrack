@@ -38,6 +38,10 @@ export const todayStr = () => toDateStr(new Date());
 export const monthOf = (dateStr) => dateStr.slice(0, 7);
 export const currentMonth = () => todayStr().slice(0, 7);
 
+// Jumlah hari di suatu bulan (month 1-indexed, kayak dayOfMonth di mana-mana).
+// Dipakai buat clamp dayOfMonth template recurring (tgl 31 di bulan 30 hari, dst).
+export const daysInMonth = (year, month) => new Date(year, month, 0).getDate();
+
 export const monthLabel = (m) => {
   const [y, mo] = m.split("-");
   const names = ["Jan","Feb","Mar","Apr","Mei","Jun","Jul","Agt","Sep","Okt","Nov","Des"];

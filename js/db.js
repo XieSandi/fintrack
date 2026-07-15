@@ -19,10 +19,63 @@ const stamp = (data, isNew) => ({
 });
 
 // Generic CRUD
-export const add = (name, data) => addDoc(col(name), stamp(data, true));
+export async function add(name, data) {
+  const ref = await addDoc(col(name), stamp(data, true));
+  if (name === "transactions" && data.debtId) {
+    await applyDebtEffect(data.debtId, -(Number(data.amount) || 0), true, -1);
+  }
+  return ref;
+}
 export const put = (name, id, data) => setDoc(docRef(name, id), stamp(data, true), { merge: true });
-export const patch = (name, id, data) => updateDoc(docRef(name, id), stamp(data, false));
-export const remove = (name, id) => deleteDoc(docRef(name, id));
+export async function patch(name, id, data) {
+  const before = name === "transactions" ? state.transactions.find((t) => t.id === id) : null;
+  await updateDoc(docRef(name, id), stamp(data, false));
+  if (name === "transactions" && (before?.debtId || data.debtId)) {
+    await handleDebtPatch(before, data);
+  }
+}
+export async function remove(name, id) {
+  const before = name === "transactions" ? state.transactions.find((t) => t.id === id) : null;
+  await deleteDoc(docRef(name, id));
+  if (name === "transactions" && before?.debtId) {
+    await applyDebtEffect(before.debtId, Number(before.amount) || 0, true, 1);
+  }
+}
+
+// ================= Efek cicilan ke debt (TASK-4) =================
+// Transaksi expense bisa opsional bawa `debtId` (tx-sheet.js / recurring). Efeknya ke
+// debts.totalOutstanding/remainingMonths DIPUSATKAN di sini, dipanggil otomatis dari
+// add/patch/remove di atas — sheet manapun yang bikin/edit/hapus transaksi ga perlu tau
+// soal ini sama sekali, cukup isi field `debtId` kayak field lain.
+async function applyDebtEffect(debtId, outstandingDelta, touchMonths, monthsDelta = 0) {
+  const debt = state.debts.find((d) => d.id === debtId);
+  if (!debt) return; // debt-nya udah kehapus duluan — ga ada yang bisa disesuaikan
+  const data = { totalOutstanding: Math.max(0, (Number(debt.totalOutstanding) || 0) + outstandingDelta) };
+  if (touchMonths && debt.remainingMonths != null) {
+    data.remainingMonths = Math.max(0, (Number(debt.remainingMonths) || 0) + monthsDelta);
+  }
+  await patch("debts", debtId, data);
+}
+
+// Bandingin transaksi lama vs data baru pas PATCH — nentuin apply/reverse/adjust yang mana.
+// debtId sama (termasuk sama-sama kosong) → cuma sesuaikan selisih nominal, remainingMonths
+// ga ikut kesentuh (itu hitungan JUMLAH pembayaran, bukan nominal). debtId beda/baru/dilepas
+// → reverse penuh ke debt lama (kalau ada) + apply penuh ke debt baru (kalau ada).
+async function handleDebtPatch(before, data) {
+  const oldDebtId = before?.debtId || null;
+  const newDebtId = data.debtId || null;
+  const oldAmount = Number(before?.amount) || 0;
+  const newAmount = Number(data.amount) || 0;
+
+  if (oldDebtId === newDebtId) {
+    if (newDebtId && oldAmount !== newAmount) {
+      await applyDebtEffect(newDebtId, -(newAmount - oldAmount), false);
+    }
+    return;
+  }
+  if (oldDebtId) await applyDebtEffect(oldDebtId, oldAmount, true, 1);
+  if (newDebtId) await applyDebtEffect(newDebtId, -newAmount, true, -1);
+}
 
 // ================= Seeding (first run) =================
 const PRESET_CATEGORIES = [
