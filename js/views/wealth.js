@@ -449,15 +449,16 @@ function renderDebts(root) {
   rows.forEach((d) => {
     const div = document.createElement("div");
     div.className = "asset-item";
-    const dueSoon = d.dueDay && d.dueDay - today >= 0 && d.dueDay - today <= 3;
+    const isPaidOff = (Number(d.totalOutstanding) || 0) <= 0;
+    const dueSoon = !isPaidOff && d.dueDay && d.dueDay - today >= 0 && d.dueDay - today <= 3;
     div.innerHTML = `
       <div>
-        <div class="asset-sym" style="font-size:13px">${escapeHtml(d.name)}</div>
+        <div class="asset-sym" style="font-size:13px">${escapeHtml(d.name)} ${isPaidOff ? '<span class="badge badge-green">Lunas 🎉</span>' : ""}</div>
         <div class="asset-meta">cicilan ${fmtIDR(d.monthlyInstalment)}/bln · sisa ${d.remainingMonths ?? "?"} bln</div>
-        ${d.dueDay ? `<div class="stale-note">jatuh tempo tgl ${d.dueDay} ${dueSoon ? '<span class="badge badge-yellow">SEGERA</span>' : ""}</div>` : ""}
+        ${d.dueDay && !isPaidOff ? `<div class="stale-note">jatuh tempo tgl ${d.dueDay} ${dueSoon ? '<span class="badge badge-yellow">SEGERA</span>' : ""}</div>` : ""}
       </div>
       <div class="asset-right">
-        <div class="asset-val" style="color:var(--red)">${fmtIDR(d.totalOutstanding)}</div>
+        <div class="asset-val" style="color:${isPaidOff ? "var(--green)" : "var(--red)"}">${fmtIDR(d.totalOutstanding)}</div>
         <div class="stale-note">outstanding</div>
       </div>`;
     div.onclick = () => openDebtSheet(d);
@@ -481,7 +482,7 @@ function openDebtSheet(existing) {
       <div><label>Jatuh tempo (tgl)</label><input id="d-due" inputmode="numeric" placeholder="15" value="${d.dueDay ?? ""}" /></div>
       <div><label>Sisa bulan</label><input id="d-months" inputmode="numeric" placeholder="8" value="${d.remainingMonths ?? ""}" /></div>
     </div>
-    <div class="sub">💡 Pembayaran cicilan tetap dicatat sebagai transaksi expense (kategori Cicilan/Debt). Update outstanding di sini secara manual setelah bayar.</div>
+    <div class="sub">💡 Pas catat expense cicilan, pilih hutang ini di "Potong hutang?" — outstanding & sisa bulan kepotong otomatis. Field di atas cuma buat setup awal / koreksi manual.</div>
     <div style="margin-top:18px; display:flex; gap:8px;">
       ${existing ? `<button id="d-delete" class="btn btn-danger">Lunas / Hapus</button>` : ""}
       <button id="d-save" class="btn btn-primary" style="flex:1">Simpan</button>
@@ -508,6 +509,8 @@ function openDebtSheet(existing) {
 
   if (existing) {
     el.querySelector("#d-delete").onclick = async () => {
+      const used = state.transactions.some((t) => t.debtId === existing.id);
+      if (used) return toast("Hutang ini punya riwayat pembayaran ber-link — lepas link-nya (edit transaksi, kosongin 'Potong hutang?') di History dulu, baru hapus");
       if (!confirmDialog("Hapus hutang ini? (misal karena sudah lunas)")) return;
       closeSheet();
       await remove("debts", existing.id);

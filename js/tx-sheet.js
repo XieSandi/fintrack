@@ -24,6 +24,7 @@ export function openTxSheet(existing = null) {
     accountId: last.accountId || accounts[0].id,
     toAccountId: accounts[1]?.id || accounts[0].id,
     categoryId: last.categoryId || "",
+    debtId: "",
     note: "",
   };
   let type = tx.type;
@@ -58,6 +59,15 @@ export function openTxSheet(existing = null) {
       </div>
     </div>
 
+    ${state.debts.length > 0 ? `
+    <div id="debt-section" class="hidden">
+      <label>Potong hutang? (opsional)</label>
+      <select id="tx-debt">
+        <option value="">— Ga terkait hutang —</option>
+        ${state.debts.map((d) => `<option value="${d.id}" ${d.id === (tx.debtId || "") ? "selected" : ""}>${escapeHtml(d.name)}</option>`).join("")}
+      </select>
+    </div>` : ""}
+
     <div class="row">
       <div>
         <label>Tanggal</label>
@@ -85,6 +95,7 @@ export function openTxSheet(existing = null) {
     });
     el.querySelector("#cat-section").classList.toggle("hidden", type === "transfer");
     el.querySelector("#to-acct-wrap").classList.toggle("hidden", type !== "transfer");
+    el.querySelector("#debt-section")?.classList.toggle("hidden", type !== "expense");
     el.querySelector("#acct-label").textContent = type === "transfer" ? "Dari Akun" : "Akun";
     renderCatGrid();
   };
@@ -125,6 +136,7 @@ export function openTxSheet(existing = null) {
       accountId, note,
       categoryId: type === "transfer" ? null : categoryId,
       toAccountId: type === "transfer" ? toAccountId : null,
+      debtId: type === "expense" ? (el.querySelector("#tx-debt")?.value || null) : null,
     };
 
     // Simpan preferensi terakhir untuk quick-add berikutnya

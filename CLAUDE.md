@@ -76,7 +76,7 @@ Blur mode (toggle 👁️ di card Total Balance) nge-blur semua `<span class="bl
   sesi, idempotent) — lihat Known Quirks. Ga bisa dihapus kalau masih dipakai transaksi
   (guard di `categories.js`).
 - `transactions` — {date, month:"YYYY-MM", amount, type: expense|income|transfer, accountId,
-  toAccountId?, toGoalId?, fromGoalId?, categoryId, note}. Transfer = 1 record, BUKAN expense.
+  toAccountId?, toGoalId?, fromGoalId?, categoryId, debtId?, note}. Transfer = 1 record, BUKAN expense.
   **Topup goal** = transfer, `toGoalId` diisi (bukan `toAccountId`) — `accountId` = akun SUMBER
   (ke-debit), ga ada akun yang ke-kredit. **Pencairan goal** = kebalikannya, `fromGoalId` diisi
   — `accountId` di sini malah jadi akun TUJUAN (ke-kredit), ga ada akun yang ke-debit (lihat
@@ -84,10 +84,26 @@ Blur mode (toggle 👁️ di card Total Balance) nge-blur semua `<span class="bl
   akun tetap satu & generic di seluruh app (filter History, txRow, dll) ga perlu tau bedanya.
   Dibuat/diedit lewat `openTopupSheet()`/`openWithdrawSheet()` di `goals.js`, BUKAN
   `openTxSheet()` generik di `tx-sheet.js` (yang itu ga ngerti `toGoalId`/`fromGoalId`).
+  **Peringatan buat fitur masa depan:** apapun yang mengagregasi arus kas PER AKUN (laporan
+  per akun, export CSV, dsb.) WAJIB memeriksa `toGoalId`/`fromGoalId` dulu buat nentuin arah
+  `accountId` — kalau diasumsikan selalu "sumber" (kayak transfer akun-ke-akun biasa), transaksi
+  pencairan goal bakal ke-hitung kebalik (debit dianggap kredit).
 - `budgets` — id deterministik `{month}_{categoryId}`.
 - `assets` — saham IDX (quantity dalam **LOT**, ×100 lembar saat hitung nilai), US fractional shares,
   dll. `manualPrice` + `manualPriceUpdatedAt` + `priceSource`. `manualOnly:true` = skip auto-refresh.
+  Tab Assets (Wealth) nampilin ringkasan **Nilai / Invested / Unrealized P&L** (`assetCostIDR()`
+  dari `avgBuyPrice`, P&L = nilai − invested) di atas list, ngikutin filter tipe aktif — sign
+  convention SAMA kayak per-asset P&L di `assetRow()` (val − cost), jangan dibalik biar ga
+  selisih warna sama baris individual-nya.
 - `debts` — outstanding, monthlyInstalment, dueDay, remainingMonths. Mengurangi net worth.
+  Transaksi expense bisa opsional bawa `debtId` (dropdown "Potong hutang?" di `openTxSheet()`
+  kalau ada ≥1 debt, dan di form `recurring`) — CREATE/EDIT/DELETE transaksi ber-`debtId`
+  otomatis nyesuain `totalOutstanding`/`remainingMonths` (floor 0). Logic-nya DIPUSATKAN di
+  `applyDebtEffect()`/`handleDebtPatch()` (db.js), nge-hook langsung ke `add()`/`patch()`/
+  `remove()` generik buat collection `"transactions"` — sheet manapun yang nulis transaksi
+  otomatis kena efeknya tanpa perlu tau, JANGAN reimplement mutasi debt manual di sheet.
+  `totalOutstanding` ≤ 0 → badge "Lunas 🎉" (tab Debt Wealth), bukan auto-delete. Debt yang
+  punya transaksi ber-`debtId` ga bisa dihapus langsung — pola sama proteksi hapus akun/goal.
 - `goals` — Short Term Goals. {name, targetAmount, targetDate? ("YYYY-MM"), color}. Bisa lebih
   dari satu (dikelola di `#/goals`, menu di Setting). **Sistem topup + pencairan**, bukan target
   pasif: saldo goal = topup − pencairan asli (`goalSavedIDR()`), bukan net worth. Goal saldo 0
@@ -95,8 +111,8 @@ Blur mode (toggle 👁️ di card Total Balance) nge-blur semua `<span class="bl
   di-topup lagi). Goal yang punya riwayat topup ATAU pencairan ga bisa dihapus langsung (harus
   beresin transaksinya dulu di History) — pola sama kayak proteksi hapus akun. Beda konsep dari
   Main Milestone (`settings.targetNetWorth`) — lihat catatan di atas.
-- `recurring` — {name, type, amount, accountId, toAccountId?, categoryId?, dayOfMonth (1–31),
-  active, lastPostedMonth? ("YYYY-MM")}. Dikelola di `#/recurring`. Tiap app dibuka, item aktif
+- `recurring` — {name, type, amount, accountId, toAccountId?, categoryId?, debtId?, dayOfMonth
+  (1–31), active, lastPostedMonth? ("YYYY-MM")}. Dikelola di `#/recurring`. Tiap app dibuka, item aktif
   yang `dayOfMonth` ≤ hari ini DAN `lastPostedMonth` ≠ bulan berjalan dianggap "jatuh tempo" →
   muncul sheet **Awal Bulan** (`recurring-sheet.js`) buat konfirmasi (checklist, default semua
   tercentang) + opsi salin budget bulan lalu kalau budget bulan ini kosong. **JANGAN AUTO-POST**
@@ -105,6 +121,12 @@ Blur mode (toggle 👁️ di card Total Balance) nge-blur semua `<span class="bl
   riil, bukan kapan usernya buka app. Edit template TIDAK reset `lastPostedMonth` (biar ga dobel
   post bulan yang sama). Sheet muncul maks 1x/hari kalau di-"Nanti"-in (flag tanggal di
   localStorage, key `fintrack_recurring_dismissed_date`), dipanggil sekali per sesi dari app.js.
+  `dayOfMonth` di-clamp ke hari terakhir bulan berjalan (`daysInMonth()` di utils.js) — template
+  tgl 31 tetep kepost di bulan 30 hari, cek jatuh tempo maupun tanggal transaksinya pakai
+  effective day yang sama. Referensi akun/kategori/debt yang udah diarsip/kehapus di-deteksi via
+  `brokenReason()` (recurring-sheet.js, dipakai bareng views/recurring.js) — item broken ga
+  bisa dicentang di sheet Awal Bulan (checkbox disabled) dan dapet badge merah di `#/recurring`,
+  TAPI ga ngeblok item lain yang sehat buat tetep di-post.
 - `snapshots/{YYYY-MM}` — net worth bulanan, di-upsert otomatis saat app dibuka (`upsertSnapshot`).
   Bisa juga di-backfill manual buat bulan pra-app lewat card "Snapshot Historis" di Setting
   (`{month, netWorth, manual:true}`, minimal field — chart Tren Net Worth cuma butuh `netWorth`

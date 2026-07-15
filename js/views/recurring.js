@@ -2,8 +2,9 @@ import { state, activeAccounts } from "../store.js";
 import { add, patch, remove } from "../db.js";
 import {
   fmtNum, fmtMoney, escapeHtml, toast, openSheet, closeSheet, sheetHead,
-  parseAmount, attachThousands, confirmDialog,
+  parseAmount, attachThousands, confirmDialog, daysInMonth,
 } from "../utils.js";
+import { brokenReason } from "../recurring-sheet.js";
 
 export function render(root) {
   const items = state.recurring.slice().sort((a, b) => (a.dayOfMonth || 1) - (b.dayOfMonth || 1));
@@ -18,15 +19,21 @@ export function render(root) {
   `;
 
   const list = root.querySelector("#rc-list");
+  const today = new Date();
+  const lastDay = daysInMonth(today.getFullYear(), today.getMonth() + 1);
   items.forEach((r) => {
     const acct = state.accounts.find((a) => a.id === r.accountId);
     const div = document.createElement("div");
     div.className = "list-item";
     const typeLabel = r.type === "expense" ? "Expense" : r.type === "income" ? "Income" : "Transfer";
+    const effectiveDay = Math.min(Number(r.dayOfMonth) || 1, lastDay);
+    const dayLabel = effectiveDay !== Number(r.dayOfMonth) ? `tgl ${r.dayOfMonth} (bulan ini efektif tgl ${effectiveDay})` : `tgl ${r.dayOfMonth}`;
+    const reason = brokenReason(r);
     div.innerHTML = `
       <div style="flex:1">
-        <div style="font-size:13px;font-weight:600">${escapeHtml(r.name)} ${r.active === false ? '<span class="badge badge-yellow">nonaktif</span>' : ""}</div>
-        <div class="set-sub">tgl ${r.dayOfMonth} · ${typeLabel} · ${fmtMoney(r.amount, acct?.currency)} · ${escapeHtml(acct?.name || "?")}</div>
+        <div style="font-size:13px;font-weight:600">${escapeHtml(r.name)} ${r.active === false ? '<span class="badge badge-yellow">nonaktif</span>' : ""} ${reason ? '<span class="badge badge-red">⚠️ akun/kategori invalid</span>' : ""}</div>
+        <div class="set-sub">${dayLabel} · ${typeLabel} · ${fmtMoney(r.amount, acct?.currency)} · ${escapeHtml(acct?.name || "?")}</div>
+        ${reason ? `<div class="stale-note" style="color:var(--yellow)">⚠️ ${reason}</div>` : ""}
       </div>
       <span style="color:var(--muted)">›</span>`;
     div.onclick = () => openRecurringSheet(r);
@@ -45,7 +52,7 @@ function openRecurringSheet(existing) {
   }
   const r = existing || {
     name: "", type: "expense", amount: "", accountId: accounts[0].id,
-    toAccountId: accounts[1]?.id || accounts[0].id, categoryId: "",
+    toAccountId: accounts[1]?.id || accounts[0].id, categoryId: "", debtId: "",
     dayOfMonth: 1, active: true,
   };
   let type = r.type;
@@ -84,6 +91,15 @@ function openRecurringSheet(existing) {
       </div>
     </div>
 
+    ${state.debts.length > 0 ? `
+    <div id="debt-section" class="hidden">
+      <label>Potong hutang? (opsional)</label>
+      <select id="rc-debt">
+        <option value="">— Ga terkait hutang —</option>
+        ${state.debts.map((d) => `<option value="${d.id}" ${d.id === (r.debtId || "") ? "selected" : ""}>${escapeHtml(d.name)}</option>`).join("")}
+      </select>
+    </div>` : ""}
+
     <label>Tanggal tiap bulan</label>
     <input id="rc-day" type="number" inputmode="numeric" min="1" max="31" value="${r.dayOfMonth || 1}" />
 
@@ -106,6 +122,7 @@ function openRecurringSheet(existing) {
     });
     el.querySelector("#cat-section").classList.toggle("hidden", type === "transfer");
     el.querySelector("#to-acct-wrap").classList.toggle("hidden", type !== "transfer");
+    el.querySelector("#debt-section")?.classList.toggle("hidden", type !== "expense");
     el.querySelector("#acct-label").textContent = type === "transfer" ? "Dari Akun" : "Akun";
     renderCatGrid();
   };
@@ -142,6 +159,7 @@ function openRecurringSheet(existing) {
       name, type, amount, accountId, dayOfMonth, active,
       toAccountId: type === "transfer" ? toAccountId : null,
       categoryId: type === "transfer" ? null : categoryId,
+      debtId: type === "expense" ? (el.querySelector("#rc-debt")?.value || null) : null,
     };
     // Pertahankan lastPostedMonth pas edit — kalau bulan ini udah pernah di-post,
     // ubah nama/nominal doang ga boleh bikin sheet Awal Bulan muncul lagi & dobel post.

@@ -1,6 +1,6 @@
 # TASKS.md — Backlog Instruksi untuk Claude Code (v2)
 
-Cara pakai: buka session (`claude` di root repo), lalu bilang "kerjain TASK-3 di TASKS.md".
+Cara pakai: buka session (`claude` di root repo), lalu bilang "kerjain TASK-5 di TASKS.md".
 Kerjakan **satu task per session/branch**, urut prioritas. Baca CLAUDE.md dulu — semua
 ATURAN WAJIB berlaku untuk setiap task, terutama:
 
@@ -13,70 +13,6 @@ ATURAN WAJIB berlaku untuk setiap task, terutama:
 
 Di-exclude sengaja (jangan dikerjain): banner update SW (Hard Refresh cukup, single user);
 arsip transaksi lama (evaluasi nanti kalau >3.000 docs).
-
----
-
-## TASK-3 (P1, BUG) — Recurring edge cases: tanggal 29–31 + referensi invalid
-
-**Masalah A:** kondisi jatuh tempo `dayOfMonth ≤ hari ini` bikin template tgl 31 (atau 29/30
-di Februari) TIDAK PERNAH prompt di bulan yang lebih pendek — kelewat diam-diam.
-
-**Fix A:** saat evaluasi jatuh tempo DAN saat menentukan tanggal transaksi yang di-post,
-clamp `dayOfMonth` ke hari terakhir bulan berjalan
-(`effectiveDay = min(dayOfMonth, daysInMonth(bulanBerjalan))`). Buat helper `daysInMonth()`
-di utils.js kalau belum ada. Terapkan konsisten di app.js (trigger), recurring-sheet.js
-(posting), dan tampilan "jatuh tempo tgl X" di views/recurring.js (tampilkan tanggal efektif).
-
-**Masalah B:** template recurring bisa menunjuk akun yang sudah DIARSIP (arsip tidak kena
-guard hapus) atau kategori yang terhapus — transaksi bakal ke-post ke referensi mati
-tanpa peringatan.
-
-**Fix B:**
-- Sheet Awal Bulan: item dengan `accountId`/`toAccountId` yang arsip/tidak ada, atau
-  `categoryId` yang tidak ada → tampilkan ⚠️ + alasan singkat, DEFAULT TIDAK TERCENTANG,
-  dan tidak bisa dicentang sampai template dibenerin.
-- Halaman `#/recurring`: template broken ditandai badge merah "⚠️ akun/kategori invalid".
-- Jangan blokir item lain yang sehat — tetap bisa di-post.
-
-**Acceptance:**
-- Template dayOfMonth=31, bulan berjalan 30 hari, buka app tgl 30 → item muncul di sheet,
-  transaksi ke-post tanggal 30.
-- Februari + template tgl 30 → ke-post tgl 28/29.
-- Arsipkan akun yang dipakai template → sheet Awal Bulan menandai ⚠️ dan tidak memposting item itu.
-
----
-
-## TASK-4 (P1) — Link pembayaran cicilan ke debt outstanding
-
-**Masalah:** expense cicilan dan `debts.totalOutstanding`/`remainingMonths` adalah dua dunia
-terpisah — harus update manual dua kali, gampang desync. Makin relevan karena recurring
-bakal memposting expense cicilan tiap bulan sementara outstanding beku.
-
-**Implementasi:**
-- Field opsional `debtId` di transaksi expense. UI: di `openTxSheet()` (tx-sheet.js),
-  KALAU type=expense DAN ada minimal 1 debt aktif → tampilkan select opsional
-  "Potong hutang? (opsional)" berisi daftar debts + pilihan "—". Jangan ganggu flow
-  quick-add kalau tidak dipakai.
-- Field `debtId` juga di template `recurring` (form di views/recurring.js) → transaksi
-  hasil posting Awal Bulan membawa `debtId`.
-- Saat transaksi expense ber-`debtId` DIBUAT: `patch` debt → `totalOutstanding -= amount`
-  (floor 0), `remainingMonths -= 1` (floor 0, hanya jika sebelumnya > 0).
-- Saat transaksi ber-`debtId` DIHAPUS: kembalikan efeknya (outstanding += amount,
-  remainingMonths += 1). Saat DIEDIT nominalnya: sesuaikan selisihnya. Kalau `debtId`
-  diganti/dihapus saat edit: kembalikan ke debt lama, terapkan ke debt baru.
-  Semua logic mutasi debt ini dipusatkan di satu helper di db.js (mis. `applyDebtEffect()`),
-  JANGAN tersebar di tiap sheet.
-- Outstanding mencapai 0 → badge "Lunas 🎉" di tab Debt (Wealth). Jangan auto-delete.
-- Debt yang punya transaksi ber-`debtId` tidak bisa dihapus langsung (pola guard akun/goal) —
-  atau minimal konfirmasi eksplisit bahwa link riwayatnya jadi yatim.
-
-**Acceptance:**
-- Catat expense 286.032 dengan debtId Tokopedia CC → outstanding turun 286.032,
-  remainingMonths turun 1, muncul normal di History & laporan expense.
-- Hapus transaksi itu → outstanding & remainingMonths balik.
-- Posting recurring ber-debtId → efek sama dengan manual.
-- Net worth naik-turunnya konsisten (expense mengurangi cash, outstanding berkurang —
-  keduanya sudah otomatis lewat derived calc, verifikasi saja tidak dobel hitung).
 
 ---
 
@@ -161,12 +97,3 @@ disentuh hampir tiap task di atas. Buat safety net minimal TANPA framework/depen
 
 **Acceptance:** `node tests/calc.test.mjs` hijau; app berjalan identik (calc.js masuk
 PRECACHE karena dipakai runtime; tests/ tidak).
-
----
-
-## Catatan untuk CLAUDE.md (kerjakan bareng task pertama yang disentuh)
-
-Tambahkan ke section Data Model → transactions, warning untuk fitur masa depan:
-"Fitur apapun yang mengagregasi arus kas PER AKUN (laporan per akun, export CSV, dsb.)
-WAJIB memeriksa `toGoalId`/`fromGoalId` untuk menentukan arah — `accountId` pada transaksi
-goal bisa berarti sumber (topup) ATAU tujuan (withdrawal)."
