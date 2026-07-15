@@ -191,6 +191,9 @@ function renderAssets(root) {
   const typesPresent = [...new Set(all.map((a) => a.type))];
   const rows = assetFilter ? all.filter((a) => a.type === assetFilter) : all;
   const filteredTotal = rows.reduce((s, a) => s + assetValueIDR(a), 0);
+  const filteredCost = rows.reduce((s, a) => s + assetCostIDR(a), 0);
+  const filteredPnl = filteredTotal - filteredCost;
+  const filteredPnlPct = filteredCost > 0 ? (filteredPnl / filteredCost) * 100 : 0;
   const nRefreshable = refreshableAssets().length;
 
   root.innerHTML = `
@@ -202,7 +205,13 @@ function renderAssets(root) {
       <button id="btn-refresh-prices" class="btn" style="flex:0 0 auto" ${nRefreshable === 0 ? "disabled" : ""}>🔄 Harga</button>
     </div>
     <div class="card">
-      ${rows.length > 0 ? `<div class="sub" style="margin-bottom:6px">Total ${assetFilter ? (ASSET_TYPES[assetFilter] || "") : "assets"}: <b style="color:var(--green)">${fmtIDR(filteredTotal)}</b></div>` : ""}
+      ${rows.length > 0 ? `
+      <div class="summary3" style="margin-bottom:12px">
+        <div><div class="label">Nilai</div><div class="v" style="color:var(--green)">${fmtIDR(filteredTotal)}</div></div>
+        <div><div class="label">Invested</div><div class="v">${fmtIDR(filteredCost)}</div></div>
+        <div><div class="label">Unrealized P/L</div><div class="v" style="color:${filteredPnl >= 0 ? "var(--green)" : "var(--red)"}">${filteredPnl >= 0 ? "+" : ""}${fmtIDR(filteredPnl)}</div>
+        <div class="sub">${filteredPnlPct >= 0 ? "+" : ""}${filteredPnlPct.toFixed(1)}%</div></div>
+      </div>` : ""}
       <div id="asset-list">
         ${all.length === 0 ? `<div class="empty">Belum ada asset.<br/>Tambahin saham, deposito, dll.</div>` : ""}
         ${all.length > 0 && rows.length === 0 ? `<div class="empty">Ga ada asset di tipe ini.</div>` : ""}
