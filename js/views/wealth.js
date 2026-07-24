@@ -1,7 +1,7 @@
 import {
   state, activeAccounts, accountBalances, netWorthIDR, totalCashIDR,
   totalAssetsIDR, totalDebtIDR, totalGoalSavingsIDR, assetValueIDR, assetCostIDR,
-  effectiveRate, monthSummary,
+  effectiveRate, monthSummary, milestoneProgress,
 } from "../store.js";
 import { add, patch, remove } from "../db.js";
 import {
@@ -77,18 +77,20 @@ function renderTotal(root) {
   const assets = totalAssetsIDR();
   const goalSavings = totalGoalSavingsIDR();
   const debt = totalDebtIDR();
-  const target = Number(state.settings.targetNetWorth) || 100_000_000;
-  const pctTarget = Math.max(0, Math.min(100, (nw / target) * 100));
+  const milestone = milestoneProgress();
   const rate = effectiveRate();
 
   root.innerHTML = `
     <div class="networth-banner">
       <div class="label">Net Worth</div>
       <div class="big-amount" style="color:#93c5fd">${fmtIDR(nw)}</div>
+      ${milestone.hidden ? "" : `
       <div class="progress" style="margin-top:12px; height:8px;">
-        <div style="width:${pctTarget}%; background:linear-gradient(90deg,#3b82f6,#60a5fa)"></div>
+        <div style="width:${milestone.achieved ? 100 : milestone.pct}%; background:${milestone.achieved ? "linear-gradient(90deg,#eab308,#facc15)" : "linear-gradient(90deg,#3b82f6,#60a5fa)"}"></div>
       </div>
-      <div class="sub" style="color:#7da3d8">🏆 Main Milestone: ${pctTarget.toFixed(1)}% menuju ${fmtIDR(target)}</div>
+      <div class="sub" style="color:${milestone.achieved ? "#facc15" : "#7da3d8"}">${milestone.achieved
+        ? `🏆 Tercapai! Net worth ${fmtIDR(milestone.nw)} ≥ target ${fmtIDR(milestone.target)}`
+        : `🏆 Main Milestone: ${milestone.pct.toFixed(1)}% menuju ${fmtIDR(milestone.target)}`}</div>`}
       <div class="sub" style="color:#5a789f">Kurs USD ${fmtNum(rate)}${state.settings.usdIdrManual ? " (manual)" : state.usdIdr ? ` · auto per ${state.usdIdr.date}` : ""}</div>
     </div>
 
@@ -118,7 +120,7 @@ function renderTotal(root) {
     b.onclick = () => { chartTab = b.dataset.chart; render(root.parentElement); };
   });
 
-  renderChart(root, target);
+  renderChart(root, milestone.target);
 }
 
 const totalRow = (label, val, color) => `

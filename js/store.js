@@ -164,6 +164,17 @@ export const totalGoalSavingsIDR = () => state.goals.reduce((s, g) => s + goalSa
 // Goal savings dihitung sebagai bagian net worth (uangnya ga hilang, cuma pindah "kantong").
 export const netWorthIDR = () => totalCashIDR() + totalAssetsIDR() + totalGoalSavingsIDR() - totalDebtIDR();
 
+// Progress 🏆 Main Milestone — SATU sumber dipakai card Total Balance (Home) & banner Net
+// Worth (Wealth), biar dua tempat itu ga pernah beda angka/state kalau nanti diubah lagi.
+// target 0/kosong → hidden:true (bukan div-by-zero, bukan diam-diam fallback ke angka lain).
+export function milestoneProgress() {
+  const target = Number(state.settings.targetNetWorth) || 0;
+  if (target <= 0) return { target: 0, nw: 0, pct: 0, achieved: false, hidden: true };
+  const nw = netWorthIDR();
+  const pct = Math.max(0, Math.min(100, (nw / target) * 100));
+  return { target, nw, pct, achieved: nw >= target, hidden: false };
+}
+
 // Ringkasan cashflow satu bulan (transfer tidak dihitung)
 export function monthSummary(month) {
   let income = 0, expense = 0;
