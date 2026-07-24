@@ -1,9 +1,13 @@
 // Central state + realtime Firestore listeners.
 // Views subscribe via store.on(fn) dan di-rerender saat data berubah.
+// Kalkulasi murni (accountBalances, netWorthIDR, dll) diekstrak ke js/calc.js (TASK-7) —
+// file ini cuma wrapper tipis yang manggil calc.js dengan `state` global. calc.js sendiri
+// TIDAK import Firebase, jadi bisa di-test lewat `node tests/calc.test.mjs` tanpa app.
 import {
   db, collection, doc, onSnapshot, query, orderBy,
 } from "./firebase.js";
 import { currentMonth } from "./utils.js";
+import * as calc from "./calc.js";
 
 export const state = {
   uid: null,
@@ -75,138 +79,23 @@ export function stopListeners() {
 export const setMonth = (m) => { state.month = m; emit(); };
 export const setKurs = (k) => { state.usdIdr = k; emit(); };
 
-// ================= Derived =================
+// ================= Derived (wrapper tipis ke js/calc.js, lihat file itu) =================
 
-export const activeAccounts = () => state.accounts.filter((a) => !a.isArchived);
-
-export const catById = (id) => state.categories.find((c) => c.id === id);
-export const acctById = (id) => state.accounts.find((a) => a.id === id);
-
-// Kurs efektif: manual override di settings > auto > fallback
-export const effectiveRate = () =>
-  Number(state.settings.usdIdrManual) || state.usdIdr?.rate || 16000;
-
-// Saldo per akun dihitung dari jurnal (auditable)
-export function accountBalances() {
-  const bal = {};
-  state.accounts.forEach((a) => (bal[a.id] = Number(a.initialBalance) || 0));
-  for (const t of state.transactions) {
-    const amt = Number(t.amount) || 0;
-    if (t.type === "expense") bal[t.accountId] = (bal[t.accountId] || 0) - amt;
-    else if (t.type === "income") bal[t.accountId] = (bal[t.accountId] || 0) + amt;
-    else if (t.type === "transfer") {
-      if (t.fromGoalId || (t.assetId && t.assetDir === "sell")) {
-        // Pencairan goal ATAU jual asset: goal/asset → akun. accountId di sini = akun
-        // TUJUAN (di-kredit), ga ada akun yang di-debit (sumbernya bukan akun cash).
-        bal[t.accountId] = (bal[t.accountId] || 0) + amt;
-      } else if (t.toGoalId || (t.assetId && t.assetDir === "buy")) {
-        // Topup goal ATAU beli asset: akun → goal/asset. accountId = SUMBER (di-debit),
-        // uang keluar dari cash system, ga ada kredit ke akun manapun.
-        bal[t.accountId] = (bal[t.accountId] || 0) - amt;
-      } else {
-        bal[t.accountId] = (bal[t.accountId] || 0) - amt;
-        if (t.toAccountId) bal[t.toAccountId] = (bal[t.toAccountId] || 0) + amt;
-      }
-    }
-  }
-  return bal;
-}
-
-// Total cash dalam IDR (akun USD dikonversi)
-export function totalCashIDR() {
-  const bal = accountBalances();
-  const rate = effectiveRate();
-  return activeAccounts().reduce((sum, a) => {
-    const b = bal[a.id] || 0;
-    return sum + (a.currency === "USD" ? b * rate : b);
-  }, 0);
-}
-
-// Nilai asset (harga manual). Saham IDX: qty dalam LOT → ×100 lembar.
-export function assetValueIDR(a) {
-  const rate = effectiveRate();
-  const qty = Number(a.quantity) || 0;
-  const price = Number(a.manualPrice) || 0;
-  const shares = a.type === "stock_id" ? qty * 100 : qty;
-  const val = shares * price;
-  return a.currency === "USD" ? val * rate : val;
-}
-
-export function assetCostIDR(a) {
-  const rate = effectiveRate();
-  const qty = Number(a.quantity) || 0;
-  const avg = Number(a.avgBuyPrice) || 0;
-  const shares = a.type === "stock_id" ? qty * 100 : qty;
-  const val = shares * avg;
-  return a.currency === "USD" ? val * rate : val;
-}
-
-export const totalAssetsIDR = () => state.assets.reduce((s, a) => s + assetValueIDR(a), 0);
-export const totalDebtIDR = () => state.debts.reduce((s, d) => s + (Number(d.totalOutstanding) || 0), 0);
-
-// Saldo goal = total topup (toGoalId) − total pencairan (fromGoalId).
-// Dihitung IDR pakai currency akun lawan-nya, biar konsisten sama totalCashIDR().
-export function goalSavedIDR(goalId) {
-  const rate = effectiveRate();
-  let sum = 0;
-  for (const t of state.transactions) {
-    if (t.type !== "transfer") continue;
-    if (t.toGoalId !== goalId && t.fromGoalId !== goalId) continue;
-    const acct = acctById(t.accountId);
-    const amt = Number(t.amount) || 0;
-    const amtIDR = acct?.currency === "USD" ? amt * rate : amt;
-    sum += t.toGoalId === goalId ? amtIDR : -amtIDR;
-  }
-  return sum;
-}
-export const totalGoalSavingsIDR = () => state.goals.reduce((s, g) => s + goalSavedIDR(g.id), 0);
-
-// Goal savings dihitung sebagai bagian net worth (uangnya ga hilang, cuma pindah "kantong").
-export const netWorthIDR = () => totalCashIDR() + totalAssetsIDR() + totalGoalSavingsIDR() - totalDebtIDR();
-
-// Progress 🏆 Main Milestone — SATU sumber dipakai card Total Balance (Home) & banner Net
-// Worth (Wealth), biar dua tempat itu ga pernah beda angka/state kalau nanti diubah lagi.
-// target 0/kosong → hidden:true (bukan div-by-zero, bukan diam-diam fallback ke angka lain).
-export function milestoneProgress() {
-  const target = Number(state.settings.targetNetWorth) || 0;
-  if (target <= 0) return { target: 0, nw: 0, pct: 0, achieved: false, hidden: true };
-  const nw = netWorthIDR();
-  const pct = Math.max(0, Math.min(100, (nw / target) * 100));
-  return { target, nw, pct, achieved: nw >= target, hidden: false };
-}
-
-// Ringkasan cashflow satu bulan (transfer tidak dihitung)
-export function monthSummary(month) {
-  let income = 0, expense = 0;
-  for (const t of state.transactions) {
-    if (t.month !== month) continue;
-    const amt = Number(t.amount) || 0;
-    if (t.type === "income") income += amt;
-    else if (t.type === "expense") expense += amt;
-  }
-  return { income, expense, surplus: income - expense };
-}
-
-// Actual expense per kategori pada satu bulan
-export function spentByCategory(month) {
-  const map = {};
-  for (const t of state.transactions) {
-    if (t.month !== month || t.type !== "expense") continue;
-    map[t.categoryId] = (map[t.categoryId] || 0) + (Number(t.amount) || 0);
-  }
-  return map;
-}
-
-export const budgetsOfMonth = (month) => state.budgets.filter((b) => b.month === month);
-
-// Ringkasan cashflow untuk rentang tanggal bebas (dipakai filter periode di Home)
-export function rangeSummary(fromDate, toDate) {
-  let income = 0, expense = 0;
-  for (const t of state.transactions) {
-    if (t.date < fromDate || t.date > toDate) continue;
-    const amt = Number(t.amount) || 0;
-    if (t.type === "income") income += amt;
-    else if (t.type === "expense") expense += amt;
-  }
-  return { income, expense, surplus: income - expense };
-}
+export const activeAccounts = () => calc.activeAccounts(state);
+export const catById = (id) => calc.catById(state, id);
+export const acctById = (id) => calc.acctById(state, id);
+export const effectiveRate = () => calc.effectiveRate(state);
+export const accountBalances = () => calc.accountBalances(state);
+export const totalCashIDR = () => calc.totalCashIDR(state);
+export const assetValueIDR = (a) => calc.assetValueIDR(state, a);
+export const assetCostIDR = (a) => calc.assetCostIDR(state, a);
+export const totalAssetsIDR = () => calc.totalAssetsIDR(state);
+export const totalDebtIDR = () => calc.totalDebtIDR(state);
+export const goalSavedIDR = (goalId) => calc.goalSavedIDR(state, goalId);
+export const totalGoalSavingsIDR = () => calc.totalGoalSavingsIDR(state);
+export const netWorthIDR = () => calc.netWorthIDR(state);
+export const milestoneProgress = () => calc.milestoneProgress(state);
+export const monthSummary = (month) => calc.monthSummary(state, month);
+export const spentByCategory = (month) => calc.spentByCategory(state, month);
+export const budgetsOfMonth = (month) => calc.budgetsOfMonth(state, month);
+export const rangeSummary = (fromDate, toDate) => calc.rangeSummary(state, fromDate, toDate);

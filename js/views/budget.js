@@ -214,13 +214,19 @@ function openBudgetSheet(month, existing) {
     ? expenseCats.filter((c) => c.id === existing.categoryId)
     : expenseCats.filter((c) => !taken.has(c.id));
 
-  if (options.length === 0) return toast("Semua kategori sudah punya budget");
+  // Budget existing yang categoryId-nya udah orphan (kategori kehapus lewat luar app, lihat
+  // integrity.js/TASK-8) TETAP harus bisa dibuka — kalau ngikutin `options.length === 0` biasa
+  // kayak mode "tambah baru", sheet-nya ga akan kebuka sama sekali dan tombol Hapus jadi ga
+  // ke-reach selamanya. Cuma mode TAMBAH (bukan existing) yang boleh diblok toast ini.
+  if (!existing && options.length === 0) return toast("Semua kategori sudah punya budget");
 
   const el = openSheet(`
     ${sheetHead(existing ? "Edit Budget" : "Set Budget")}
     <label>Kategori</label>
     <select id="b-cat" ${existing ? "disabled" : ""}>
-      ${options.map((c) => `<option value="${c.id}">${c.icon || ""} ${escapeHtml(c.name)}</option>`).join("")}
+      ${existing && options.length === 0
+        ? `<option value="${existing.categoryId}">⚠️ Kategori terhapus</option>`
+        : options.map((c) => `<option value="${c.id}">${c.icon || ""} ${escapeHtml(c.name)}</option>`).join("")}
     </select>
     <label>Budget / bulan (Rp)</label>
     <input id="b-amount" inputmode="numeric" placeholder="0" value="${existing ? fmtNum(existing.amount) : ""}" />
