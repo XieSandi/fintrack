@@ -17,64 +17,6 @@ arsip transaksi lama (evaluasi nanti kalau >3.000 docs).
 
 ---
 
-## TASK-3 (P1) — Link pembelian/penjualan asset ke arus kas akun
-
-**Masalah:** `assets` dan `accounts` adalah dua dunia terpisah. Beli BBCA 10 lot dari RDN →
-asset bertambah, saldo RDN TIDAK berkurang kecuali user ingat reconcile manual → net worth
-ter-inflate diam-diam. Sekarang makin terasa karena "Invested" sudah dipajang di UI tapi
-tidak pernah bertemu dengan arus kas manapun. Ini kelas masalah yang sama dengan link debt
-(`debtId`) yang sudah selesai.
-
-**Implementasi:**
-- Flow baru "💰 Catat Pembelian" di sheet asset (dan "Catat Penjualan"): input jumlah unit +
-  harga per unit + akun sumber/tujuan + tanggal.
-- Efeknya: (a) update posisi asset (lihat TASK-4 untuk weighted average), (b) buat transaksi
-  `type: "transfer"` dengan field baru `assetId` — akun sumber ke-debit, TIDAK ada akun tujuan
-  (pola persis topup goal `toGoalId`). Penjualan = kebalikannya (`accountId` jadi akun TUJUAN).
-- **JANGAN** dihitung sebagai expense/income — ini perpindahan bentuk aset, sama seperti topup
-  goal. Verifikasi `monthSummary()` tidak menghitungnya.
-- Update `accountBalances()` supaya paham arah `assetId` (beli vs jual — bedakan dengan field
-  arah eksplisit atau dua nilai tipe, pilih yang paling sedikit ambiguitas dan dokumentasikan).
-- Guard entry point (pola sama goal): transaksi ber-`assetId` HARUS dibuka lewat sheet asset,
-  bukan `openTxSheet()`. Update pengecekan di `txRow()` — sekarang jadi
-  `t.toGoalId || t.fromGoalId || t.assetId`.
-- Asset yang punya transaksi ber-`assetId` tidak bisa dihapus langsung (pola guard existing).
-- Tetap izinkan edit posisi asset manual (untuk posisi lama yang sudah ada sebelum fitur ini) —
-  jangan memaksa semua asset punya jejak transaksi.
-- Tambahkan peringatan di CLAUDE.md: sekarang ADA TIGA jenis transaksi dengan `accountId` yang
-  perannya kondisional (`toGoalId`, `fromGoalId`, `assetId`) — agregasi arus kas per akun wajib
-  cek ketiganya.
-
-**Acceptance:**
-- Catat beli 5 lot @6.000 dari RDN → saldo RDN turun Rp 3.000.000, qty asset naik 5 lot,
-  net worth TIDAK berubah (cash turun, asset naik senilai sama), income/expense bulan itu
-  tidak berubah.
-- Catat jual → kebalikannya.
-- Klik transaksi tersebut di History membuka sheet asset, bukan openTxSheet.
-
----
-
-## TASK-4 (P1, kecil) — Weighted average buy otomatis
-
-**Masalah:** `avgBuyPrice` diinput manual. Nambah lot berarti user hitung weighted average
-sendiri di kalkulator — rawan salah, dan salahnya langsung merusak angka Invested + P&L yang
-sekarang dipajang di tab Assets.
-
-**Implementasi:**
-- Di flow "Catat Pembelian" (TASK-3, kerjakan setelahnya atau digabung kalau agent menilai
-  lebih rapi): setelah input qty + harga beli baru, hitung otomatis
-  `avgBaru = (qtyLama × avgLama + qtyBaru × hargaBaru) / (qtyLama + qtyBaru)`, tampilkan
-  preview "Avg buy: 6.710 → 6.520" sebelum simpan.
-- Penjualan: qty berkurang, `avgBuyPrice` TIDAK berubah (konvensi standar), realized P&L
-  tidak dilacak di v1 — cukup catat di note transaksi. Dokumentasikan keputusan ini.
-- Konsisten dengan konvensi lot: untuk `stock_id`, qty dalam LOT (×100 saat hitung nilai) —
-  pastikan perhitungan average pakai satuan yang sama, jangan campur lot dan lembar.
-
-**Acceptance:** punya 10 lot avg 6.710, beli 5 lot @6.000 → qty 15, avg jadi 6.473,33
-(verifikasi manual), Invested & P&L ikut menyesuaikan.
-
----
-
 ## TASK-5 (P1) — Recurring topup goal
 
 **Scope:** template recurring untuk nabung rutin ke Short Term Goal (pola owner: nabung tiap
@@ -164,3 +106,4 @@ transaksi terkait terlaporkan.
 2. Laporan tahunan (agregat 12 bulan; bisa reuse `report-md.js` dari TASK-2)
 3. Enkripsi backup (Web Crypto)
 4. Harga emas & NAV reksa dana: belum ada API gratis+CORS yang stabil → tetap manual
+

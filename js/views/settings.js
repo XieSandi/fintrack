@@ -109,6 +109,12 @@ export function render(root) {
       <button id="btn-hard-refresh" class="btn btn-block">🔄 Hard Refresh</button>
     </div>
 
+    <div class="card" style="border-color:#7f1d1d; background:#1c0a0a">
+      <div class="card-title" style="color:var(--red)">⚠️ Zona Bahaya</div>
+      <div class="sub" style="margin-bottom:10px">Hapus data dalam jumlah besar (per bulan/tahun/total). Ga bisa dibatalkan.</div>
+      <a href="#/danger" class="btn btn-danger btn-block" style="text-decoration:none; display:flex; align-items:center; justify-content:center">🗑️ Reset Data</a>
+    </div>
+
     <div class="card">
       <div class="set-item">
         <div>

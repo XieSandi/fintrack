@@ -214,3 +214,142 @@ export async function importAll(backup, mode /* "merge" | "replace" */) {
 }
 
 export const updateSettings = (data) => put("settings", "main", data);
+
+// ================= Bulk Delete / Reset (TASK-9) =================
+// Scope bareng buat preview DAN delete beneran — biar preview ga pernah kebohongan
+// (drift dari logic delete yang sebenarnya jalan).
+function bulkDeleteScope(mode, month, year) {
+  if (mode === "month") {
+    return {
+      transactions: state.transactions.filter((t) => t.month === month),
+      budgets: state.budgets.filter((b) => b.month === month),
+      snapshots: state.snapshots.filter((s) => (s.month || s.id) === month),
+    };
+  }
+  if (mode === "year") {
+    const prefix = `${year}-`;
+    return {
+      transactions: state.transactions.filter((t) => t.month?.startsWith(prefix)),
+      budgets: state.budgets.filter((b) => b.month?.startsWith(prefix)),
+      snapshots: state.snapshots.filter((s) => (s.month || s.id)?.startsWith(prefix)),
+    };
+  }
+  // "total" (C1/C2) — semua histori
+  return {
+    transactions: state.transactions.slice(),
+    budgets: state.budgets.slice(),
+    snapshots: state.snapshots.slice(),
+  };
+}
+
+// Pure, ga nyentuh Firestore — dipakai UI buat preview sebelum eksekusi.
+export function previewBulkDelete({ mode, month, year }) {
+  const scope = bulkDeleteScope(mode, month, year);
+  const totalExpense = scope.transactions.filter((t) => t.type === "expense").reduce((s, t) => s + (Number(t.amount) || 0), 0);
+  const totalIncome = scope.transactions.filter((t) => t.type === "income").reduce((s, t) => s + (Number(t.amount) || 0), 0);
+  const dates = scope.transactions.map((t) => t.date).sort();
+  return {
+    transactions: scope.transactions.length,
+    budgets: scope.budgets.length,
+    snapshots: scope.snapshots.length,
+    totalExpense, totalIncome,
+    dateFrom: dates[0] || null,
+    dateTo: dates[dates.length - 1] || null,
+  };
+}
+
+// mode: "month" | "year" | "total". includeMaster (cuma relevan buat "total") = C2 Reset Total
+// (hapus akun/kategori/asset/hutang/goal/recurring juga + reseed). keepApiKeys = pertahankan
+// apiKeys pas C2. onProgress(done, total) opsional buat progress bar UI.
+//
+// SENGAJA nulis lewat writeBatch/deleteDoc LANGSUNG (bukan remove() generik) — pola sama kayak
+// importAll() (lihat Known Quirks CLAUDE.md). Efek debtId TETAP dikembalikan (konsisten sama
+// hapus 1 transaksi via remove()), TAPI diagregasi per debt dulu (bukan 1 patch per transaksi)
+// — ratusan patch berturut ke dokumen debt yang sama itu lambat & rawan race kalau lewat hook.
+export async function bulkDelete({ mode, month, year, includeMaster, keepApiKeys, onProgress }) {
+  if (!navigator.onLine) throw new Error("Butuh koneksi internet buat bulk delete.");
+
+  const scope = bulkDeleteScope(mode, month, year);
+  const masterScope = includeMaster ? {
+    accounts: state.accounts.slice(),
+    categories: state.categories.slice(),
+    assets: state.assets.slice(),
+    debts: state.debts.slice(),
+    goals: state.goals.slice(),
+    recurring: state.recurring.slice(),
+  } : null;
+
+  const totalOps = scope.transactions.length + scope.budgets.length + scope.snapshots.length
+    + (masterScope ? Object.values(masterScope).reduce((s, a) => s + a.length, 0) : 0);
+  let done = 0;
+  const report = () => onProgress?.(done, totalOps);
+  report();
+
+  const deleteChunked = async (name, docs) => {
+    let batch = writeBatch(db), count = 0;
+    for (const d of docs) {
+      batch.delete(docRef(name, d.id));
+      if (++count === 450) { await batch.commit(); done += count; report(); batch = writeBatch(db); count = 0; }
+    }
+    if (count) { await batch.commit(); done += count; report(); }
+    return docs.length;
+  };
+
+  // Efek debt (skip total kalau includeMaster — debts-nya sendiri toh ikut kehapus)
+  if (!includeMaster) {
+    const debtAgg = {}; // debtId -> {amount, count}
+    for (const t of scope.transactions) {
+      if (!t.debtId) continue;
+      if (!debtAgg[t.debtId]) debtAgg[t.debtId] = { amount: 0, count: 0 };
+      debtAgg[t.debtId].amount += Number(t.amount) || 0;
+      debtAgg[t.debtId].count += 1;
+    }
+    for (const [debtId, agg] of Object.entries(debtAgg)) {
+      const debt = state.debts.find((d) => d.id === debtId);
+      if (!debt) continue; // debt-nya udah kehapus duluan
+      const data = { totalOutstanding: Math.max(0, (Number(debt.totalOutstanding) || 0) + agg.amount) };
+      if (debt.remainingMonths != null) data.remainingMonths = Math.max(0, (Number(debt.remainingMonths) || 0) + agg.count);
+      await patch("debts", debtId, data);
+    }
+  }
+
+  const deleted = {
+    transactions: await deleteChunked("transactions", scope.transactions),
+    budgets: await deleteChunked("budgets", scope.budgets),
+    snapshots: await deleteChunked("snapshots", scope.snapshots),
+  };
+
+  // Recurring yang lastPostedMonth-nya masuk periode yang baru dihapus → reset, biar sheet
+  // Awal Bulan nawarin lagi (bukan nganggep udah pernah post buat bulan yang datanya lenyap).
+  // Skip kalau includeMaster — koleksi recurring-nya sendiri toh ikut kehapus di bawah.
+  if (!includeMaster) {
+    const inScope = (m) => {
+      if (!m) return false;
+      if (mode === "month") return m === month;
+      if (mode === "year") return m.startsWith(`${year}-`);
+      return true; // total (C1)
+    };
+    for (const r of state.recurring) {
+      if (r.lastPostedMonth && inScope(r.lastPostedMonth)) {
+        await patch("recurring", r.id, { lastPostedMonth: null });
+      }
+    }
+  }
+
+  if (masterScope) {
+    for (const [name, docs] of Object.entries(masterScope)) {
+      await deleteChunked(name, docs);
+    }
+    const setSnap = await getDoc(docRef("settings", "main"));
+    const oldApiKeys = keepApiKeys && setSnap.exists() ? setSnap.data().apiKeys : null;
+    await deleteDoc(docRef("settings", "main"));
+    await seedIfNeeded();
+    await ensurePresetCategories();
+    if (oldApiKeys) await updateSettings({ apiKeys: oldApiKeys });
+  } else {
+    // Bukan C2 → net worth berubah, refresh snapshot bulan berjalan biar ga basi.
+    await upsertSnapshot();
+  }
+
+  return { deleted };
+}

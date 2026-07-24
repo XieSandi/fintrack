@@ -33,7 +33,8 @@ css/style.css         dark theme, mobile-first, CSS vars di :root
 js/app.js             entry: auth flow, hash router (ROUTES), month picker, SW register + auto-update
 js/firebase.js        init SDK via CDN gstatic + offline persistence
 js/store.js           state global + onSnapshot listeners + SEMUA derived calc (saldo, net worth, dll)
-js/db.js              repository: CRUD generik, seeding kategori, snapshot bulanan, export/import backup
+js/db.js              repository: CRUD generik, seeding kategori, snapshot bulanan, export/import
+                       backup, bulkDelete()/previewBulkDelete() (reset data, js/views/danger.js)
 js/prices.js          auto price: iTick (IDX), Finnhub (US), CoinGecko (crypto, tanpa key)
 js/kurs.js            kurs USD/IDR auto via frankfurter.app, cache localStorage
 js/tx-sheet.js        bottom sheet tambah/edit transaksi (quick-add)
@@ -45,7 +46,8 @@ sw.js                 service worker: precache shell, runtime cache gstatic+jsde
 ```
 
 Routing: hash (`#/home`). Nav: Home · History (transactions) · Assets (wealth) · Setting.
-Budget/Akun/Kategori/Goals/Recurring = subpage di dalam Setting (punya `back` di ROUTES).
+Budget/Akun/Kategori/Goals/Recurring/Danger (`#/danger`, "🗑️ Reset Data") = subpage di dalam
+Setting (punya `back` di ROUTES).
 
 ### Home page (`js/views/home.js`)
 
@@ -77,7 +79,8 @@ Blur mode (toggle 👁️ di card Total Balance) nge-blur semua `<span class="bl
   sesi, idempotent) — lihat Known Quirks. Ga bisa dihapus kalau masih dipakai transaksi
   (guard di `categories.js`).
 - `transactions` — {date, month:"YYYY-MM", amount, type: expense|income|transfer, accountId,
-  toAccountId?, toGoalId?, fromGoalId?, categoryId, debtId?, note}. Transfer = 1 record, BUKAN expense.
+  toAccountId?, toGoalId?, fromGoalId?, categoryId, debtId?, assetId?, assetDir?, assetQty?,
+  assetPrice?, note}. Transfer = 1 record, BUKAN expense.
   **Topup goal** = transfer, `toGoalId` diisi (bukan `toAccountId`) — `accountId` = akun SUMBER
   (ke-debit), ga ada akun yang ke-kredit. **Pencairan goal** = kebalikannya, `fromGoalId` diisi
   — `accountId` di sini malah jadi akun TUJUAN (ke-kredit), ga ada akun yang ke-debit (lihat
@@ -85,10 +88,23 @@ Blur mode (toggle 👁️ di card Total Balance) nge-blur semua `<span class="bl
   akun tetap satu & generic di seluruh app (filter History, txRow, dll) ga perlu tau bedanya.
   Dibuat/diedit lewat `openTopupSheet()`/`openWithdrawSheet()` di `goals.js`, BUKAN
   `openTxSheet()` generik di `tx-sheet.js` (yang itu ga ngerti `toGoalId`/`fromGoalId`).
+  **Beli/jual asset** = transfer juga, pola SAMA persis (`accountId` = sumber pas beli/kredit
+  pas jual) — TAPI bedanya pakai SATU field id (`assetId`, bukan dua field kayak goal) + field
+  arah eksplisit `assetDir` ("buy"|"sell"), karena itu opsi paling sedikit ambiguitas buat kasus
+  ini (dipilih sengaja saat TASK-3, lihat wealth.js). `assetQty`/`assetPrice` disimpan juga di
+  transaksinya (native unit — LOT buat `stock_id`, bukan ×100 lembar) buat detail view & reversal
+  saat hapus, ga perlu di-derive balik dari `amount`. Dibuat lewat `openAssetBuySheet()`/
+  `openAssetSellSheet()` (`wealth.js`), BUKAN `openTxSheet()`. **Edit SENGAJA TIDAK didukung**
+  buat transaksi ber-`assetId` (beda dari topup/withdraw goal yang full CRUD) — weighted average
+  `avgBuyPrice` ga bisa di-reverse dengan aman kalau transaksi lama diedit ulang (butuh replay
+  history). Klik dari History cuma buka detail read-only + Hapus (hapus me-reverse `quantity`
+  asset secara exact, TAPI `avgBuyPrice` GA ikut di-reverse — dikasih tau eksplisit ke user).
+  Salah catat → hapus + catat ulang, bukan edit.
   **Peringatan buat fitur masa depan:** apapun yang mengagregasi arus kas PER AKUN (laporan
-  per akun, export CSV, dsb.) WAJIB memeriksa `toGoalId`/`fromGoalId` dulu buat nentuin arah
-  `accountId` — kalau diasumsikan selalu "sumber" (kayak transfer akun-ke-akun biasa), transaksi
-  pencairan goal bakal ke-hitung kebalik (debit dianggap kredit).
+  per akun, export CSV, dsb.) WAJIB memeriksa `toGoalId`/`fromGoalId`/`assetId`+`assetDir` dulu
+  buat nentuin arah `accountId` — SEKARANG ADA TIGA jenis transaksi yang bikin perannya
+  kondisional (dulu cuma goal). Kalau diasumsikan selalu "sumber" (kayak transfer akun-ke-akun
+  biasa), transaksi pencairan goal ATAU jual asset bakal ke-hitung kebalik (debit dianggap kredit).
 - `budgets` — id deterministik `{month}_{categoryId}`. Halaman `#/budget` (satu-satunya route
   yang punya month picker selain History, `month:true` di ROUTES) juga nampilin card "🥧 Per
   Kategori" — doughnut breakdown expense bulan berjalan dari `spentByCategory()`, ikut ganti
@@ -103,7 +119,16 @@ Blur mode (toggle 👁️ di card Total Balance) nge-blur semua `<span class="bl
   Tab Assets (Wealth) nampilin ringkasan **Nilai / Invested / Unrealized P&L** (`assetCostIDR()`
   dari `avgBuyPrice`, P&L = nilai − invested) di atas list, ngikutin filter tipe aktif — sign
   convention SAMA kayak per-asset P&L di `assetRow()` (val − cost), jangan dibalik biar ga
-  selisih warna sama baris individual-nya.
+  selisih warna sama baris individual-nya. **Catat Pembelian/Penjualan** (tombol "💰"/"💸" di
+  sheet edit asset, `openAssetBuySheet()`/`openAssetSellSheet()` wealth.js, TASK-3+4 digabung) —
+  link ke arus kas akun (transaksi transfer ber-`assetId`, lihat bullet `transactions`) +
+  `quantity`/`avgBuyPrice` di-update OTOMATIS. Beli: `avgBuyPrice` baru = weighted average
+  `(qtyLama×avgLama + qtyBaru×hargaBaru)/(qtyLama+qtyBaru)` (dibulatkan 2 desimal), preview
+  ditampilin live sebelum simpan. Jual: `quantity` berkurang, `avgBuyPrice` TIDAK berubah
+  (konvensi standar) — realized P&L ga dilacak v1, cukup kecatat di note transaksi. Posisi lama
+  (pre-fitur ini) tetap bisa diedit manual lewat form biasa — ga dipaksa punya jejak transaksi.
+  Asset yang punya transaksi ber-`assetId` ga bisa dihapus langsung — pola sama proteksi hapus
+  akun/goal/debt.
 - `debts` — outstanding, monthlyInstalment, dueDay, remainingMonths. Mengurangi net worth.
   Transaksi expense bisa opsional bawa `debtId` (dropdown "Potong hutang?" di `openTxSheet()`
   kalau ada ≥1 debt, dan di form `recurring`) — CREATE/EDIT/DELETE transaksi ber-`debtId`
@@ -135,7 +160,10 @@ Blur mode (toggle 👁️ di card Total Balance) nge-blur semua `<span class="bl
   effective day yang sama. Referensi akun/kategori/debt yang udah diarsip/kehapus di-deteksi via
   `brokenReason()` (recurring-sheet.js, dipakai bareng views/recurring.js) — item broken ga
   bisa dicentang di sheet Awal Bulan (checkbox disabled) dan dapet badge merah di `#/recurring`,
-  TAPI ga ngeblok item lain yang sehat buat tetep di-post.
+  TAPI ga ngeblok item lain yang sehat buat tetep di-post. `lastPostedMonth` juga di-reset
+  (null) otomatis oleh `bulkDelete()` (Zona Bahaya, lihat bawah) buat template yang
+  `lastPostedMonth`-nya masuk periode yang baru dihapus — biar sheet Awal Bulan nawarin lagi,
+  bukan nganggep udah pernah post buat bulan yang datanya udah lenyap.
 - `snapshots/{YYYY-MM}` — net worth bulanan, di-upsert otomatis saat app dibuka (`upsertSnapshot`).
   Bisa juga di-backfill manual buat bulan pra-app lewat card "Snapshot Historis" di Setting
   (`{month, netWorth, manual:true}`, minimal field — chart Tren Net Worth cuma butuh `netWorth`
@@ -203,13 +231,14 @@ sebagai baris terpisah "🎯 Goals" di breakdown Total tab Wealth biar rows-nya 
   ("waiting") sampe user trigger sendiri lewat tombol **Hard Refresh** di Setting
   (`hardRefresh()` di `utils.js`: unregister semua SW + `caches.delete()` semua + reload) —
   jangan tambahin balik auto-activate/auto-reload tanpa mikir ulang soal loop risk ini.
-- Transaksi dengan `toGoalId` (topup) atau `fromGoalId` (pencairan) HARUS selalu dibuka lewat
-  `openTopupSheet()` / `openWithdrawSheet()` (goals.js), jangan lewat `openTxSheet()` generik
-  (tx-sheet.js) — sheet itu cuma tau `toAccountId`, kalau transaksi ini ke-save ulang lewat situ
-  field goal-nya bakal hilang (data ke-corrupt). Titik masuknya udah dijaga di `txRow()`
-  (`home.js`, dipakai bareng `transactions.js`) — cek `t.toGoalId || t.fromGoalId` dulu sebelum
-  decide sheet mana yang dibuka. Kalau nambah entry point baru buat klik transaksi (search, dll),
-  inget guard ini juga.
+- Transaksi dengan `toGoalId` (topup), `fromGoalId` (pencairan), atau `assetId` (beli/jual asset)
+  HARUS selalu dibuka lewat sheet khususnya (`openTopupSheet()`/`openWithdrawSheet()` di
+  goals.js, `openAssetBuySheet()`/`openAssetSellSheet()` di wealth.js) — jangan lewat
+  `openTxSheet()` generik (tx-sheet.js), yang itu cuma tau `toAccountId`, field-field itu bakal
+  hilang (data ke-corrupt) kalau ke-save ulang lewat situ. Titik masuknya udah dijaga di
+  `txRow()` (`home.js`, dipakai bareng `transactions.js`) — cek `t.assetId` dulu, baru
+  `t.toGoalId || t.fromGoalId`, sebelum decide sheet mana yang dibuka. Kalau nambah entry point
+  baru buat klik transaksi (search, dll), inget guard ini juga.
 - Logic salin budget bulan lalu cuma ada SATU implementasi: `copyBudgetFromLastMonth()`,
   exported dari `views/budget.js`, dipakai tombol "⧉ Salin bulan lalu" DAN sheet Awal Bulan
   (`recurring-sheet.js`). Jangan re-implement inline lagi di tempat lain.
@@ -227,14 +256,36 @@ sebagai baris terpisah "🎯 Goals" di breakdown Total tab Wealth biar rows-nya 
   (static site, semua JS ke-download terlepas dari status login), beda kelas exposure-nya dari
   data lain di app yang selalu datang dari Firestore ber-auth. Section 11 murni diturunkan dari
   state yang udah ke-load.
-- `importAll()` (backup restore) SENGAJA/WAJIB tetap bypass hook `add()`/`patch()`/`remove()` —
-  dia nulis langsung via `writeBatch`/`batch.set()`/`setDoc()`, ga pernah manggil fungsi CRUD
-  generik. Ini penting buat `applyDebtEffect()`/`handleDebtPatch()` (efek `debtId` ke debt,
-  lihat bullet `debts` di Data Model): kalau `importAll()` ke depannya di-refactor buat pakai
-  `add()`/`patch()` generik (misal biar dapet `stamp()` otomatis), `debts.totalOutstanding`
-  bakal kepotong DUA KALI — sekali dari nilai final di file backup, sekali lagi dari efek
-  transaksi ber-`debtId` yang ikut di-restore. Kalau itu terjadi, WAJIB tambah bypass eksplisit
-  (flag semacam `skipSideEffects`) khusus buat jalur import.
+- **Zona Bahaya / Reset Data** (Setting → "🗑️ Reset Data", `#/danger`, `js/views/danger.js`,
+  `bulkDelete()`/`previewBulkDelete()` di db.js) — 3 mode: per bulan, per tahun, atau total
+  (dengan 2 sub-opsi yang beda drastis: **C1 "Hapus Semua Histori"** cuma nge-wipe
+  transactions/budgets/snapshots, master data — accounts/categories/assets/debts/goals/recurring
+  — TETAP ADA; **C2 "Reset Total"** ngewipe SEMUA collection termasuk master data, balik ke
+  kondisi first-run, `seedIfNeeded()`+`ensurePresetCategories()` dijalanin ulang, `apiKeys` bisa
+  dipertahankan lewat checkbox). Safeguard berlapis: preview jumlah persis sebelum eksekusi,
+  peringatan backup basi (>24 jam), checkbox "gue paham resiko" wajib dicentang, type-to-confirm
+  (bukan `confirmDialog()` biasa — teks yang harus diketik beda-beda tergantung mode), wajib
+  online (`navigator.onLine`, dicek juga di dalam `bulkDelete()` sendiri sebagai defense-in-depth
+  bukan cuma di view). Preview dan eksekusi SATU sumber scope (`bulkDeleteScope()` internal di
+  db.js) — jangan biarkan itu drift jadi dua logic beda, preview harus selalu match apa yang
+  beneran kehapus. Habis bulk delete: saldo akun BERUBAH (dihitung dari jurnal transaksi, bukan
+  `initialBalance`) — user diarahkan ke Reconcile ("⚖️ Sesuaikan Saldo") kalau perlu.
+- **Dua jalur tulis transaksi yang SENGAJA bypass hook debt** (`add()`/`patch()`/`remove()`
+  generik, tempat `applyDebtEffect()`/`handleDebtPatch()` nempel) — keduanya nulis langsung via
+  `writeBatch`/`deleteDoc`, ga pernah manggil fungsi CRUD generik:
+  1. `importAll()` (backup restore) — nilai `debts.totalOutstanding` di file backup udah final;
+     kalau hook ikut jalan pas restore transaksi ber-`debtId`, outstanding kepotong DUA KALI.
+  2. `bulkDelete()` (reset data, `js/views/danger.js`) — efek debt TETAP dikembalikan (konsisten
+     sama hapus 1 transaksi via `remove()`), TAPI diagregasi per debt dulu (total amount + count
+     dari SEMUA transaksi ber-`debtId` yang mau dihapus, baru SATU `patch()` per debt di akhir)
+     — bukan satu hook-triggered patch per transaksi (ratusan patch berturut ke dokumen debt yang
+     sama = lambat & rawan race). Di-skip total kalau mode Reset Total (C2) — debt-nya sendiri
+     toh ikut kehapus.
+  Kalau ke depannya `importAll()`/`bulkDelete()` di-refactor buat pakai `add()`/`patch()`/
+  `remove()` generik (misal biar dapet `stamp()` otomatis), WAJIB tambah bypass eksplisit (flag
+  semacam `skipSideEffects`) — jangan sampe efek debt ke-double-count. Kalau nambah jalur tulis
+  transaksi massal baru ke depannya, ikutin pola yang sama (raw batch write + agregasi debt
+  manual), jangan bikin jalur keempat yang beda pattern.
 
 ## Roadmap (belum dibuat, urutan prioritas)
 
