@@ -88,7 +88,15 @@ Blur mode (toggle 👁️ di card Total Balance) nge-blur semua `<span class="bl
   per akun, export CSV, dsb.) WAJIB memeriksa `toGoalId`/`fromGoalId` dulu buat nentuin arah
   `accountId` — kalau diasumsikan selalu "sumber" (kayak transfer akun-ke-akun biasa), transaksi
   pencairan goal bakal ke-hitung kebalik (debit dianggap kredit).
-- `budgets` — id deterministik `{month}_{categoryId}`.
+- `budgets` — id deterministik `{month}_{categoryId}`. Halaman `#/budget` (satu-satunya route
+  yang punya month picker selain History, `month:true` di ROUTES) juga nampilin card "🥧 Per
+  Kategori" — doughnut breakdown expense bulan berjalan dari `spentByCategory()`, ikut ganti
+  pas month picker diganti. Sengaja ditaruh di sini bukan di tab Total Wealth, karena Wealth
+  (`month:false`) chart-nya trend lintas-bulan, bukan snapshot satu bulan. Kategori `cat_adjust_out`
+  (Penyesuaian Saldo) TETAP tampil di chart (bukan di-exclude), cuma dikasih warna netral abu-abu
+  (bareng bucket "Lainnya" buat kategori di luar top-7) — biar ga rebutan slot warna kategorikal.
+  Slot warna kategorikal cuma pakai 7 (bukan 8) karena warna ke-8 di palet referensi adalah
+  merah, yang di app ini udah reserved buat makna "danger/over budget" (`var(--red)`).
 - `assets` — saham IDX (quantity dalam **LOT**, ×100 lembar saat hitung nilai), US fractional shares,
   dll. `manualPrice` + `manualPriceUpdatedAt` + `priceSource`. `manualOnly:true` = skip auto-refresh.
   Tab Assets (Wealth) nampilin ringkasan **Nilai / Invested / Unrealized P&L** (`assetCostIDR()`

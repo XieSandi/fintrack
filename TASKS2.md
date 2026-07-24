@@ -40,27 +40,6 @@ investing tiap gajian tgl 28).
 
 ---
 
-## TASK-6 (P2) — Chart breakdown expense per kategori
-
-**Scope:** menjawab "bulan ini duit lari ke mana" — data sudah ada (`spentByCategory()`),
-belum pernah divisualkan (F7 konsep awal).
-
-**Implementasi:**
-- Chart doughnut/bar horizontal per kategori untuk bulan berjalan + pembanding ringkas vs
-  bulan lalu (mis. "+12%" per kategori atau total). Chart.js sudah tersedia (pola & fallback
-  offline ikuti chart existing di wealth.js).
-- Penempatan: tambah tab ketiga di chart-tabs card Total (Wealth) — "🥧 Per Kategori" —
-  ATAU section di halaman Budget; pilih satu, jangan dua-duanya, jelaskan alasan di ringkasan.
-- Exclude kategori Penyesuaian Saldo dari chart? JANGAN — tampilkan apa adanya (itu expense
-  riil yang lupa kecatat), tapi boleh beri warna netral.
-- Ikuti blur mode: blur-num tidak bekerja di canvas — pastikan angka besar tidak dirender
-  sebagai teks HTML di luar canvas, atau sembunyikan legend values saat `body.blur-mode`.
-
-**Acceptance:** buka tab → proporsi kategori bulan berjalan terlihat, ganti bulan via month
-picker ikut berubah, offline setelah cache tetap render.
-
----
-
 ## TASK-7 (P2, kecil) — State "Milestone tercapai"
 
 Saat `netWorthIDR() >= settings.targetNetWorth`: progress bar Main Milestone (card Total

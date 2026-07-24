@@ -1,9 +1,20 @@
-import { state, budgetsOfMonth, spentByCategory, catById } from "../store.js";
+import { state, budgetsOfMonth, spentByCategory, catById, monthSummary } from "../store.js";
 import { put, remove } from "../db.js";
 import {
   fmtIDR, escapeHtml, toast, openSheet, closeSheet, sheetHead,
   parseAmount, attachThousands, addMonths, monthLabel, fmtNum, confirmDialog,
 } from "../utils.js";
+
+let catChart = null;
+
+// Palet kategorikal (urutan tetap, adjacent-pair validated buat dark surface).
+// Cuma 7 slot dipakai (bukan 8) — slot ke-8 dokumentasi aslinya "red", sengaja
+// di-drop karena var(--red) di app ini udah reserved buat makna "danger/over
+// budget/expense" (badge, progress bar, tx amount) — kalau dipakai sebagai warna
+// kategori acak bisa kebaca salah sebagai status, bukan identitas kategori.
+const CAT_COLORS = ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#008300", "#9085e9"];
+const NEUTRAL_COLOR = "#64748b"; // Penyesuaian Saldo + bucket "Lainnya" — sengaja netral, bukan identitas
+const MAX_CAT_SLICES = CAT_COLORS.length;
 
 export function render(root) {
   const month = state.month;
@@ -28,6 +39,10 @@ export function render(root) {
     <div class="row">
       <button id="btn-add-budget" class="btn btn-primary">＋ Set Budget</button>
       <button id="btn-copy-budget" class="btn">⧉ Salin bulan lalu</button>
+    </div>
+    <div class="card">
+      <div class="card-title">🥧 Per Kategori</div>
+      <div id="cat-chart-wrap"></div>
     </div>
   `;
 
@@ -62,6 +77,121 @@ export function render(root) {
     if (!hadPrev) return toast("Bulan lalu belum ada budget");
     toast(copied ? `${copied} budget disalin ✓` : "Semua kategori sudah ada budgetnya");
   };
+
+  renderCategoryChart(root, month);
+}
+
+// ================= Chart breakdown per kategori (TASK-6) =================
+function renderCategoryChart(root, month) {
+  if (catChart) { catChart.destroy(); catChart = null; }
+  const wrap = root.querySelector("#cat-chart-wrap");
+
+  const rows = Object.entries(spentByCategory(month))
+    .filter(([, v]) => v > 0)
+    .map(([categoryId, amount]) => ({ categoryId, amount, cat: catById(categoryId) }));
+
+  if (rows.length === 0) {
+    wrap.innerHTML = `<div class="empty">Belum ada expense bulan ini.</div>`;
+    return;
+  }
+
+  const prevSpent = spentByCategory(addMonths(month, -1));
+
+  // Penyesuaian Saldo TIDAK di-exclude — tetap tampil apa adanya (expense riil
+  // yang lupa kecatat), tapi dikasih warna netral biar ga "berebut" slot warna
+  // kategorikal sama kategori asli. Kategori di luar top-7 di-fold ke "Lainnya".
+  const adjustment = rows.find((r) => r.categoryId === "cat_adjust_out");
+  const rest = rows.filter((r) => r.categoryId !== "cat_adjust_out").sort((a, b) => b.amount - a.amount);
+  const top = rest.slice(0, MAX_CAT_SLICES).map((r, i) => ({ ...r, color: CAT_COLORS[i] }));
+  const overflow = rest.slice(MAX_CAT_SLICES);
+  const otherAmount = overflow.reduce((s, r) => s + r.amount, 0);
+
+  const slices = [...top];
+  if (adjustment) slices.push({ ...adjustment, color: NEUTRAL_COLOR, isAdjustment: true });
+  if (otherAmount > 0) {
+    slices.push({
+      categoryId: "__other__", amount: otherAmount, color: NEUTRAL_COLOR, isOther: true,
+      cat: { icon: "📦", name: `Lainnya (${overflow.length} kategori)` },
+    });
+  }
+
+  const total = slices.reduce((s, x) => s + x.amount, 0);
+  const curTotal = monthSummary(month).expense;
+  const prevTotal = monthSummary(addMonths(month, -1)).expense;
+  const totalDeltaPct = prevTotal > 0 ? ((curTotal - prevTotal) / prevTotal) * 100 : null;
+
+  wrap.innerHTML = `
+    <div class="sub" style="margin-bottom:10px">
+      Total expense: <b style="color:var(--text)">${fmtIDR(curTotal)}</b>
+      ${totalDeltaPct !== null ? `<span style="color:${totalDeltaPct > 0 ? "var(--red)" : totalDeltaPct < 0 ? "var(--green)" : "var(--muted2)"}"> (${totalDeltaPct >= 0 ? "+" : ""}${totalDeltaPct.toFixed(0)}% vs bulan lalu)</span>` : ""}
+    </div>
+    <canvas id="chart-cat" height="200"></canvas>
+    <div id="cat-legend" style="margin-top:14px"></div>
+  `;
+
+  if (!window.Chart) {
+    wrap.querySelector("#cat-legend").innerHTML = `<div class="empty">Chart library belum ke-load (butuh online sekali).</div>`;
+    return;
+  }
+  Chart.defaults.color = "#64748b";
+  Chart.defaults.font.size = 10;
+
+  catChart = new Chart(wrap.querySelector("#chart-cat"), {
+    type: "doughnut",
+    data: {
+      labels: slices.map((s) => s.cat?.name || "?"),
+      datasets: [{
+        data: slices.map((s) => s.amount),
+        backgroundColor: slices.map((s) => s.color),
+        borderColor: "#111827",
+        borderWidth: 2,
+        borderRadius: 4,
+      }],
+    },
+    options: {
+      cutout: "62%",
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            // Blur mode: angka Rupiah di canvas ga bisa di-blur via CSS (.blur-num
+            // cuma jalan di DOM), jadi pas blur aktif tooltip cuma nampilin persentase.
+            label: (ctx) => {
+              const pct = ((ctx.parsed / total) * 100).toFixed(1);
+              const blurred = document.body.classList.contains("blur-mode");
+              return blurred ? ` ${pct}%` : ` Rp ${fmtNum(ctx.parsed)} (${pct}%)`;
+            },
+          },
+        },
+      },
+    },
+  });
+
+  // Legend custom (bukan bawaan Chart.js) — angka lewat fmtIDR() jadi otomatis
+  // ke-blur via .blur-num span, konsisten sama pola blur mode di seluruh app.
+  const legend = wrap.querySelector("#cat-legend");
+  slices.forEach((s) => {
+    const pct = ((s.amount / total) * 100).toFixed(0);
+    let deltaHtml = "";
+    if (!s.isOther) {
+      const prevAmt = prevSpent[s.categoryId] || 0;
+      if (prevAmt > 0) {
+        const d = ((s.amount - prevAmt) / prevAmt) * 100;
+        deltaHtml = `<span style="color:${d > 0 ? "var(--red)" : d < 0 ? "var(--green)" : "var(--muted2)"}">${d >= 0 ? "+" : ""}${d.toFixed(0)}%</span>`;
+      } else {
+        deltaHtml = `<span style="color:var(--muted2)">baru</span>`;
+      }
+    }
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex; align-items:center; gap:10px; padding:7px 0; border-bottom:1px solid var(--border); font-size:12px";
+    row.innerHTML = `
+      <span style="width:10px;height:10px;border-radius:50%;background:${s.color};flex-shrink:0"></span>
+      <span style="flex:1; color:var(--muted2)">${s.cat?.icon || "📦"} ${escapeHtml(s.cat?.name || "?")}</span>
+      <span style="color:var(--muted2); min-width:32px; text-align:right">${pct}%</span>
+      <span style="font-weight:700; min-width:90px; text-align:right">${fmtIDR(s.amount)}</span>
+      <span style="min-width:38px; text-align:right; font-size:11px">${deltaHtml}</span>`;
+    legend.appendChild(row);
+  });
 }
 
 function summaryHtml(totalSpent, totalBudget) {
