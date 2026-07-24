@@ -4,8 +4,11 @@ import { auth, signOut } from "../firebase.js";
 import {
   fmtNum, fmtIDR, escapeHtml, toast, parseAmount, attachThousands,
   confirmDialog, todayStr, hardRefresh, currentMonth, monthLabel, addMonths,
+  openSheet, closeSheet, sheetHead,
 } from "../utils.js";
 import { buildMonthlyReport, availableReportMonths } from "../report-md.js";
+import { scanIntegrity } from "../integrity.js";
+import { openTxDetail } from "./home.js";
 
 export function render(root) {
   const lastBackup = state.settings.lastBackupAt;
@@ -109,6 +112,8 @@ export function render(root) {
       <div class="card-title">App</div>
       <div class="sub" style="margin-bottom:10px">Tampilan aneh / kerasa nyangkut di versi lama? Hard refresh bersihin cache & service worker, terus reload dari awal. Data lo aman, ga kehapus (kesimpen di cloud).</div>
       <button id="btn-hard-refresh" class="btn btn-block">🔄 Hard Refresh</button>
+      <div class="sub" style="margin:14px 0 10px">Curiga ada transaksi/budget yang nunjuk ke akun/kategori/goal/hutang/asset yang udah kehapus (biasanya gara-gara hapus data langsung lewat Firestore console, bukan lewat app)? Cek di bawah — read-only, ga ada yang diubah otomatis.</div>
+      <button id="btn-integrity" class="btn btn-block">🩺 Cek Integritas Data</button>
     </div>
 
     <div class="card" style="border-color:#7f1d1d; background:#1c0a0a">
@@ -224,6 +229,8 @@ export function render(root) {
     }
   };
 
+  root.querySelector("#btn-integrity").onclick = () => openIntegritySheet();
+
   root.querySelector("#btn-logout").onclick = async () => {
     if (!confirmDialog("Keluar dari akun?")) return;
     await signOut(auth);
@@ -234,4 +241,43 @@ export function render(root) {
     toast("Membersihkan cache...");
     await hardRefresh();
   };
+}
+
+// ================= Cek Integritas Data (TASK-8) =================
+// Read-only, JANGAN auto-fix — cuma laporan. "Buka" ke transaksi lewat openTxDetail()
+// (home.js) biar ikut guard goal/asset yang sama kayak entry point lain, JANGAN openTxSheet()
+// langsung. Buat finding di level budget (bukan transaksi), arahkan ke #/budget — ga ada
+// transaksi spesifik yang bisa dibuka buat itu.
+function openIntegritySheet() {
+  const issues = scanIntegrity(state);
+  const el = openSheet(`
+    ${sheetHead("🩺 Integritas Data")}
+    ${issues.length === 0
+      ? `<div class="empty">Semua rapi ✓<br/>Ga ada referensi yatim atau data aneh ke-deteksi.</div>`
+      : `<div class="sub" style="margin-bottom:10px">${issues.length} item butuh perhatian — read-only, ga ada yang diubah otomatis.</div><div id="ig-list"></div>`}
+  `);
+  el.querySelector("[data-close]").onclick = closeSheet;
+
+  if (issues.length === 0) return;
+
+  const list = el.querySelector("#ig-list");
+  issues.forEach((issue) => {
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex; align-items:center; gap:10px; padding:9px 0; border-bottom:1px solid var(--border)";
+    const label = issue.kind === "transaction"
+      ? `Transaksi ${issue.ref.date || "?"} · ${fmtIDR(issue.ref.amount).replace(/<[^>]+>/g, "")}`
+      : `Budget ${issue.ref.month || "?"}`;
+    row.innerHTML = `
+      <div style="flex:1">
+        <div style="font-size:13px; font-weight:600">${escapeHtml(label)}</div>
+        <div class="sub" style="color:var(--yellow)">⚠️ ${escapeHtml(issue.problems.join(", "))}</div>
+      </div>
+      <button class="btn btn-sm" data-open>Buka</button>`;
+    row.querySelector("[data-open]").onclick = () => {
+      closeSheet();
+      if (issue.kind === "transaction") openTxDetail(issue.ref);
+      else location.hash = "#/budget";
+    };
+    list.appendChild(row);
+  });
 }

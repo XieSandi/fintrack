@@ -32,7 +32,10 @@ index.html            shell: header, #view, FAB, bottom nav, sheet, toast
 css/style.css         dark theme, mobile-first, CSS vars di :root
 js/app.js             entry: auth flow, hash router (ROUTES), month picker, SW register + auto-update
 js/firebase.js        init SDK via CDN gstatic + offline persistence
-js/store.js           state global + onSnapshot listeners + SEMUA derived calc (saldo, net worth, dll)
+js/store.js           state global + onSnapshot listeners; wrapper tipis ke js/calc.js buat
+                       derived calc (bind ke `state` global) — lihat js/calc.js
+js/calc.js            fungsi kalkulasi MURNI (saldo, net worth, dll) — TIDAK import Firebase,
+                       terima `state` sebagai parameter, ditest lewat tests/calc.test.mjs
 js/db.js              repository: CRUD generik, seeding kategori, snapshot bulanan, export/import
                        backup, bulkDelete()/previewBulkDelete() (reset data, js/views/danger.js)
 js/prices.js          auto price: iTick (IDX), Finnhub (US), CoinGecko (crypto, tanpa key)
@@ -40,6 +43,7 @@ js/kurs.js            kurs USD/IDR auto via frankfurter.app, cache localStorage
 js/tx-sheet.js        bottom sheet tambah/edit transaksi (quick-add)
 js/recurring-sheet.js sheet "Awal Bulan": konfirmasi post recurring + opsi salin budget
 js/report-md.js       buildMonthlyReport(month) → laporan finansial .md siap paste ke AI
+js/integrity.js       scanIntegrity(state) → cek referensi yatim, read-only (Setting → "🩺")
 js/utils.js           format, tanggal, toast, openSheet/closeSheet, escapeHtml, blur mode, hardRefresh
 js/views/             home, transactions, budget, wealth, settings, accounts, categories, goals, recurring
 sw.js                 service worker: precache shell, runtime cache gstatic+jsdelivr
@@ -203,9 +207,15 @@ sebagai baris terpisah "🎯 Goals" di breakdown Total tab Wealth biar rows-nya 
 6. Jangan tambah dependency eksternal kecuali via CDN dan di-cache di sw.js runtime cache.
 7. Angka harga asset selalu tampil dengan timestamp "per {tanggal}" — jangan pernah tampilkan
    harga tanpa keterangan kapan.
+8. Kalau nyentuh `js/calc.js`, jalankan `node tests/calc.test.mjs` sebelum selesai — harus hijau.
 
 ## Known Quirks
 
+- `tests/calc.test.mjs` (TASK-7) — smoke test manual buat `js/calc.js`, jalankan
+  `node tests/calc.test.mjs` (bukan bagian runtime app, sengaja GA masuk `PRECACHE` sw.js).
+  `js/calc.js` sendiri WAJIB masuk `PRECACHE` (dipakai runtime lewat wrapper `store.js`).
+  Nambah fungsi kalkulasi baru → taruh di `calc.js` (bukan langsung di `store.js`) + tambah
+  test case-nya, biar tetap bisa ditest tanpa Firebase/browser.
 - iTick (`js/prices.js`, `fetchIDX`) — terverifikasi live: `GET /stock/quotes?region=ID&codes=...`,
   header `token`, response `{code, msg, data:{SYMBOL:{ld, ...}}}`, harga di field `ld`.
   **Free/personal tier maks 3 simbol per call** (lebih dari itu → `{code:1, msg:"your request
@@ -281,6 +291,22 @@ sebagai baris terpisah "🎯 Goals" di breakdown Total tab Wealth biar rows-nya 
   db.js) — jangan biarkan itu drift jadi dua logic beda, preview harus selalu match apa yang
   beneran kehapus. Habis bulk delete: saldo akun BERUBAH (dihitung dari jurnal transaksi, bukan
   `initialBalance`) — user diarahkan ke Reconcile ("⚖️ Sesuaikan Saldo") kalau perlu.
+- **Cek Integritas Data** (Setting → "🩺 Cek Integritas Data", `js/integrity.js`,
+  `scanIntegrity(state)`) — scan READ-ONLY (JANGAN auto-fix) buat referensi yatim: transaksi
+  yang nunjuk akun/kategori/goal/debt/asset yang udah ga ada, transfer dengan `toAccountId` =
+  `accountId`, nominal ≤ 0, tanggal > 1 tahun ke depan, `month` yang ga cocok sama `date`
+  (sisa bug timezone lama kalau ada, lihat Known Quirks `toDateStr()`); plus budget yang
+  categoryId-nya ga ketemu. Referensi yatim ini cuma bisa kejadian kalau entity dihapus lewat
+  LUAR app (mis. Firestore console langsung) — guard normal (accounts.js/goals.js/dll) udah
+  nyegah ini lewat UI biasa. Tombol "Buka" di tiap finding transaksi manggil `openTxDetail()`
+  (diekstrak dari `txRow()` di home.js, TASK-8) — BUKAN `openTxSheet()` langsung, biar tetap
+  ikut guard goal/asset yang sama; kalau referensinya sendiri yang orphan, `openTxDetail()`
+  otomatis fallback ke `openTxSheet()` generik (sheet khusus butuh objek goal/asset yang
+  beneran ada buat dirender, jadi generik emang satu-satunya jalan). Finding level BUDGET
+  (bukan transaksi) diarahkan ke `#/budget`, bukan buka sheet spesifik. Fix kecil terkait:
+  `openBudgetSheet()` sekarang tetap bisa dibuka (buat akses tombol Hapus) walau
+  `categoryId`-nya udah orphan — sebelumnya diam-diam nolak buka sama sekali dengan toast yang
+  salah ("Semua kategori sudah punya budget").
 - **Dua jalur tulis transaksi yang SENGAJA bypass hook debt** (`add()`/`patch()`/`remove()`
   generik, tempat `applyDebtEffect()`/`handleDebtPatch()` nempel) — keduanya nulis langsung via
   `writeBatch`/`deleteDoc`, ga pernah manggil fungsi CRUD generik:

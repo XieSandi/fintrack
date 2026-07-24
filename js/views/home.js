@@ -239,6 +239,24 @@ function openCustomRangeSheet(root) {
   };
 }
 
+// Guard entry point terpusat: transaksi ber-toGoalId/fromGoalId/assetId HARUS dibuka lewat
+// sheet khususnya, jangan openTxSheet() generik (field-nya bakal ilang kalau ke-save ulang
+// lewat situ). Dipakai txRow() DAN entry point lain yang bisa klik-buka transaksi (mis. sheet
+// integritas data di Setting) — SATU tempat, jangan duplikasi guard ini lagi kalau nambah lagi.
+// Kalau referensinya sendiri udah orphan (goal/asset udah kehapus duluan, lihat TASK-8), guard
+// ini otomatis fallback ke openTxSheet() generik — itu udah benar: sheet khusus butuh objek
+// goal/asset yang beneran ada buat dirender, jadi kalau udah ga ada, generik emang satu-satunya
+// jalan buat user liat/benerin transaksinya manual.
+export function openTxDetail(t) {
+  const goalId = t.toGoalId || t.fromGoalId;
+  const goal = goalId ? state.goals.find((g) => g.id === goalId) : null;
+  const asset = t.assetId ? state.assets.find((a) => a.id === t.assetId) : null;
+  if (asset) { t.assetDir === "sell" ? openAssetSellSheet(asset, t) : openAssetBuySheet(asset, t); }
+  else if (goal && t.fromGoalId) openWithdrawSheet(goal, t);
+  else if (goal) openTopupSheet(goal, t);
+  else openTxSheet(t);
+}
+
 export function txRow(t) {
   const isWithdraw = !!t.fromGoalId;
   const goalId = t.toGoalId || t.fromGoalId;
@@ -269,11 +287,6 @@ export function txRow(t) {
         ? `🎯 ${escapeHtml(goal?.name || "?")} → ${escapeHtml(acct?.name || "?")}`
         : `${escapeHtml(acct?.name || "?")}${toAcct ? ` → ${escapeHtml(toAcct.name)}` : ""}${goal ? ` → 🎯 ${escapeHtml(goal.name)}` : ""}`}</div>
     </div>`;
-  div.onclick = () => {
-    if (asset) { isSell ? openAssetSellSheet(asset, t) : openAssetBuySheet(asset, t); }
-    else if (goal && isWithdraw) openWithdrawSheet(goal, t);
-    else if (goal) openTopupSheet(goal, t);
-    else openTxSheet(t);
-  };
+  div.onclick = () => openTxDetail(t);
   return div;
 }
