@@ -38,6 +38,7 @@ js/prices.js          auto price: iTick (IDX), Finnhub (US), CoinGecko (crypto, 
 js/kurs.js            kurs USD/IDR auto via frankfurter.app, cache localStorage
 js/tx-sheet.js        bottom sheet tambah/edit transaksi (quick-add)
 js/recurring-sheet.js sheet "Awal Bulan": konfirmasi post recurring + opsi salin budget
+js/report-md.js       buildMonthlyReport(month) → laporan finansial .md siap paste ke AI
 js/utils.js           format, tanggal, toast, openSheet/closeSheet, escapeHtml, blur mode, hardRefresh
 js/views/             home, transactions, budget, wealth, settings, accounts, categories, goals, recurring
 sw.js                 service worker: precache shell, runtime cache gstatic+jsdelivr
@@ -141,7 +142,10 @@ Blur mode (toggle 👁️ di card Total Balance) nge-blur semua `<span class="bl
   + `month`/id). Cuma boleh untuk bulan < bulan berjalan (bulan berjalan wilayah `upsertSnapshot`).
 - `settings/main` — targetNetWorth (= **Main Milestone**, dipakai card Total Balance Home DAN
   banner Wealth — SATU sumber, jangan bikin duplikat field), usdIdrManual,
-  apiKeys:{itick, finnhub}, lastBackupAt.
+  apiKeys:{itick, finnhub}, lastBackupAt. Field `targetDate` (diisi sekali saat `seedIfNeeded()`,
+  nilai "2028-12") TIDAK punya UI buat diubah dan ga dipakai di mana pun — vestigial, jangan
+  dianggap sumber kebenaran tanggal target Main Milestone (beda dari `goals.targetDate` per-goal
+  yang aktif dipakai & bisa diedit).
 
 Net worth = totalCashIDR + totalAssetsIDR + totalGoalSavingsIDR − totalDebtIDR (USD dikonversi
 `effectiveRate()`). Goal savings dihitung terpisah dari `totalAssetsIDR()` (bukan di-fold ke situ)
@@ -209,6 +213,28 @@ sebagai baris terpisah "🎯 Goals" di breakdown Total tab Wealth biar rows-nya 
 - Logic salin budget bulan lalu cuma ada SATU implementasi: `copyBudgetFromLastMonth()`,
   exported dari `views/budget.js`, dipakai tombol "⧉ Salin bulan lalu" DAN sheet Awal Bulan
   (`recurring-sheet.js`). Jangan re-implement inline lagi di tempat lain.
+- **Export Laporan (.md)** (Setting → "📄 Export Laporan (.md)", `js/report-md.js`,
+  `buildMonthlyReport(month)`) — beda dari backup JSON (`exportAll()`, buat restore data): ini
+  laporan human/AI-readable, siap paste ke chat AI. Section cashflow/budget/expense-per-kategori
+  pakai data HISTORIS bulan yang dipilih (`monthSummary`/`spentByCategory`/`budgetsOfMonth`),
+  TAPI section akun/asset/debt/goal SELALU posisi TERKINI (app ga nyimpen histori per bulan buat
+  itu) — dilabelin eksplisit "posisi per {tanggal export}" + disclaimer kalau bulan yang dipilih
+  bukan bulan berjalan. **Pakai `fmtIDRPlain()`/`fmtMoneyPlain()` (utils.js), BUKAN
+  `fmtIDR()`/`fmtMoney()`** — yang terakhir itu wrapper `<span class="blur-num">` buat blur mode
+  DOM, bakal ngerusak output markdown kalau kepake di teks/file. Konteks profil owner (usia/gaji/
+  nama bank) SENGAJA TIDAK di-hardcode di file ini — itu cuma boleh ada di CLAUDE.md (dev doc,
+  ga ke-ship ke browser); nulis literal di source JS bakal ke-expose ke siapapun yang buka situs
+  (static site, semua JS ke-download terlepas dari status login), beda kelas exposure-nya dari
+  data lain di app yang selalu datang dari Firestore ber-auth. Section 11 murni diturunkan dari
+  state yang udah ke-load.
+- `importAll()` (backup restore) SENGAJA/WAJIB tetap bypass hook `add()`/`patch()`/`remove()` —
+  dia nulis langsung via `writeBatch`/`batch.set()`/`setDoc()`, ga pernah manggil fungsi CRUD
+  generik. Ini penting buat `applyDebtEffect()`/`handleDebtPatch()` (efek `debtId` ke debt,
+  lihat bullet `debts` di Data Model): kalau `importAll()` ke depannya di-refactor buat pakai
+  `add()`/`patch()` generik (misal biar dapet `stamp()` otomatis), `debts.totalOutstanding`
+  bakal kepotong DUA KALI — sekali dari nilai final di file backup, sekali lagi dari efek
+  transaksi ber-`debtId` yang ikut di-restore. Kalau itu terjadi, WAJIB tambah bypass eksplisit
+  (flag semacam `skipSideEffects`) khusus buat jalur import.
 
 ## Roadmap (belum dibuat, urutan prioritas)
 

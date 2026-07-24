@@ -1,10 +1,15 @@
 // ---------- Format ----------
-export const fmtIDR = (n) =>
-  `<span class="blur-num">Rp ${Math.round(n || 0).toLocaleString("id-ID")}</span>`;
+// Plain (tanpa span.blur-num) — buat konteks non-DOM kayak generate .md/text, di mana
+// blur mode ga relevan (dan HTML tag bakal ngerusak output). fmtIDR/fmtUSD/fmtMoney di
+// bawah ini tetap wrapper HTML-nya buat semua pemakaian existing di view (biar blur mode
+// ga regresi) — cuma reuse logic format dari sini.
+export const fmtIDRPlain = (n) => `Rp ${Math.round(n || 0).toLocaleString("id-ID")}`;
+export const fmtUSDPlain = (n) =>
+  `$${(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+export const fmtMoneyPlain = (n, cur = "IDR") => (cur === "USD" ? fmtUSDPlain(n) : fmtIDRPlain(n));
 
-export const fmtUSD = (n) =>
-  `<span class="blur-num">$${(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>`;
-
+export const fmtIDR = (n) => `<span class="blur-num">${fmtIDRPlain(n)}</span>`;
+export const fmtUSD = (n) => `<span class="blur-num">${fmtUSDPlain(n)}</span>`;
 export const fmtMoney = (n, cur = "IDR") => (cur === "USD" ? fmtUSD(n) : fmtIDR(n));
 
 export const fmtNum = (n) => (n || 0).toLocaleString("id-ID");
