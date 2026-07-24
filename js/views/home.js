@@ -1,6 +1,7 @@
 import {
   state, activeAccounts, accountBalances, totalCashIDR,
-  goalSavedIDR, netWorthIDR, rangeSummary, catById, acctById, effectiveRate, budgetsOfMonth, spentByCategory,
+  goalSavedIDR, netWorthIDR, rangeSummary, catById, acctById, effectiveRate, budgetsOfMonth,
+  spentByCategory, milestoneProgress,
 } from "../store.js";
 import {
   fmtIDR, fmtMoney, escapeHtml, dateLabel, currentMonth, todayStr, toDateStr, monthLabel,
@@ -64,8 +65,7 @@ export function render(root) {
   const savingRate = sum.income > 0 ? ((sum.surplus / sum.income) * 100).toFixed(0) : null;
   const recent = state.transactions.slice(0, 3);
   const goals = state.goals.slice().sort((a, b) => (a.targetAmount || 0) - (b.targetAmount || 0));
-  const milestoneTarget = Number(state.settings.targetNetWorth) || 100_000_000;
-  const milestonePct = Math.max(0, Math.min(100, (netWorthIDR() / milestoneTarget) * 100));
+  const milestone = milestoneProgress();
 
   root.innerHTML = `
     <div class="chart-tabs period-tabs">
@@ -90,10 +90,13 @@ export function render(root) {
         <div><div class="label">Surplus</div><div class="v" style="color:${sum.surplus >= 0 ? "var(--green)" : "var(--red)"}">${fmtIDR(sum.surplus)}</div>
         ${savingRate !== null ? `<div class="sub">saving rate ${savingRate}%</div>` : ""}</div>
       </div>
+      ${milestone.hidden ? "" : `
       <div class="progress" style="margin-top:14px; height:6px">
-        <div style="width:${milestonePct}%; background:linear-gradient(90deg,#3b82f6,#60a5fa)"></div>
+        <div style="width:${milestone.achieved ? 100 : milestone.pct}%; background:${milestone.achieved ? "linear-gradient(90deg,#eab308,#facc15)" : "linear-gradient(90deg,#3b82f6,#60a5fa)"}"></div>
       </div>
-      <div class="sub" style="color:#7da3d8; margin-top:4px">🏆 Main Milestone: ${milestonePct.toFixed(1)}% menuju ${fmtIDR(milestoneTarget)}</div>
+      <div class="sub" style="color:${milestone.achieved ? "#facc15" : "#7da3d8"}; margin-top:4px">${milestone.achieved
+        ? `🏆 Tercapai! Net worth ${fmtIDR(milestone.nw)} ≥ target ${fmtIDR(milestone.target)}`
+        : `🏆 Main Milestone: ${milestone.pct.toFixed(1)}% menuju ${fmtIDR(milestone.target)}`}</div>`}
     </div>
 
     <div class="card-title" style="margin:2px 2px 8px">Akun</div>

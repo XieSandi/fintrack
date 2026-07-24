@@ -17,42 +17,6 @@ arsip transaksi lama (evaluasi nanti kalau >3.000 docs).
 
 ---
 
-## TASK-5 (P1) — Recurring topup goal
-
-**Scope:** template recurring untuk nabung rutin ke Short Term Goal (pola owner: nabung tiap
-gajian tgl 28). Saat ini `recurring` hanya punya `toAccountId`, belum bisa ke goal.
-
-**Implementasi:**
-- Tambah pilihan tujuan "🎯 Goal" di form template recurring: type transfer dengan `toGoalId`
-  (menggantikan `toAccountId`; `accountId` = akun sumber). Simpan `toGoalId` di template.
-- Posting dari sheet Awal Bulan menghasilkan transaksi topup yang IDENTIK dengan hasil
-  `openTopupSheet()` (type transfer, accountId sumber, toGoalId, tanpa toAccountId) — supaya
-  guard entry point & semua kalkulasi (`goalSavedIDR`, `accountBalances`) bekerja tanpa perubahan.
-- Ikutkan goal ke pengecekan `brokenReason()` (goal terhapus = template broken, checkbox
-  disabled + badge merah), konsisten dengan penanganan akun/kategori/debt yang sudah ada.
-- Verifikasi hasil posting ikut kejaring guard di `txRow()`.
-
-**Acceptance:**
-- Template "Nabung dana darurat, tgl 28, 500rb, dari Bank Digital → Goal X" → dikonfirmasi di
-  Awal Bulan: saldo Bank Digital turun, progress Goal X naik, TIDAK tercatat sebagai expense,
-  klik transaksinya di History membuka sheet topup.
-- Hapus Goal X → template ditandai broken, tidak bisa di-post.
-
----
-
-## TASK-6 (P2, kecil) — State "Milestone tercapai"
-
-Saat `netWorthIDR() >= settings.targetNetWorth`: progress bar Main Milestone (card Total
-Balance Home + banner Wealth — dua-duanya, satu sumber data) menampilkan state "🏆 Tercapai!"
-(bar penuh, warna emas/hijau) + di Setting card Main Milestone muncul ajakan "Set milestone
-berikutnya". Jangan auto-mengubah target. Handle target 0/kosong (jangan div-by-zero,
-sembunyikan bar).
-
-**Acceptance:** set target di bawah net worth sekarang → kedua tempat menampilkan state
-tercapai; naikkan target → kembali normal.
-
----
-
 ## TASK-7 (P2, disarankan) — Ekstrak `js/calc.js` + smoke test
 
 **Scope:** kalkulasi di store.js makin jadi jantung app (saldo dengan `accountId` yang perannya

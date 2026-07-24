@@ -1,4 +1,4 @@
-import { state, effectiveRate } from "../store.js";
+import { state, effectiveRate, milestoneProgress } from "../store.js";
 import { exportAll, importAll, updateSettings, put } from "../db.js";
 import { auth, signOut } from "../firebase.js";
 import {
@@ -15,6 +15,7 @@ export function render(root) {
   const nBudget = state.budgets.filter((b) => b.month === state.month).length;
   const nGoals = state.goals.length;
   const nRecurring = state.recurring.filter((r) => r.active !== false).length;
+  const milestone = milestoneProgress();
 
   root.innerHTML = `
     ${backupOld ? `<div class="card" style="border-color:#a16207; background:#1c1400">
@@ -62,6 +63,7 @@ export function render(root) {
     <div class="card">
       <div class="card-title">🏆 Main Milestone & Kurs</div>
       <div class="sub" style="margin-bottom:4px">Main Milestone = benchmark net worth jangka panjang lo, satu angka besar (beda dari Short Term Goals yang bisa banyak & topup-based). Progress-nya otomatis dari net worth keseluruhan — muncul di card Total Balance (Home) & banner Net Worth (Assets).</div>
+      ${milestone.achieved ? `<div class="sub" style="color:#facc15; margin-bottom:8px">🏆 Tercapai! Set milestone berikutnya biar progress lo lanjut ke target baru — angkanya ga kami ubah otomatis.</div>` : ""}
       <label>Target Net Worth — Main Milestone (Rp)</label>
       <input id="s-target" inputmode="numeric" value="${fmtNum(state.settings.targetNetWorth || 100000000)}" />
       <label>Kurs USD/IDR manual (kosongkan = auto)</label>

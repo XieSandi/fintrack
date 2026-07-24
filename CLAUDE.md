@@ -145,8 +145,13 @@ Blur mode (toggle 👁️ di card Total Balance) nge-blur semua `<span class="bl
   di-topup lagi). Goal yang punya riwayat topup ATAU pencairan ga bisa dihapus langsung (harus
   beresin transaksinya dulu di History) — pola sama kayak proteksi hapus akun. Beda konsep dari
   Main Milestone (`settings.targetNetWorth`) — lihat catatan di atas.
-- `recurring` — {name, type, amount, accountId, toAccountId?, categoryId?, debtId?, dayOfMonth
-  (1–31), active, lastPostedMonth? ("YYYY-MM")}. Dikelola di `#/recurring`. Tiap app dibuka, item aktif
+- `recurring` — {name, type, amount, accountId, toAccountId?, toGoalId?, categoryId?, debtId?,
+  dayOfMonth (1–31), active, lastPostedMonth? ("YYYY-MM")}. Template transfer bisa nabung rutin
+  ke **Short Term Goal** (`toGoalId`, menggantikan `toAccountId` — toggle "Akun"/"🎯 Goal" di
+  form, cuma muncul kalau ada ≥1 goal) — posting-nya (lihat bawah) menghasilkan transaksi topup
+  yang IDENTIK dengan `openTopupSheet()` (type transfer, accountId sumber, toGoalId, TANPA
+  toAccountId), jadi otomatis kejaring guard `txRow()` & kalkulasi goal (`goalSavedIDR()`,
+  `accountBalances()`) tanpa perubahan di situ. Dikelola di `#/recurring`. Tiap app dibuka, item aktif
   yang `dayOfMonth` ≤ hari ini DAN `lastPostedMonth` ≠ bulan berjalan dianggap "jatuh tempo" →
   muncul sheet **Awal Bulan** (`recurring-sheet.js`) buat konfirmasi (checklist, default semua
   tercentang) + opsi salin budget bulan lalu kalau budget bulan ini kosong. **JANGAN AUTO-POST**
@@ -157,8 +162,8 @@ Blur mode (toggle 👁️ di card Total Balance) nge-blur semua `<span class="bl
   localStorage, key `fintrack_recurring_dismissed_date`), dipanggil sekali per sesi dari app.js.
   `dayOfMonth` di-clamp ke hari terakhir bulan berjalan (`daysInMonth()` di utils.js) — template
   tgl 31 tetep kepost di bulan 30 hari, cek jatuh tempo maupun tanggal transaksinya pakai
-  effective day yang sama. Referensi akun/kategori/debt yang udah diarsip/kehapus di-deteksi via
-  `brokenReason()` (recurring-sheet.js, dipakai bareng views/recurring.js) — item broken ga
+  effective day yang sama. Referensi akun/kategori/debt/goal yang udah diarsip/kehapus di-deteksi
+  via `brokenReason()` (recurring-sheet.js, dipakai bareng views/recurring.js) — item broken ga
   bisa dicentang di sheet Awal Bulan (checkbox disabled) dan dapet badge merah di `#/recurring`,
   TAPI ga ngeblok item lain yang sehat buat tetep di-post. `lastPostedMonth` juga di-reset
   (null) otomatis oleh `bulkDelete()` (Zona Bahaya, lihat bawah) buat template yang
@@ -174,6 +179,12 @@ Blur mode (toggle 👁️ di card Total Balance) nge-blur semua `<span class="bl
   nilai "2028-12") TIDAK punya UI buat diubah dan ga dipakai di mana pun — vestigial, jangan
   dianggap sumber kebenaran tanggal target Main Milestone (beda dari `goals.targetDate` per-goal
   yang aktif dipakai & bisa diedit).
+  Progress bar-nya (Home + Wealth) dihitung SATU tempat: `milestoneProgress()` (store.js) →
+  `{target, nw, pct, achieved, hidden}` — `hidden:true` kalau `targetNetWorth` 0/kosong (bar
+  disembunyikan, bukan div-by-zero atau diam-diam fallback ke 100jt); `achieved:true` kalau
+  `nw >= target` → bar penuh warna emas (`#eab308→#facc15`, beda dari biru "in progress") + label
+  "🏆 Tercapai!" di Home/Wealth, plus ajakan "Set milestone berikutnya" di card Main Milestone
+  Setting (Setting.js) — target TIDAK di-auto-ubah, murni nudge visual buat user set manual.
 
 Net worth = totalCashIDR + totalAssetsIDR + totalGoalSavingsIDR − totalDebtIDR (USD dikonversi
 `effectiveRate()`). Goal savings dihitung terpisah dari `totalAssetsIDR()` (bukan di-fold ke situ)

@@ -46,9 +46,13 @@ export function brokenReason(r) {
   if (!acct) return "akun sumber ga ketemu (mungkin udah kehapus)";
   if (acct.isArchived) return "akun sumber diarsipkan";
   if (r.type === "transfer") {
-    const toAcct = state.accounts.find((a) => a.id === r.toAccountId);
-    if (!toAcct) return "akun tujuan ga ketemu (mungkin udah kehapus)";
-    if (toAcct.isArchived) return "akun tujuan diarsipkan";
+    if (r.toGoalId) {
+      if (!state.goals.find((g) => g.id === r.toGoalId)) return "goal tujuan ga ketemu (mungkin udah kehapus)";
+    } else {
+      const toAcct = state.accounts.find((a) => a.id === r.toAccountId);
+      if (!toAcct) return "akun tujuan ga ketemu (mungkin udah kehapus)";
+      if (toAcct.isArchived) return "akun tujuan diarsipkan";
+    }
   } else {
     const cat = state.categories.find((c) => c.id === r.categoryId);
     if (!cat) return "kategori ga ketemu (mungkin udah kehapus)";
@@ -88,6 +92,7 @@ function openRitualSheet(due) {
   const list = el.querySelector("#ritual-list");
   due.forEach((r) => {
     const acct = state.accounts.find((a) => a.id === r.accountId);
+    const goal = r.toGoalId ? state.goals.find((g) => g.id === r.toGoalId) : null;
     const reason = brokenReason(r);
     const label = document.createElement("label");
     label.style.cssText = `display:flex; align-items:center; gap:10px; padding:9px 0; border-bottom:1px solid var(--border)${reason ? "; opacity:.55" : ""}`;
@@ -95,7 +100,7 @@ function openRitualSheet(due) {
       <input type="checkbox" data-id="${r.id}" style="width:auto" ${reason ? "disabled" : "checked"} />
       <div style="flex:1">
         <div style="font-size:13px; font-weight:600">${escapeHtml(r.name)}</div>
-        <div class="sub" style="${reason ? "color:var(--yellow)" : ""}">${reason ? `⚠️ ${reason} — benerin dulu di #/recurring` : `tgl ${r.dayOfMonth} · ${escapeHtml(acct?.name || "?")}`}</div>
+        <div class="sub" style="${reason ? "color:var(--yellow)" : ""}">${reason ? `⚠️ ${reason} — benerin dulu di #/recurring` : `tgl ${r.dayOfMonth} · ${escapeHtml(acct?.name || "?")}${goal ? ` → 🎯 ${escapeHtml(goal.name)}` : ""}`}</div>
       </div>
       <div style="font-size:13px; font-weight:700">${fmtMoney(r.amount, acct?.currency)}</div>`;
     list.appendChild(label);
@@ -120,7 +125,8 @@ function openRitualSheet(due) {
       await add("transactions", {
         type: r.type, amount: r.amount, date, month: date.slice(0, 7),
         accountId: r.accountId,
-        toAccountId: r.type === "transfer" ? r.toAccountId : null,
+        toAccountId: r.type === "transfer" && !r.toGoalId ? r.toAccountId : null,
+        toGoalId: r.type === "transfer" ? (r.toGoalId || null) : null,
         categoryId: r.type === "transfer" ? null : r.categoryId,
         debtId: r.type === "expense" ? (r.debtId || null) : null,
         note: r.name,
