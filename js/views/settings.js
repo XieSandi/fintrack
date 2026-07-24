@@ -5,6 +5,7 @@ import {
   fmtNum, fmtIDR, escapeHtml, toast, parseAmount, attachThousands,
   confirmDialog, todayStr, hardRefresh, currentMonth, monthLabel, addMonths,
 } from "../utils.js";
+import { buildMonthlyReport, availableReportMonths } from "../report-md.js";
 
 export function render(root) {
   const lastBackup = state.settings.lastBackupAt;
@@ -87,6 +88,19 @@ export function render(root) {
         <button id="btn-import" class="btn">⬆️ Import</button>
       </div>
       <input type="file" id="import-file" accept=".json,application/json" class="hidden" />
+    </div>
+
+    <div class="card">
+      <div class="card-title">📄 Export Laporan (.md)</div>
+      <div class="sub" style="margin-bottom:10px">Laporan finansial satu bulan format Markdown — siap paste ke chat AI (ChatGPT/Claude/dll) buat dianalisis. Beda dari backup JSON di atas (itu buat restore data, ini buat dibaca).</div>
+      <label>Bulan</label>
+      <select id="rep-month">
+        ${availableReportMonths().map((m) => `<option value="${m}" ${m === currentMonth() ? "selected" : ""}>${monthLabel(m)}</option>`).join("")}
+      </select>
+      <div class="row" style="margin-top:12px">
+        <button id="btn-download-report" class="btn">⬇️ Download .md</button>
+        <button id="btn-copy-report" class="btn">📋 Salin ke Clipboard</button>
+      </div>
     </div>
 
     <div class="card">
@@ -176,6 +190,30 @@ export function render(root) {
       console.error(e);
       toast(e.message || "File tidak valid");
     } finally { fileInput.value = ""; }
+  };
+
+  root.querySelector("#btn-download-report").onclick = () => {
+    const month = root.querySelector("#rep-month").value;
+    const md = buildMonthlyReport(month);
+    const blob = new Blob([md], { type: "text/markdown" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `fintrack-laporan-${month}.md`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    toast("Laporan ter-download ✓");
+  };
+
+  root.querySelector("#btn-copy-report").onclick = async () => {
+    const month = root.querySelector("#rep-month").value;
+    const md = buildMonthlyReport(month);
+    try {
+      await navigator.clipboard.writeText(md);
+      toast("Laporan ke-copy ✓ — paste ke chat AI");
+    } catch (e) {
+      console.error(e);
+      toast("Gagal copy (izin clipboard?) — coba Download aja");
+    }
   };
 
   root.querySelector("#btn-logout").onclick = async () => {
