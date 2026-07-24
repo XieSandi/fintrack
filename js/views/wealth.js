@@ -6,7 +6,7 @@ import {
 import { add, patch, remove } from "../db.js";
 import {
   fmtIDR, fmtMoney, fmtNum, escapeHtml, toast, openSheet, closeSheet, sheetHead,
-  parseAmount, attachThousands, lastNMonths, monthLabel, todayStr, confirmDialog,
+  parseAmount, attachThousands, lastNMonths, monthLabel, todayStr, confirmDialog, monthOf,
 } from "../utils.js";
 import { refreshPrices, refreshableAssets } from "../prices.js";
 
@@ -321,6 +321,11 @@ function openAssetSheet(existing, contentRoot) {
       🔒 Harga manual saja (skip auto-refresh)
     </label>
     <div class="sub" id="a-auto-hint"></div>
+    ${existing ? `
+    <div style="margin-top:14px; display:flex; gap:8px;">
+      <button id="a-buy" class="btn" style="flex:1">💰 Catat Pembelian</button>
+      <button id="a-sell" class="btn" style="flex:1">💸 Catat Penjualan</button>
+    </div>` : ""}
     <div style="margin-top:18px; display:flex; gap:8px;">
       ${existing ? `<button id="a-delete" class="btn btn-danger">Hapus</button>` : ""}
       <button id="a-save" class="btn btn-primary" style="flex:1">Simpan</button>
@@ -376,13 +381,156 @@ function openAssetSheet(existing, contentRoot) {
   };
 
   if (existing) {
+    el.querySelector("#a-buy").onclick = () => openAssetBuySheet(existing);
+    el.querySelector("#a-sell").onclick = () => openAssetSellSheet(existing);
     el.querySelector("#a-delete").onclick = async () => {
+      const used = state.transactions.some((t) => t.assetId === existing.id);
+      if (used) return toast("Asset ini punya riwayat pembelian/penjualan — beresin transaksinya di History dulu, baru hapus asset-nya");
       if (!confirmDialog("Hapus asset ini?")) return;
       closeSheet();
       await remove("assets", existing.id);
       toast("Dihapus");
     };
   }
+}
+
+// ================= Catat Pembelian / Penjualan (TASK-3) =================
+// Beli = transfer keluar dari akun ke "asset" (pola persis topup goal toGoalId): accountId =
+// SUMBER (didebit), ga ada akun yang kekredit. Jual = kebalikannya, accountId jadi akun TUJUAN
+// (dikredit) — pola sama withdraw goal (lihat store.js accountBalances()). Field id-nya SATU
+// (`assetId`, sama buat keduanya) + field arah eksplisit `assetDir` ("buy"|"sell") — beda dari
+// goal yang pakai DUA field id (toGoalId/fromGoalId) buat encode arah; di sini eksplisit field
+// arah dipilih karena paling sedikit ambiguitas (satu identitas asset, satu penanda arah jelas).
+//
+// Weighted average buy price otomatis (avgBaru = (qtyLama×avgLama + qtyBaru×hargaBaru) /
+// (qtyLama+qtyBaru)) — TASK-4 digabung ke sini karena tanpa itu fitur "Catat Pembelian" bakal
+// langsung ngerusak avgBuyPrice di pemakaian pertama (setengah-jadi). Jual: qty berkurang,
+// avgBuyPrice TIDAK berubah (konvensi standar) — realized P&L ga dilacak di v1, cukup di note.
+//
+// Edit SENGAJA TIDAK didukung (beda dari topup/withdraw goal yang full CRUD) — weighted average
+// ga bisa di-reverse dengan aman kalau transaksi lama diedit ulang (butuh replay history buat
+// rekonstruksi avg sebelumnya). Klik dari History cuma buka detail read-only + Hapus (hapus
+// me-reverse QUANTITY doang secara exact, avgBuyPrice ga ikut di-reverse — dikasih tau eksplisit
+// ke user, arahkan ke Edit Asset kalau perlu koreksi manual). Salah catat → hapus + catat ulang.
+export function openAssetBuySheet(asset, existingTx = null) { openAssetTradeSheet(asset, "buy", existingTx); }
+export function openAssetSellSheet(asset, existingTx = null) { openAssetTradeSheet(asset, "sell", existingTx); }
+
+function openAssetTradeSheet(asset, dir, existingTx) {
+  const isBuy = dir === "buy";
+
+  if (existingTx) {
+    const acct = state.accounts.find((a) => a.id === existingTx.accountId);
+    const el = openSheet(`
+      ${sheetHead(isBuy ? "Detail Pembelian" : "Detail Penjualan")}
+      <div class="sub" style="margin-bottom:10px">Transaksi ${isBuy ? "pembelian" : "penjualan"} asset ga bisa diedit langsung (biar avg buy price ga rusak) — hapus &amp; catat ulang kalau salah.</div>
+      <div class="table-like">
+        <div style="display:flex; justify-content:space-between; padding:6px 0"><span class="sub">Asset</span><span>${escapeHtml(asset.symbol || asset.name)}</span></div>
+        <div style="display:flex; justify-content:space-between; padding:6px 0"><span class="sub">Jumlah</span><span>${asset.type === "stock_id" ? `${fmtNum(existingTx.assetQty)} lot` : existingTx.assetQty}</span></div>
+        <div style="display:flex; justify-content:space-between; padding:6px 0"><span class="sub">Harga/unit</span><span>${fmtMoney(existingTx.assetPrice, asset.currency)}</span></div>
+        <div style="display:flex; justify-content:space-between; padding:6px 0"><span class="sub">${isBuy ? "Dari" : "Ke"} Akun</span><span>${escapeHtml(acct?.name || "?")}</span></div>
+        <div style="display:flex; justify-content:space-between; padding:6px 0"><span class="sub">Tanggal</span><span>${existingTx.date}</span></div>
+      </div>
+      <button id="at-delete" class="btn btn-danger btn-block" style="margin-top:18px">Hapus Transaksi</button>
+    `);
+    el.querySelector("[data-close]").onclick = closeSheet;
+    el.querySelector("#at-delete").onclick = async () => {
+      if (!confirmDialog(`Hapus transaksi ${isBuy ? "pembelian" : "penjualan"} ini? Qty asset bakal disesuaikan lagi, TAPI avg buy price GA ikut di-reverse (kompleks) — cek Edit Asset kalau perlu dikoreksi manual.`)) return;
+      closeSheet();
+      const qtyDelta = isBuy ? -(Number(existingTx.assetQty) || 0) : (Number(existingTx.assetQty) || 0);
+      const newQty = Math.max(0, (Number(asset.quantity) || 0) + qtyDelta);
+      await patch("assets", asset.id, { quantity: newQty });
+      await remove("transactions", existingTx.id);
+      toast("Transaksi dihapus, qty asset disesuaikan");
+    };
+    return;
+  }
+
+  const accounts = activeAccounts();
+  if (accounts.length === 0) {
+    toast("Buat akun dulu di Settings ⚙️");
+    location.hash = "#/settings";
+    return;
+  }
+  const curQty = Number(asset.quantity) || 0;
+  const curAvg = Number(asset.avgBuyPrice) || 0;
+  const qtyLabel = asset.type === "stock_id" ? "Jumlah (lot)" : "Jumlah";
+
+  const el = openSheet(`
+    ${sheetHead(isBuy ? `Catat Pembelian: ${escapeHtml(asset.symbol || asset.name)}` : `Catat Penjualan: ${escapeHtml(asset.symbol || asset.name)}`)}
+    <label>${qtyLabel}</label>
+    <input id="at-qty" inputmode="decimal" placeholder="0" autocomplete="off" />
+    <label>Harga / unit (${asset.currency})</label>
+    <input id="at-price" inputmode="decimal" placeholder="${curAvg || 0}" autocomplete="off" />
+    <div id="at-hint" class="sub" style="margin-top:4px"></div>
+    <label>${isBuy ? "Dari Akun" : "Ke Akun"}</label>
+    <select id="at-account">
+      ${accounts.map((a) => `<option value="${a.id}">${escapeHtml(a.name)} (${a.currency})</option>`).join("")}
+    </select>
+    <label>Tanggal</label>
+    <input id="at-date" type="date" value="${todayStr()}" />
+    <label>Catatan (opsional)</label>
+    <input id="at-note" type="text" placeholder="${isBuy ? "cth: nambah posisi" : "cth: profit taking"}" />
+    <button id="at-save" class="btn btn-primary btn-block" style="margin-top:18px">Simpan</button>
+  `);
+
+  const qtyInput = el.querySelector("#at-qty");
+  const priceInput = el.querySelector("#at-price");
+  const hint = el.querySelector("#at-hint");
+  setTimeout(() => qtyInput.focus(), 250);
+  el.querySelector("[data-close]").onclick = closeSheet;
+
+  const parseDec = (v) => parseFloat(String(v).replace(",", ".")) || 0;
+
+  const updateHint = () => {
+    const qty = parseDec(qtyInput.value);
+    const price = parseDec(priceInput.value);
+    if (isBuy) {
+      if (qty > 0 && price > 0) {
+        const newAvg = (curQty * curAvg + qty * price) / (curQty + qty);
+        hint.textContent = `Avg buy: ${fmtNum(curAvg)} → ${fmtNum(Math.round(newAvg * 100) / 100)}`;
+      } else {
+        hint.textContent = curQty > 0 ? `Avg buy sekarang: ${fmtNum(curAvg)}` : "";
+      }
+    } else {
+      hint.textContent = `Dimiliki sekarang: ${asset.type === "stock_id" ? `${fmtNum(curQty)} lot` : curQty}`;
+    }
+  };
+  qtyInput.addEventListener("input", updateHint);
+  priceInput.addEventListener("input", updateHint);
+  updateHint();
+
+  el.querySelector("#at-save").onclick = async () => {
+    const qty = parseDec(qtyInput.value);
+    const price = parseDec(priceInput.value);
+    const accountId = el.querySelector("#at-account").value;
+    const date = el.querySelector("#at-date").value;
+    const note = el.querySelector("#at-note").value.trim();
+
+    if (!qty || qty <= 0) return toast("Isi jumlah unit");
+    if (!price || price <= 0) return toast("Isi harga per unit");
+    if (!date) return toast("Tanggal belum diisi");
+    if (!isBuy && qty > curQty) {
+      return toast(`Ga bisa jual lebih dari yang dimiliki (${asset.type === "stock_id" ? fmtNum(curQty) + " lot" : curQty})`);
+    }
+
+    const shares = asset.type === "stock_id" ? qty * 100 : qty;
+    const amount = shares * price;
+    const newQty = isBuy ? curQty + qty : curQty - qty;
+    const newAvg = isBuy && curQty + qty > 0 ? (curQty * curAvg + qty * price) / (curQty + qty) : curAvg;
+
+    closeSheet();
+    await patch("assets", asset.id, {
+      quantity: newQty,
+      avgBuyPrice: isBuy ? Math.round(newAvg * 100) / 100 : curAvg,
+    });
+    await add("transactions", {
+      type: "transfer", amount, date, month: monthOf(date),
+      accountId, toAccountId: null, categoryId: null,
+      assetId: asset.id, assetDir: dir, assetQty: qty, assetPrice: price,
+      note: note || `${isBuy ? "Beli" : "Jual"} ${asset.symbol || asset.name}`,
+    });
+    toast(isBuy ? "Pembelian tercatat ✓" : "Penjualan tercatat ✓");
+  };
 }
 
 // ================= LIQUID =================

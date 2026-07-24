@@ -8,6 +8,7 @@ import {
 } from "../utils.js";
 import { openTxSheet } from "../tx-sheet.js";
 import { openTopupSheet, openWithdrawSheet } from "./goals.js";
+import { openAssetBuySheet, openAssetSellSheet } from "./wealth.js";
 
 // Filter periode Home — persist selama sesi (module-level, bukan di store global)
 const period = { mode: "month", from: null, to: null };
@@ -239,6 +240,8 @@ export function txRow(t) {
   const isWithdraw = !!t.fromGoalId;
   const goalId = t.toGoalId || t.fromGoalId;
   const goal = goalId ? state.goals.find((g) => g.id === goalId) : null;
+  const asset = t.assetId ? state.assets.find((a) => a.id === t.assetId) : null;
+  const isSell = t.assetDir === "sell";
   const cat = t.type === "transfer" ? null : catById(t.categoryId);
   const acct = acctById(t.accountId);
   const toAcct = t.toAccountId ? acctById(t.toAccountId) : null;
@@ -246,21 +249,26 @@ export function txRow(t) {
   div.className = "tx-item";
   const sign = t.type === "expense" ? "−" : t.type === "income" ? "+" : "⇄";
   div.innerHTML = `
-    <div class="tx-ic">${goal ? "🎯" : t.type === "transfer" ? "🔁" : (cat?.icon || "📦")}</div>
+    <div class="tx-ic">${asset ? "📈" : goal ? "🎯" : t.type === "transfer" ? "🔁" : (cat?.icon || "📦")}</div>
     <div class="tx-main">
-      <div class="tx-cat">${goal
+      <div class="tx-cat">${asset
+        ? `${isSell ? "Jual" : "Beli"}: ${escapeHtml(asset.symbol || asset.name)}`
+        : goal
         ? `${isWithdraw ? "Pencairan" : "Topup"}: ${escapeHtml(goal.name)}`
         : t.type === "transfer" ? `Transfer` : escapeHtml(cat?.name || "—")}</div>
       <div class="tx-note">${escapeHtml(t.note || dateLabel(t.date))}</div>
     </div>
     <div>
       <div class="tx-amt ${t.type}">${sign} ${fmtMoney(t.amount, acct?.currency)}</div>
-      <div class="tx-acct">${isWithdraw
+      <div class="tx-acct">${asset
+        ? (isSell ? `📈 ${escapeHtml(asset.symbol || asset.name)} → ${escapeHtml(acct?.name || "?")}` : `${escapeHtml(acct?.name || "?")} → 📈 ${escapeHtml(asset.symbol || asset.name)}`)
+        : isWithdraw
         ? `🎯 ${escapeHtml(goal?.name || "?")} → ${escapeHtml(acct?.name || "?")}`
         : `${escapeHtml(acct?.name || "?")}${toAcct ? ` → ${escapeHtml(toAcct.name)}` : ""}${goal ? ` → 🎯 ${escapeHtml(goal.name)}` : ""}`}</div>
     </div>`;
   div.onclick = () => {
-    if (goal && isWithdraw) openWithdrawSheet(goal, t);
+    if (asset) { isSell ? openAssetSellSheet(asset, t) : openAssetBuySheet(asset, t); }
+    else if (goal && isWithdraw) openWithdrawSheet(goal, t);
     else if (goal) openTopupSheet(goal, t);
     else openTxSheet(t);
   };

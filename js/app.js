@@ -19,6 +19,7 @@ import * as accountsView from "./views/accounts.js";
 import * as categoriesView from "./views/categories.js";
 import * as goalsView from "./views/goals.js";
 import * as recurringView from "./views/recurring.js";
+import * as dangerView from "./views/danger.js";
 
 const $ = (s) => document.querySelector(s);
 
@@ -32,6 +33,7 @@ const ROUTES = {
   budget:       { view: budgetView,     title: "Budget",    month: true,  nav: "settings", back: "#/settings" },
   goals:        { view: goalsView,      title: "Short Term Goals", month: false, nav: "settings", back: "#/settings" },
   recurring:    { view: recurringView,  title: "Transaksi Berulang", month: false, nav: "settings", back: "#/settings" },
+  danger:       { view: dangerView,     title: "Reset Data", month: false, nav: "settings", back: "#/settings" },
 };
 
 let currentRoute = "home";

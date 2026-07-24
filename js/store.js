@@ -95,13 +95,16 @@ export function accountBalances() {
     if (t.type === "expense") bal[t.accountId] = (bal[t.accountId] || 0) - amt;
     else if (t.type === "income") bal[t.accountId] = (bal[t.accountId] || 0) + amt;
     else if (t.type === "transfer") {
-      if (t.fromGoalId) {
-        // Pencairan goal: goal → akun. accountId di sini = akun TUJUAN (di-kredit),
-        // ga ada akun yang di-debit (sumbernya goal, bukan akun cash).
+      if (t.fromGoalId || (t.assetId && t.assetDir === "sell")) {
+        // Pencairan goal ATAU jual asset: goal/asset → akun. accountId di sini = akun
+        // TUJUAN (di-kredit), ga ada akun yang di-debit (sumbernya bukan akun cash).
         bal[t.accountId] = (bal[t.accountId] || 0) + amt;
+      } else if (t.toGoalId || (t.assetId && t.assetDir === "buy")) {
+        // Topup goal ATAU beli asset: akun → goal/asset. accountId = SUMBER (di-debit),
+        // uang keluar dari cash system, ga ada kredit ke akun manapun.
+        bal[t.accountId] = (bal[t.accountId] || 0) - amt;
       } else {
         bal[t.accountId] = (bal[t.accountId] || 0) - amt;
-        // toGoalId (topup goal): uang keluar dari cash system, ga ada kredit ke akun manapun
         if (t.toAccountId) bal[t.toAccountId] = (bal[t.toAccountId] || 0) + amt;
       }
     }
