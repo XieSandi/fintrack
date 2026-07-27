@@ -4,7 +4,7 @@ Personal finance tracker PWA milik satu user (owner repo). Live di https://xiesa
 (GitHub Pages, custom domain, subpath). Track expense harian, budget bulanan, assets, debt,
 net worth menuju target Rp 100 juta akhir 2028.
 
-**Konsep target — sengaja 2 sistem terpisah (keputusan owner, TASK-5):**
+**Konsep target — sengaja 2 sistem terpisah (keputusan owner):**
 - **🏆 Main Milestone** — SATU angka besar (`settings.targetNetWorth`), benchmark net worth
   jangka panjang, pasif (progress otomatis dari `netWorthIDR()`, ga ada topup). Setup di
   Setting → "Main Milestone & Kurs". Ditampilkan di card Total Balance (Home) + banner Net
@@ -95,7 +95,7 @@ Blur mode (toggle 👁️ di card Total Balance) nge-blur semua `<span class="bl
   **Beli/jual asset** = transfer juga, pola SAMA persis (`accountId` = sumber pas beli/kredit
   pas jual) — TAPI bedanya pakai SATU field id (`assetId`, bukan dua field kayak goal) + field
   arah eksplisit `assetDir` ("buy"|"sell"), karena itu opsi paling sedikit ambiguitas buat kasus
-  ini (dipilih sengaja saat TASK-3, lihat wealth.js). `assetQty`/`assetPrice` disimpan juga di
+  ini (lihat wealth.js). `assetQty`/`assetPrice` disimpan juga di
   transaksinya (native unit — LOT buat `stock_id`, bukan ×100 lembar) buat detail view & reversal
   saat hapus, ga perlu di-derive balik dari `amount`. Dibuat lewat `openAssetBuySheet()`/
   `openAssetSellSheet()` (`wealth.js`), BUKAN `openTxSheet()`. **Edit SENGAJA TIDAK didukung**
@@ -124,7 +124,7 @@ Blur mode (toggle 👁️ di card Total Balance) nge-blur semua `<span class="bl
   dari `avgBuyPrice`, P&L = nilai − invested) di atas list, ngikutin filter tipe aktif — sign
   convention SAMA kayak per-asset P&L di `assetRow()` (val − cost), jangan dibalik biar ga
   selisih warna sama baris individual-nya. **Catat Pembelian/Penjualan** (tombol "💰"/"💸" di
-  sheet edit asset, `openAssetBuySheet()`/`openAssetSellSheet()` wealth.js, TASK-3+4 digabung) —
+  sheet edit asset, `openAssetBuySheet()`/`openAssetSellSheet()` wealth.js) —
   link ke arus kas akun (transaksi transfer ber-`assetId`, lihat bullet `transactions`) +
   `quantity`/`avgBuyPrice` di-update OTOMATIS. Beli: `avgBuyPrice` baru = weighted average
   `(qtyLama×avgLama + qtyBaru×hargaBaru)/(qtyLama+qtyBaru)` (dibulatkan 2 desimal), preview
@@ -211,7 +211,7 @@ sebagai baris terpisah "🎯 Goals" di breakdown Total tab Wealth biar rows-nya 
 
 ## Known Quirks
 
-- `tests/calc.test.mjs` (TASK-7) — smoke test manual buat `js/calc.js`, jalankan
+- `tests/calc.test.mjs` — smoke test manual buat `js/calc.js`, jalankan
   `node tests/calc.test.mjs` (bukan bagian runtime app, sengaja GA masuk `PRECACHE` sw.js).
   `js/calc.js` sendiri WAJIB masuk `PRECACHE` (dipakai runtime lewat wrapper `store.js`).
   Nambah fungsi kalkulasi baru → taruh di `calc.js` (bukan langsung di `store.js`) + tambah
@@ -299,7 +299,7 @@ sebagai baris terpisah "🎯 Goals" di breakdown Total tab Wealth biar rows-nya 
   categoryId-nya ga ketemu. Referensi yatim ini cuma bisa kejadian kalau entity dihapus lewat
   LUAR app (mis. Firestore console langsung) — guard normal (accounts.js/goals.js/dll) udah
   nyegah ini lewat UI biasa. Tombol "Buka" di tiap finding transaksi manggil `openTxDetail()`
-  (diekstrak dari `txRow()` di home.js, TASK-8) — BUKAN `openTxSheet()` langsung, biar tetap
+  (diekstrak dari `txRow()` di home.js) — BUKAN `openTxSheet()` langsung, biar tetap
   ikut guard goal/asset yang sama; kalau referensinya sendiri yang orphan, `openTxDetail()`
   otomatis fallback ke `openTxSheet()` generik (sheet khusus butuh objek goal/asset yang
   beneran ada buat dirender, jadi generik emang satu-satunya jalan). Finding level BUDGET
@@ -324,10 +324,12 @@ sebagai baris terpisah "🎯 Goals" di breakdown Total tab Wealth biar rows-nya 
   transaksi massal baru ke depannya, ikutin pola yang sama (raw batch write + agregasi debt
   manual), jangan bikin jalur keempat yang beda pattern.
 
-## Roadmap (belum dibuat, urutan prioritas)
+## Roadmap (belum jadi task aktif — detail lengkap + urutan di `TASKS.md`)
 
-1. Import CSV mutasi bank; laporan tahunan; enkripsi backup (Web Crypto)
-2. Harga emas & NAV reksa dana: BELUM ada API gratis+CORS yang stabil → tetap manual
+1. Arsip transaksi lama — `store.js` listen SEMUA transaksi selamanya via `onSnapshot`, aman
+   sampai ±3–5rb docs. Evaluasi kalau transaksi udah > 3.000 docs atau load mulai lambat.
+2. Import CSV mutasi bank; laporan tahunan (reuse `report-md.js`); enkripsi backup (Web Crypto).
+3. Harga emas & NAV reksa dana: BELUM ada API gratis+CORS yang stabil → tetap manual.
 
 ## Konteks Owner (untuk fitur/copy)
 
