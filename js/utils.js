@@ -14,6 +14,29 @@ export const fmtMoney = (n, cur = "IDR") => (cur === "USD" ? fmtUSD(n) : fmtIDR(
 
 export const fmtNum = (n) => (n || 0).toLocaleString("id-ID");
 
+// Angka ringkas ("2.1JT", "500rb") — dipakai tab summary Wealth + baris pace Main Milestone.
+export const fmtShort = (n) => {
+  const abs = Math.abs(n);
+  if (abs >= 1e9) return (n / 1e9).toFixed(2) + "M";
+  if (abs >= 1e6) return (n / 1e6).toFixed(1) + "jt";
+  if (abs >= 1e3) return (n / 1e3).toFixed(0) + "rb";
+  return String(Math.round(n));
+};
+
+// Baris pace di bawah progress bar Main Milestone (Home + Wealth, SATU tempat biar wording
+// ga kepisah dua versi). Plain text (ga ada markup) — dipakai baik di DOM maupun laporan .md.
+// Return null kalau ga ada apa-apa buat ditampilkan (targetDate kosong, lihat milestoneProgress()).
+export function milestonePaceLine(mp) {
+  if (mp.targetDatePassed) return "⚠️ Target date udah lewat, belum tercapai — pertimbangkan set ulang di Setting.";
+  if (mp.neededPerMonth === undefined) return null;
+  let line = `Sisa ${mp.monthsLeft} bulan · perlu ± Rp${fmtShort(mp.neededPerMonth)}/bln`;
+  if (mp.avgSurplus3m !== undefined) {
+    line += ` · surplus rata-rata lo Rp${fmtShort(mp.avgSurplus3m)}/bln`;
+    line += mp.onTrack ? " → on track ✓" : ` → kurang ± Rp${fmtShort(mp.neededPerMonth - mp.avgSurplus3m)}/bln`;
+  }
+  return line;
+}
+
 // Parse "1.500.000" / "1500000" -> 1500000
 export const parseAmount = (s) => {
   if (typeof s === "number") return s;

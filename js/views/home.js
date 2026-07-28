@@ -5,7 +5,7 @@ import {
 } from "../store.js";
 import {
   fmtIDR, fmtMoney, escapeHtml, dateLabel, currentMonth, todayStr, toDateStr, monthLabel,
-  isBlurred, setBlurred, openSheet, closeSheet, sheetHead, toast,
+  isBlurred, setBlurred, openSheet, closeSheet, sheetHead, toast, milestonePaceLine,
 } from "../utils.js";
 import { openTxSheet } from "../tx-sheet.js";
 import { openTopupSheet, openWithdrawSheet } from "./goals.js";
@@ -66,6 +66,7 @@ export function render(root) {
   const recent = state.transactions.slice(0, 3);
   const goals = state.goals.slice().sort((a, b) => (a.targetAmount || 0) - (b.targetAmount || 0));
   const milestone = milestoneProgress();
+  const paceLine = milestonePaceLine(milestone);
 
   root.innerHTML = `
     <div class="chart-tabs period-tabs">
@@ -96,7 +97,8 @@ export function render(root) {
       </div>
       <div class="sub" style="color:${milestone.achieved ? "#facc15" : "#7da3d8"}; margin-top:4px">${milestone.achieved
         ? `🏆 Tercapai! Net worth ${fmtIDR(milestone.nw)} ≥ target ${fmtIDR(milestone.target)}`
-        : `🏆 Main Milestone: ${milestone.pct.toFixed(1)}% menuju ${fmtIDR(milestone.target)}`}</div>`}
+        : `🏆 Main Milestone: ${milestone.pct.toFixed(1)}% menuju ${fmtIDR(milestone.target)}`}</div>
+      ${paceLine ? `<div class="sub" style="margin-top:2px">${escapeHtml(paceLine)}</div>` : ""}`}
     </div>
 
     <div class="card-title" style="margin:2px 2px 8px">Akun</div>

@@ -4,9 +4,11 @@
 import {
   state, activeAccounts, accountBalances, totalCashIDR, totalAssetsIDR, totalDebtIDR,
   totalGoalSavingsIDR, netWorthIDR, assetValueIDR, assetCostIDR, goalSavedIDR,
-  effectiveRate, monthSummary, spentByCategory, budgetsOfMonth, catById, acctById,
+  effectiveRate, monthSummary, spentByCategory, budgetsOfMonth, catById, acctById, milestoneProgress,
 } from "./store.js";
-import { fmtIDRPlain, fmtMoneyPlain, fmtNum, monthLabel, addMonths, todayStr, currentMonth } from "./utils.js";
+import {
+  fmtIDRPlain, fmtMoneyPlain, fmtNum, monthLabel, addMonths, todayStr, currentMonth, milestonePaceLine,
+} from "./utils.js";
 import { ASSET_TYPES } from "./views/wealth.js";
 import { ACCT_TYPES } from "./views/accounts.js";
 
@@ -120,6 +122,7 @@ export function buildMonthlyReport(month) {
   const isCurrentMonth = month === currentMonth();
   const position = buildPosition(month, isCurrentMonth);
   const liveRate = effectiveRate(); // buat section yang inherently "sekarang" (mis. recurring), beda dari position.rate yang bisa historis
+  const liveMilestone = milestoneProgress(); // pace SELALU dari posisi TERKINI (forward-looking "dari sekarang", bukan konsep historis per bulan)
   const kursLabel = position.fromSnapshot
     ? `Rp ${fmtNum(position.rate)} (per akhir ${monthLabel(month)})`
     : state.settings.usdIdrManual
@@ -143,6 +146,10 @@ export function buildMonthlyReport(month) {
   if (target > 0) {
     const milestonePct = Math.max(0, (position.nw / target) * 100);
     lines.push(`- Progress 🏆 Main Milestone: ${fmtIDRPlain(position.nw)} dari ${fmtIDRPlain(target)} (${milestonePct.toFixed(1)}%)`);
+  }
+  const paceLine = milestonePaceLine(liveMilestone);
+  if (paceLine) {
+    lines.push(`- ${paceLine}${!isCurrentMonth ? " _(dihitung dari posisi TERKINI, bukan posisi " + monthLabel(month) + " — pace itu konsep forward-looking dari sekarang)_" : ""}`);
   }
   lines.push("");
 

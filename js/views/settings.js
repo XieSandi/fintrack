@@ -70,6 +70,8 @@ export function render(root) {
       ${milestone.achieved ? `<div class="sub" style="color:#facc15; margin-bottom:8px">🏆 Tercapai! Set milestone berikutnya biar progress lo lanjut ke target baru — angkanya ga kami ubah otomatis.</div>` : ""}
       <label>Target Net Worth — Main Milestone (Rp)</label>
       <input id="s-target" inputmode="numeric" value="${fmtNum(state.settings.targetNetWorth || 100000000)}" />
+      <label>Target Bulan (opsional — biar progress bisa jawab "on-track atau enggak")</label>
+      <input id="s-target-date" type="month" value="${state.settings.targetDate || ""}" />
       <label>Kurs USD/IDR manual (kosongkan = auto)</label>
       <input id="s-kurs" inputmode="numeric" placeholder="auto: ${fmtNum(state.usdIdr?.rate || 0)} ${state.usdIdr ? `(per ${state.usdIdr.date})` : ""}" value="${state.settings.usdIdrManual ? fmtNum(state.settings.usdIdrManual) : ""}" />
       <div class="sub">Kurs efektif sekarang: ${fmtNum(effectiveRate())}</div>
@@ -150,8 +152,9 @@ export function render(root) {
 
   root.querySelector("#btn-save-settings").onclick = async () => {
     const target = parseAmount(root.querySelector("#s-target").value);
+    const targetDate = root.querySelector("#s-target-date").value || null;
     const kursManual = parseAmount(root.querySelector("#s-kurs").value);
-    await updateSettings({ targetNetWorth: target || 100000000, usdIdrManual: kursManual || null });
+    await updateSettings({ targetNetWorth: target || 100000000, targetDate, usdIdrManual: kursManual || null });
     toast("Settings disimpan ✓");
   };
 

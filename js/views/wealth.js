@@ -7,6 +7,7 @@ import { add, patch, remove } from "../db.js";
 import {
   fmtIDR, fmtMoney, fmtNum, escapeHtml, toast, openSheet, closeSheet, sheetHead,
   parseAmount, attachThousands, lastNMonths, monthLabel, todayStr, confirmDialog, monthOf,
+  fmtShort, milestonePaceLine,
 } from "../utils.js";
 import { refreshPrices, refreshableAssets } from "../prices.js";
 
@@ -62,14 +63,6 @@ const sumBtn = (key, label, val, color) => `
     <span class="st-val" style="color:${color}">${val}</span>
   </button>`;
 
-const fmtShort = (n) => {
-  const abs = Math.abs(n);
-  if (abs >= 1e9) return (n / 1e9).toFixed(2) + "M";
-  if (abs >= 1e6) return (n / 1e6).toFixed(1) + "JT";
-  if (abs >= 1e3) return (n / 1e3).toFixed(0) + "rb";
-  return String(Math.round(n));
-};
-
 // ================= TOTAL =================
 function renderTotal(root) {
   const nw = netWorthIDR();
@@ -78,6 +71,7 @@ function renderTotal(root) {
   const goalSavings = totalGoalSavingsIDR();
   const debt = totalDebtIDR();
   const milestone = milestoneProgress();
+  const paceLine = milestonePaceLine(milestone);
   const rate = effectiveRate();
 
   root.innerHTML = `
@@ -90,7 +84,8 @@ function renderTotal(root) {
       </div>
       <div class="sub" style="color:${milestone.achieved ? "#facc15" : "#7da3d8"}">${milestone.achieved
         ? `🏆 Tercapai! Net worth ${fmtIDR(milestone.nw)} ≥ target ${fmtIDR(milestone.target)}`
-        : `🏆 Main Milestone: ${milestone.pct.toFixed(1)}% menuju ${fmtIDR(milestone.target)}`}</div>`}
+        : `🏆 Main Milestone: ${milestone.pct.toFixed(1)}% menuju ${fmtIDR(milestone.target)}`}</div>
+      ${paceLine ? `<div class="sub" style="margin-top:2px">${escapeHtml(paceLine)}</div>` : ""}`}
       <div class="sub" style="color:#5a789f">Kurs USD ${fmtNum(rate)}${state.settings.usdIdrManual ? " (manual)" : state.usdIdr ? ` · auto per ${state.usdIdr.date}` : ""}</div>
     </div>
 
