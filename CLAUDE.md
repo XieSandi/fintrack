@@ -103,7 +103,10 @@ Blur mode (toggle 👁️ di card Total Balance) nge-blur semua `<span class="bl
   `avgBuyPrice` ga bisa di-reverse dengan aman kalau transaksi lama diedit ulang (butuh replay
   history). Klik dari History cuma buka detail read-only + Hapus (hapus me-reverse `quantity`
   asset secara exact, TAPI `avgBuyPrice` GA ikut di-reverse — dikasih tau eksplisit ke user).
-  Salah catat → hapus + catat ulang, bukan edit.
+  Salah catat → hapus + catat ulang, bukan edit. Reversal `quantity` DIPUSATKAN sebagai hook di
+  `remove()` generik (db.js, pola persis `applyDebtEffect()`) — BUKAN logic manual di sheet, biar
+  jalur hapus manapun (detail sheet, `bulkDelete()`) otomatis konsisten; lihat bullet
+  `bulkDelete()` di bawah.
   **Peringatan buat fitur masa depan:** apapun yang mengagregasi arus kas PER AKUN (laporan
   per akun, export CSV, dsb.) WAJIB memeriksa `toGoalId`/`fromGoalId`/`assetId`+`assetDir` dulu
   buat nentuin arah `accountId` — SEKARANG ADA TIGA jenis transaksi yang bikin perannya
@@ -290,7 +293,10 @@ sebagai baris terpisah "🎯 Goals" di breakdown Total tab Wealth biar rows-nya 
   bukan cuma di view). Preview dan eksekusi SATU sumber scope (`bulkDeleteScope()` internal di
   db.js) — jangan biarkan itu drift jadi dua logic beda, preview harus selalu match apa yang
   beneran kehapus. Habis bulk delete: saldo akun BERUBAH (dihitung dari jurnal transaksi, bukan
-  `initialBalance`) — user diarahkan ke Reconcile ("⚖️ Sesuaikan Saldo") kalau perlu.
+  `initialBalance`) — user diarahkan ke Reconcile ("⚖️ Sesuaikan Saldo") kalau perlu. Kalau scope
+  mengandung transaksi ber-`assetId`, preview nampilin peringatan terpisah (nama asset + jumlah
+  transaksi terdampak) — `assets.quantity` ikut disesuaikan otomatis (lihat bullet bypass hook di
+  bawah), tapi `avgBuyPrice` GA ikut di-reverse, sama kayak hapus 1 transaksi asset manual.
 - **Cek Integritas Data** (Setting → "🩺 Cek Integritas Data", `js/integrity.js`,
   `scanIntegrity(state)`) — scan READ-ONLY (JANGAN auto-fix) buat referensi yatim: transaksi
   yang nunjuk akun/kategori/goal/debt/asset yang udah ga ada, transfer dengan `toAccountId` =
@@ -307,21 +313,28 @@ sebagai baris terpisah "🎯 Goals" di breakdown Total tab Wealth biar rows-nya 
   `openBudgetSheet()` sekarang tetap bisa dibuka (buat akses tombol Hapus) walau
   `categoryId`-nya udah orphan — sebelumnya diam-diam nolak buka sama sekali dengan toast yang
   salah ("Semua kategori sudah punya budget").
-- **Dua jalur tulis transaksi yang SENGAJA bypass hook debt** (`add()`/`patch()`/`remove()`
-  generik, tempat `applyDebtEffect()`/`handleDebtPatch()` nempel) — keduanya nulis langsung via
-  `writeBatch`/`deleteDoc`, ga pernah manggil fungsi CRUD generik:
-  1. `importAll()` (backup restore) — nilai `debts.totalOutstanding` di file backup udah final;
-     kalau hook ikut jalan pas restore transaksi ber-`debtId`, outstanding kepotong DUA KALI.
-  2. `bulkDelete()` (reset data, `js/views/danger.js`) — efek debt TETAP dikembalikan (konsisten
-     sama hapus 1 transaksi via `remove()`), TAPI diagregasi per debt dulu (total amount + count
-     dari SEMUA transaksi ber-`debtId` yang mau dihapus, baru SATU `patch()` per debt di akhir)
-     — bukan satu hook-triggered patch per transaksi (ratusan patch berturut ke dokumen debt yang
-     sama = lambat & rawan race). Di-skip total kalau mode Reset Total (C2) — debt-nya sendiri
-     toh ikut kehapus.
+- **Efek samping transaksi ber-`debtId`/`assetId` DIPUSATKAN sebagai hook di `remove()` generik**
+  (db.js): `applyDebtEffect()` (efek debt, dipanggil juga dari `add()`/`patch()` lewat
+  `handleDebtPatch()`) dan `applyAssetQtyEffect()` (reverse `assets.quantity` — HANYA di `remove()`,
+  karena create asset selalu lewat `openAssetBuySheet()`/`openAssetSellSheet()` yang udah nulis
+  quantity-nya sendiri, dan edit transaksi ber-`assetId` sengaja ga didukung, lihat bullet
+  `assets`). Sheet manapun yang hapus transaksi ga perlu tau soal ini — cukup pastikan transaksi
+  yang di-`remove()` punya field `debtId`/`assetId` apa adanya.
+  **Dua jalur tulis transaksi yang SENGAJA bypass hook ini** (nulis langsung via
+  `writeBatch`/`deleteDoc`, ga pernah manggil `add()`/`patch()`/`remove()` generik):
+  1. `importAll()` (backup restore) — nilai `debts.totalOutstanding`/`assets.quantity` di file
+     backup udah final; kalau hook ikut jalan pas restore transaksi ber-`debtId`/`assetId`, angkanya
+     kepotong/ketambah DUA KALI.
+  2. `bulkDelete()` (reset data, `js/views/danger.js`) — efek debt DAN asset TETAP dikembalikan
+     (konsisten sama hapus 1 transaksi via `remove()`), TAPI diagregasi dulu per debt/asset (debt:
+     total amount + count; asset: `netQty = Σbeli − Σjual`), baru SATU `patch()` per entity di
+     akhir — bukan satu hook-triggered patch per transaksi (ratusan patch berturut ke dokumen yang
+     sama = lambat & rawan race). Di-skip total kalau mode Reset Total (C2) — debts/assets-nya
+     sendiri toh ikut kehapus.
   Kalau ke depannya `importAll()`/`bulkDelete()` di-refactor buat pakai `add()`/`patch()`/
   `remove()` generik (misal biar dapet `stamp()` otomatis), WAJIB tambah bypass eksplisit (flag
-  semacam `skipSideEffects`) — jangan sampe efek debt ke-double-count. Kalau nambah jalur tulis
-  transaksi massal baru ke depannya, ikutin pola yang sama (raw batch write + agregasi debt
+  semacam `skipSideEffects`) — jangan sampe efek debt/asset ke-double-count. Kalau nambah jalur
+  tulis transaksi massal baru ke depannya, ikutin pola yang sama (raw batch write + agregasi
   manual), jangan bikin jalur keempat yang beda pattern.
 
 ## Roadmap (belum jadi task aktif — detail lengkap + urutan di `TASKS.md`)

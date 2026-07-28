@@ -438,9 +438,8 @@ function openAssetTradeSheet(asset, dir, existingTx) {
     el.querySelector("#at-delete").onclick = async () => {
       if (!confirmDialog(`Hapus transaksi ${isBuy ? "pembelian" : "penjualan"} ini? Qty asset bakal disesuaikan lagi, TAPI avg buy price GA ikut di-reverse (kompleks) — cek Edit Asset kalau perlu dikoreksi manual.`)) return;
       closeSheet();
-      const qtyDelta = isBuy ? -(Number(existingTx.assetQty) || 0) : (Number(existingTx.assetQty) || 0);
-      const newQty = Math.max(0, (Number(asset.quantity) || 0) + qtyDelta);
-      await patch("assets", asset.id, { quantity: newQty });
+      // Reversal quantity DIPUSATKAN di db.js remove() (hook, pola sama debt) — bukan manual
+      // di sini, biar jalur hapus lain (mis. bulkDelete) bisa manggil logic yang sama.
       await remove("transactions", existingTx.id);
       toast("Transaksi dihapus, qty asset disesuaikan");
     };

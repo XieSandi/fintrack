@@ -103,6 +103,7 @@ export function render(root) {
           ${preview.dateFrom ? `<br/>Rentang tanggal: ${preview.dateFrom} s/d ${preview.dateTo}` : ""}
         </div>
         <div class="sub">Total expense: ${fmtIDR(preview.totalExpense)} · Total income: ${fmtIDR(preview.totalIncome)}</div>
+        ${!includeMaster && preview.assetTxCount > 0 ? `<div class="sub" style="color:var(--yellow); margin-top:6px">⚠️ ${preview.assetTxCount} transaksi beli/jual asset ikut terhapus (${preview.affectedAssetNames.join(", ")}). Quantity disesuaikan otomatis, tapi avg buy price TIDAK bisa dikembalikan — cek & koreksi manual di tab Assets setelah ini.</div>` : ""}
         ${masterCounts ? `<div class="sub" style="color:var(--red); margin-top:6px">+ master data ikut kehapus: ${masterCounts}</div>` : ""}
       `}
     </div>
