@@ -1,6 +1,6 @@
 # TASKS.md — Backlog Instruksi untuk Claude Code
 
-Cara pakai: buka session (`claude` di root repo), lalu bilang "kerjain TASK-D di TASKS.md".
+Cara pakai: buka session (`claude` di root repo), lalu bilang "kerjain TASK-F di TASKS.md".
 Kerjakan **satu task per session/branch**, urut prioritas. Baca CLAUDE.md dulu — semua
 ATURAN WAJIB berlaku untuk setiap task, terutama:
 
@@ -18,75 +18,6 @@ ATURAN WAJIB berlaku untuk setiap task, terutama:
 **Di-exclude sengaja (jangan dikerjain):** banner update SW (Hard Refresh cukup, single user);
 arsip transaksi lama (evaluasi nanti kalau >3.000 docs).
 
-**CATATAN PENTING soal task verifikasi (TASK-D):** ada kemungkinan sebagian sudah
-dikerjakan di session lampau tapi belum ke-dokumentasi. Untuk task bertanda **[VERIFIKASI]**:
-CEK DULU kondisi kode saat ini. Kalau ternyata sudah benar, JANGAN ubah kode — cukup betulkan
-CLAUDE.md biar akurat, dan tulis di ringkasan "sudah ada, dokumentasi diperbaiki". Kalau belum
-ada / setengah jalan, baru implementasikan.
-
----
-
-## TASK-D (P1, [VERIFIKASI] dokumentasi + konsistensi) — Rapikan CLAUDE.md & lokasi `milestoneProgress()`
-
-Dua inkonsistensi di CLAUDE.md yang harus dicek terhadap kode nyata:
-
-**D1. Section Arsitektur — daftar file tidak lengkap.**
-- Baris `js/views/` cuma menyebut sampai `recurring`. Verifikasi file yang benar-benar ada di
-  `js/views/` dan lengkapi: minimal `danger.js` (dirujuk di 3 tempat lain tapi tak terdaftar),
-  dan cek juga `settings`, `accounts`, `categories`, `goals` sudah tercantum.
-- Blok arsitektur belum menyebut `tests/calc.test.mjs` — tambahkan (dengan catatan: bukan runtime,
-  tidak masuk PRECACHE).
-- Ini murni edit dokumentasi; jangan ubah kode.
-
-**D2. `milestoneProgress()` — store.js atau calc.js?**
-- CLAUDE.md (section settings) menulis "`milestoneProgress()` (store.js)", tapi ATURAN WAJIB #8 +
-  deskripsi calc.js menyatakan semua kalkulasi murni ada di calc.js. `milestoneProgress` itu
-  kalkulasi murni.
-- CEK kode: kalau fungsinya **di store.js** → pindahkan ke `js/calc.js` (pola wrapper tipis
-  seperti fungsi calc lain), tambah test case-nya, jalankan test. Kalau **sudah di calc.js** →
-  cukup betulkan CLAUDE.md yang salah tulis.
-
-**Acceptance:** daftar file di Arsitektur cocok dengan isi `js/views/` sebenarnya; `tests/`
-tercantum; `milestoneProgress()` berada di calc.js dengan test, dan CLAUDE.md menyebut lokasi
-yang benar.
-
----
-
-## TASK-E (P1, value tertinggi untuk analisis AI) — Snapshot kaya + laporan .md historis beneran
-
-**Masalah:** `report-md.js` untuk bulan lampau menampilkan posisi **terkini** (dengan disclaimer),
-karena app tak menyimpan histori posisi. `snapshots` sudah ada, tinggal diperkaya → langsung
-menaikkan kualitas analisis AI (alasan fitur .md dibuat).
-
-**A. Perkaya `upsertSnapshot()`** — tambahkan ke `breakdown` (angka mentah, bukan string
-terformat):
-- `accounts`: [{name, currency, balance, balanceIDR}]
-- `assets`: [{symbol, type, quantity, avgBuyPrice, price, priceDate, valueIDR, costIDR}]
-- `debts`: [{name, outstanding, monthlyInstalment, remainingMonths}]
-- `goals`: [{name, targetAmount, saved}]
-- `rate`: kurs USD saat snapshot dibuat
-Ukuran dokumen tetap wajar (puluhan baris, jauh di bawah 1 MiB). Snapshot manual backfill
-(`manual:true`) tetap boleh minimal — breakdown kosong bukan error.
-
-**B. `buildMonthlyReport(month)` pilih sumber:**
-- Bulan **berjalan** → live state (sekarang).
-- Bulan **lampau punya snapshot lengkap** → pakai breakdown snapshot, label "Posisi akhir
-  {bulan}", HAPUS disclaimer posisi-terkini.
-- Bulan **lampau tanpa snapshot lengkap** (data lama/backfill) → fallback perilaku sekarang +
-  disclaimer. Jangan mengarang.
-- Section Tren Net Worth: selain delta yang sudah ada, kalau data tersedia tambah baris ringkas
-  perubahan komposisi (mis. "Assets +Rp 1,2jt, Debt −Rp 500rb").
-
-**C. Migrasi lembut:** snapshot lampau yang terlanjur minimal tidak bisa diisi ulang (datanya
-memang tak ada) — jangan bikin mekanisme menebak. Cukup pastikan mulai bulan ini snapshot kaya.
-
-**Acceptance:**
-- Buka app → `snapshots/{bulan ini}` berisi breakdown lengkap.
-- Export .md bulan berjalan → seperti sekarang.
-- Export .md bulan lampau ber-snapshot kaya → section posisi pakai angka snapshot, label "Posisi
-  akhir {bulan}", tanpa disclaimer.
-- Export .md bulan lampau tanpa snapshot → fallback + disclaimer, tidak error.
-
 ---
 
 ## TASK-F (P2) — Main Milestone punya dimensi waktu (pakai `targetDate` yang vestigial)
@@ -97,7 +28,7 @@ waktu = setengah informasi, tak bisa jawab "on-track atau enggak".
 **Implementasi:**
 - Card "Main Milestone & Kurs" (Setting): tambah `<input type="month">` untuk target date, simpan
   ke `settings.targetDate`. Boleh dikosongkan.
-- Perluas `milestoneProgress()` (di **calc.js** — lihat TASK-D; tambah test case) supaya juga
+- Perluas `milestoneProgress()` (di **calc.js**; tambah test case) supaya juga
   return, HANYA kalau `targetDate` terisi & belum tercapai:
   - `monthsLeft` (bulan berjalan → targetDate, min 0)
   - `neededPerMonth` = (target − nw) / monthsLeft
@@ -152,13 +83,10 @@ benar: **reminder yang membuka sheet beli asset dengan nominal ter-prefill.**
 
 ## Urutan eksekusi yang disarankan
 
-1. ~~TASK-A~~, ~~TASK-B~~, ~~TASK-C~~ — udah beres (lihat git history / CLAUDE.md bullet "Efek
-   samping transaksi ber-`debtId`/`assetId`", "Cek Integritas Data", dan ATURAN WAJIB #9).
-2. **TASK-D** (dokumentasi + pindah milestoneProgress) — cepat, bersihin fondasi sebelum TASK-E/F
-   yang menyentuh milestone & snapshot.
-3. **TASK-E** — value tertinggi buat tujuan awal export .md; taruh setelah fondasi beres karena
-   nulis ke `snapshots`.
-4. **TASK-F**, lalu **TASK-G** — enhancement, tidak mendesak.
+1. ~~TASK-A~~, ~~TASK-B~~, ~~TASK-C~~, ~~TASK-D~~, ~~TASK-E~~ — udah beres (lihat git history /
+   CLAUDE.md bullet "Efek samping transaksi ber-`debtId`/`assetId`", "Cek Integritas Data",
+   ATURAN WAJIB #9, section Arsitektur, bullet `snapshots`, dan bullet "Export Laporan (.md)").
+2. **TASK-F**, lalu **TASK-G** — enhancement, tidak mendesak.
 
 ## Roadmap (belum jadi task aktif)
 

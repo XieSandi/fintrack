@@ -45,7 +45,10 @@ js/recurring-sheet.js sheet "Awal Bulan": konfirmasi post recurring + opsi salin
 js/report-md.js       buildMonthlyReport(month) → laporan finansial .md siap paste ke AI
 js/integrity.js       scanIntegrity(state) → cek referensi yatim, read-only (Setting → "🩺")
 js/utils.js           format, tanggal, toast, openSheet/closeSheet, escapeHtml, blur mode, hardRefresh
-js/views/             home, transactions, budget, wealth, settings, accounts, categories, goals, recurring
+js/views/             home, transactions, budget, wealth, settings, accounts, categories, goals,
+                       recurring, danger
+tests/calc.test.mjs   smoke test manual buat js/calc.js — BUKAN runtime app, sengaja GA masuk
+                       PRECACHE sw.js (lihat ATURAN WAJIB #8)
 sw.js                 service worker: precache shell, runtime cache gstatic+jsdelivr
 ```
 
@@ -176,17 +179,25 @@ Blur mode (toggle 👁️ di card Total Balance) nge-blur semua `<span class="bl
   (null) otomatis oleh `bulkDelete()` (Zona Bahaya, lihat bawah) buat template yang
   `lastPostedMonth`-nya masuk periode yang baru dihapus — biar sheet Awal Bulan nawarin lagi,
   bukan nganggep udah pernah post buat bulan yang datanya udah lenyap.
-- `snapshots/{YYYY-MM}` — net worth bulanan, di-upsert otomatis saat app dibuka (`upsertSnapshot`).
-  Bisa juga di-backfill manual buat bulan pra-app lewat card "Snapshot Historis" di Setting
-  (`{month, netWorth, manual:true}`, minimal field — chart Tren Net Worth cuma butuh `netWorth`
-  + `month`/id). Cuma boleh untuk bulan < bulan berjalan (bulan berjalan wilayah `upsertSnapshot`).
+- `snapshots/{YYYY-MM}` — net worth bulanan, di-upsert otomatis saat app dibuka (`upsertSnapshot`,
+  db.js). Selain total (`totalCash`/`totalAssets`/`totalGoalSavings`/`totalDebt`/`netWorth`),
+  nyimpen `breakdown` PER ITEM (angka mentah, bukan string terformat): `accounts` ({name,
+  currency, type, balance, balanceIDR}), `assets` ({symbol, type, currency, quantity,
+  avgBuyPrice, price, priceDate, valueIDR, costIDR}), `debts` ({name, outstanding,
+  monthlyInstalment, remainingMonths, dueDay}), `goals` ({name, targetAmount, saved,
+  targetDate}), `rate` (kurs USD saat itu) — dipakai `report-md.js` buat laporan bulan lampau
+  yang beneran historis (lihat Known Quirks). Bisa juga di-backfill manual buat bulan pra-app
+  lewat card "Snapshot Historis" di Setting (`{month, netWorth, manual:true}`, SENGAJA minimal
+  — TANPA `breakdown` sama sekali, bukan error, cuma ga ada data buat direkonstruksi; chart Tren
+  Net Worth cuma butuh `netWorth` + `month`/id, tetep jalan). Cuma boleh untuk bulan < bulan
+  berjalan (bulan berjalan wilayah `upsertSnapshot`).
 - `settings/main` — targetNetWorth (= **Main Milestone**, dipakai card Total Balance Home DAN
   banner Wealth — SATU sumber, jangan bikin duplikat field), usdIdrManual,
   apiKeys:{itick, finnhub}, lastBackupAt. Field `targetDate` (diisi sekali saat `seedIfNeeded()`,
   nilai "2028-12") TIDAK punya UI buat diubah dan ga dipakai di mana pun — vestigial, jangan
   dianggap sumber kebenaran tanggal target Main Milestone (beda dari `goals.targetDate` per-goal
   yang aktif dipakai & bisa diedit).
-  Progress bar-nya (Home + Wealth) dihitung SATU tempat: `milestoneProgress()` (store.js) →
+  Progress bar-nya (Home + Wealth) dihitung SATU tempat: `milestoneProgress()` (calc.js) →
   `{target, nw, pct, achieved, hidden}` — `hidden:true` kalau `targetNetWorth` 0/kosong (bar
   disembunyikan, bukan div-by-zero atau diam-diam fallback ke 100jt); `achieved:true` kalau
   `nw >= target` → bar penuh warna emas (`#eab308→#facc15`, beda dari biru "in progress") + label
@@ -272,16 +283,27 @@ sebagai baris terpisah "🎯 Goals" di breakdown Total tab Wealth biar rows-nya 
 - **Export Laporan (.md)** (Setting → "📄 Export Laporan (.md)", `js/report-md.js`,
   `buildMonthlyReport(month)`) — beda dari backup JSON (`exportAll()`, buat restore data): ini
   laporan human/AI-readable, siap paste ke chat AI. Section cashflow/budget/expense-per-kategori
-  pakai data HISTORIS bulan yang dipilih (`monthSummary`/`spentByCategory`/`budgetsOfMonth`),
-  TAPI section akun/asset/debt/goal SELALU posisi TERKINI (app ga nyimpen histori per bulan buat
-  itu) — dilabelin eksplisit "posisi per {tanggal export}" + disclaimer kalau bulan yang dipilih
-  bukan bulan berjalan. **Pakai `fmtIDRPlain()`/`fmtMoneyPlain()` (utils.js), BUKAN
-  `fmtIDR()`/`fmtMoney()`** — yang terakhir itu wrapper `<span class="blur-num">` buat blur mode
-  DOM, bakal ngerusak output markdown kalau kepake di teks/file. Konteks profil owner (usia/gaji/
-  nama bank) SENGAJA TIDAK di-hardcode di file ini — itu cuma boleh ada di CLAUDE.md (dev doc,
-  ga ke-ship ke browser); nulis literal di source JS bakal ke-expose ke siapapun yang buka situs
-  (static site, semua JS ke-download terlepas dari status login), beda kelas exposure-nya dari
-  data lain di app yang selalu datang dari Firestore ber-auth. Section 11 murni diturunkan dari
+  SELALU pakai data HISTORIS bulan yang dipilih (`monthSummary`/`spentByCategory`/`budgetsOfMonth`
+  — data ini emang udah per-bulan dari awal). Section posisi (akun/asset/debt/goal, section 1/5/
+  6/7/8) pakai `buildPosition()` — SATU tempat yang mutusin sumbernya, bukan tiap section
+  mutusin sendiri: bulan **berjalan** SELALU live (snapshot bulan itu masih "berjalan", belum
+  final); bulan **lampau ber-snapshot lengkap** (`isSnapshotComplete()` — breakdown-nya berupa
+  array per-item, bukan object map lama) pakai angka dari `snapshots/{bulan}.breakdown`, label
+  "Posisi akhir {bulan}", TANPA disclaimer — ini genuinely historis, bukan approximasi; bulan
+  lampau TANPA snapshot lengkap (data lama/manual backfill) fallback ke posisi TERKINI + label
+  "Posisi per {tanggal export}" + disclaimer eksplisit (jangan pernah mengarang data yang ga
+  ada). Section "Tren Net Worth" nambah baris "Perubahan komposisi" (Cash/Assets/Goal Savings/
+  Debt delta) antara 2 snapshot TERAKHIR kalau datanya ada — ga butuh breakdown baru, field
+  total (`totalCash`/`totalAssets`/dst) di snapshot udah ada dari awal. **Pakai
+  `fmtIDRPlain()`/`fmtMoneyPlain()` (utils.js), BUKAN `fmtIDR()`/`fmtMoney()`** — yang terakhir
+  itu wrapper `<span class="blur-num">` buat blur mode DOM, bakal ngerusak output markdown kalau
+  kepake di teks/file. Section 9 (Komitmen Rutin, recurring aktif) SENGAJA SELALU live regardless
+  bulan yang dipilih — recurring itu komitmen SEKARANG, bukan konsep "posisi per bulan". Konteks
+  profil owner (usia/gaji/nama bank) SENGAJA TIDAK di-hardcode di file ini — itu cuma boleh ada
+  di CLAUDE.md (dev doc, ga ke-ship ke browser); nulis literal di source JS bakal ke-expose ke
+  siapapun yang buka situs (static site, semua JS ke-download terlepas dari status login), beda
+  kelas exposure-nya dari data lain di app yang selalu datang dari Firestore ber-auth. Section 11
+  masih murni diturunkan dari
   state yang udah ke-load.
 - **Zona Bahaya / Reset Data** (Setting → "🗑️ Reset Data", `#/danger`, `js/views/danger.js`,
   `bulkDelete()`/`previewBulkDelete()` di db.js) — 3 mode: per bulan, per tahun, atau total
