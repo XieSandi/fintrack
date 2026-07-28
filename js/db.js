@@ -4,8 +4,8 @@ import {
   getDoc, getDocs, serverTimestamp, writeBatch,
 } from "./firebase.js";
 import {
-  state, netWorthIDR, totalCashIDR, totalAssetsIDR, totalDebtIDR,
-  accountBalances, assetValueIDR,
+  state, netWorthIDR, totalCashIDR, totalAssetsIDR, totalDebtIDR, totalGoalSavingsIDR,
+  accountBalances, assetValueIDR, assetCostIDR, effectiveRate, goalSavedIDR, activeAccounts,
 } from "./store.js";
 import { currentMonth } from "./utils.js";
 
@@ -149,19 +149,58 @@ export async function ensurePresetCategories() {
 }
 
 // ================= Snapshot bulanan =================
-// Dipanggil saat app load (setelah data ready): upsert snapshot bulan berjalan.
+// Dipanggil saat app load (setelah data ready): upsert snapshot bulan berjalan. `breakdown`
+// nyimpen posisi PER ITEM (bukan cuma total) — dipakai report-md.js buat bikin laporan bulan
+// lampau yang beneran historis, bukan "posisi terkini" kayak sebelumnya. Angka mentah (bukan
+// string terformat) biar gampang dipakai ulang. Dokumennya tetap kecil (puluhan baris) karena
+// data personal-finance-app satu user jumlahnya wajar, jauh di bawah limit 1 MiB Firestore.
+// Snapshot manual backfill (Setting → "Snapshot Historis") TETAP minimal (ga ada breakdown sama
+// sekali) — itu bukan error, cuma sinyal "data lama, ga ada posisi per-item buat direkonstruksi".
 export async function upsertSnapshot() {
   if (!state.ready || !state.uid) return;
   const m = currentMonth();
   const bal = accountBalances();
+  const rate = effectiveRate();
+
   const breakdown = {
-    accounts: Object.fromEntries(state.accounts.map((a) => [a.name, Math.round(bal[a.id] || 0)])),
-    assets: Object.fromEntries(state.assets.map((a) => [a.symbol || a.name, Math.round(assetValueIDR(a))])),
+    accounts: activeAccounts().map((a) => {
+      const balance = bal[a.id] || 0;
+      return {
+        name: a.name, currency: a.currency, type: a.type,
+        balance: Math.round(balance * 100) / 100,
+        balanceIDR: Math.round(a.currency === "USD" ? balance * rate : balance),
+      };
+    }),
+    assets: state.assets.map((a) => ({
+      symbol: a.symbol || a.name, type: a.type, currency: a.currency,
+      quantity: Number(a.quantity) || 0,
+      avgBuyPrice: Number(a.avgBuyPrice) || 0,
+      price: Number(a.manualPrice) || 0,
+      priceDate: a.manualPriceUpdatedAt || null,
+      valueIDR: Math.round(assetValueIDR(a)),
+      costIDR: Math.round(assetCostIDR(a)),
+    })),
+    debts: state.debts.map((d) => ({
+      name: d.name,
+      outstanding: Math.round(Number(d.totalOutstanding) || 0),
+      monthlyInstalment: Math.round(Number(d.monthlyInstalment) || 0),
+      remainingMonths: d.remainingMonths ?? null,
+      dueDay: d.dueDay ?? null,
+    })),
+    goals: state.goals.map((g) => ({
+      name: g.name,
+      targetAmount: Math.round(Number(g.targetAmount) || 0),
+      saved: Math.round(goalSavedIDR(g.id)),
+      targetDate: g.targetDate || null,
+    })),
+    rate,
   };
+
   await setDoc(docRef("snapshots", m), {
     month: m,
     totalCash: Math.round(totalCashIDR()),
     totalAssets: Math.round(totalAssetsIDR()),
+    totalGoalSavings: Math.round(totalGoalSavingsIDR()),
     totalDebt: Math.round(totalDebtIDR()),
     netWorth: Math.round(netWorthIDR()),
     breakdown,

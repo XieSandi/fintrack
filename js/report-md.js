@@ -12,6 +12,7 @@ import { ACCT_TYPES } from "./views/accounts.js";
 
 const NA = "—";
 const pct = (n) => `${n >= 0 ? "+" : ""}${n.toFixed(1)}%`;
+const signed = (n) => `${n >= 0 ? "+" : "−"}${fmtIDRPlain(Math.abs(n))}`;
 
 function mdTable(headers, rows) {
   if (rows.length === 0) return "_— tidak ada —_\n";
@@ -44,13 +45,86 @@ export function availableReportMonths() {
   return [...set].sort().reverse();
 }
 
+// Snapshot "lengkap" = punya breakdown per-item (bukan cuma total) — dibuat mulai upsertSnapshot()
+// diperkaya. Snapshot lama/manual backfill ga punya ini, JANGAN dianggap lengkap (jangan mengarang).
+function isSnapshotComplete(snap) {
+  return !!snap?.breakdown
+    && Array.isArray(snap.breakdown.accounts) && Array.isArray(snap.breakdown.assets)
+    && Array.isArray(snap.breakdown.debts) && Array.isArray(snap.breakdown.goals)
+    && typeof snap.breakdown.rate === "number";
+}
+
+// Sumber posisi (akun/asset/debt/goal) buat satu laporan — SATU tempat yang mutusin snapshot
+// vs live, dipakai section 1/5/6/7/8 biar konsisten (bukan tiap section mutusin sendiri-sendiri).
+// Bulan berjalan SELALU live (snapshot bulan itu masih "berjalan", belum final). Bulan lampau
+// pakai snapshot HANYA kalau lengkap; kalau ga ada/minim (backfill lama), fallback ke live +
+// disclaimer eksplisit — jangan pernah nyamar seolah itu posisi akhir bulan yang beneran.
+function buildPosition(month, isCurrentMonth) {
+  const snap = !isCurrentMonth ? state.snapshots.find((s) => s.id === month) : null;
+  if (isSnapshotComplete(snap)) {
+    return {
+      fromSnapshot: true,
+      label: `Posisi akhir ${monthLabel(month)}`,
+      disclaimer: null,
+      cash: snap.totalCash || 0,
+      assetsTotal: snap.totalAssets || 0,
+      goalSavingsTotal: snap.totalGoalSavings || 0,
+      debtTotal: snap.totalDebt || 0,
+      nw: snap.netWorth || 0,
+      rate: snap.breakdown.rate,
+      accounts: snap.breakdown.accounts,
+      assets: snap.breakdown.assets,
+      debts: snap.breakdown.debts,
+      goals: snap.breakdown.goals,
+    };
+  }
+
+  const bal = accountBalances();
+  const rate = effectiveRate();
+  return {
+    fromSnapshot: false,
+    label: `Posisi per ${todayStr()}`,
+    disclaimer: !isCurrentMonth
+      ? `BUKAN posisi akhir ${monthLabel(month)}, app cuma nyimpen posisi TERKINI (bukan histori per bulan) buat akun/asset/debt/goal.`
+      : null,
+    cash: totalCashIDR(),
+    assetsTotal: totalAssetsIDR(),
+    goalSavingsTotal: totalGoalSavingsIDR(),
+    debtTotal: totalDebtIDR(),
+    nw: netWorthIDR(),
+    rate,
+    accounts: activeAccounts().map((a) => {
+      const b = bal[a.id] || 0;
+      return { name: a.name, currency: a.currency, type: a.type, balance: b, balanceIDR: a.currency === "USD" ? b * rate : b };
+    }),
+    assets: state.assets.map((a) => ({
+      symbol: a.symbol || a.name, type: a.type, currency: a.currency,
+      quantity: Number(a.quantity) || 0, avgBuyPrice: Number(a.avgBuyPrice) || 0,
+      price: Number(a.manualPrice) || 0, priceDate: a.manualPriceUpdatedAt || null,
+      valueIDR: assetValueIDR(a), costIDR: assetCostIDR(a),
+    })),
+    debts: state.debts.map((d) => ({
+      name: d.name, outstanding: Number(d.totalOutstanding) || 0,
+      monthlyInstalment: Number(d.monthlyInstalment) || 0,
+      remainingMonths: d.remainingMonths ?? null, dueDay: d.dueDay ?? null,
+    })),
+    goals: state.goals.map((g) => ({
+      name: g.name, targetAmount: Number(g.targetAmount) || 0,
+      saved: goalSavedIDR(g.id), targetDate: g.targetDate || null,
+    })),
+  };
+}
+
 export function buildMonthlyReport(month) {
   const today = todayStr();
   const isCurrentMonth = month === currentMonth();
-  const rate = effectiveRate();
-  const kursLabel = state.settings.usdIdrManual
-    ? `Rp ${fmtNum(rate)} (manual)`
-    : state.usdIdr ? `Rp ${fmtNum(rate)} (auto per ${state.usdIdr.date})` : `Rp ${fmtNum(rate)} (fallback)`;
+  const position = buildPosition(month, isCurrentMonth);
+  const liveRate = effectiveRate(); // buat section yang inherently "sekarang" (mis. recurring), beda dari position.rate yang bisa historis
+  const kursLabel = position.fromSnapshot
+    ? `Rp ${fmtNum(position.rate)} (per akhir ${monthLabel(month)})`
+    : state.settings.usdIdrManual
+    ? `Rp ${fmtNum(position.rate)} (manual)`
+    : state.usdIdr ? `Rp ${fmtNum(position.rate)} (auto per ${state.usdIdr.date})` : `Rp ${fmtNum(position.rate)} (fallback)`;
 
   const lines = [];
   lines.push(`# Laporan Keuangan — ${monthLabel(month)}`);
@@ -58,30 +132,21 @@ export function buildMonthlyReport(month) {
   lines.push("");
 
   // ===== 1. Ringkasan =====
-  // Posisi (cash/assets/goal/debt) SELALU live (app ga nyimpen histori posisi harian/bulanan
-  // per akun/asset/debt/goal) — sama kayak section 5-8. Delta net worth khusus dari snapshots
-  // (satu-satunya sumber histori net worth yang ada), dibandingkan ke bulan lalu dari SEKARANG,
-  // bukan ke bulan sebelum bulan yang dipilih — karena section ini emang bukan potret historis.
   lines.push("## 1. Ringkasan");
-  lines.push(`_Posisi per ${today}${!isCurrentMonth ? ` — BUKAN posisi akhir ${monthLabel(month)}, app cuma nyimpen posisi TERKINI (bukan histori per bulan) buat akun/asset/debt/goal.` : "."}_`);
-  const cash = totalCashIDR();
-  const assetsVal = totalAssetsIDR();
-  const goalSav = totalGoalSavingsIDR();
-  const debt = totalDebtIDR();
-  const nw = netWorthIDR();
-  const prevMonthKey = addMonths(currentMonth(), -1);
+  lines.push(`_${position.label}${position.disclaimer ? ` — ${position.disclaimer}` : "."}_`);
+  const prevMonthKey = addMonths(month, -1);
   const prevSnap = state.snapshots.find((s) => s.id === prevMonthKey);
-  const nwDelta = prevSnap ? nw - prevSnap.netWorth : null;
-  lines.push(`- **Net worth: ${fmtIDRPlain(nw)}**${nwDelta !== null ? ` (Δ ${nwDelta >= 0 ? "+" : "−"}${fmtIDRPlain(Math.abs(nwDelta))} vs snapshot ${monthLabel(prevMonthKey)})` : ""}`);
-  lines.push(`- Cash: ${fmtIDRPlain(cash)} · Assets: ${fmtIDRPlain(assetsVal)} · Goal savings: ${fmtIDRPlain(goalSav)} · Debt: −${fmtIDRPlain(debt)}`);
+  const nwDelta = prevSnap ? position.nw - prevSnap.netWorth : null;
+  lines.push(`- **Net worth: ${fmtIDRPlain(position.nw)}**${nwDelta !== null ? ` (Δ ${signed(nwDelta)} vs ${monthLabel(prevMonthKey)})` : ""}`);
+  lines.push(`- Cash: ${fmtIDRPlain(position.cash)} · Assets: ${fmtIDRPlain(position.assetsTotal)} · Goal savings: ${fmtIDRPlain(position.goalSavingsTotal)} · Debt: −${fmtIDRPlain(position.debtTotal)}`);
   const target = Number(state.settings.targetNetWorth) || 0;
   if (target > 0) {
-    const milestonePct = Math.max(0, (nw / target) * 100);
-    lines.push(`- Progress 🏆 Main Milestone: ${fmtIDRPlain(nw)} dari ${fmtIDRPlain(target)} (${milestonePct.toFixed(1)}%)`);
+    const milestonePct = Math.max(0, (position.nw / target) * 100);
+    lines.push(`- Progress 🏆 Main Milestone: ${fmtIDRPlain(position.nw)} dari ${fmtIDRPlain(target)} (${milestonePct.toFixed(1)}%)`);
   }
   lines.push("");
 
-  // ===== 2. Cashflow =====
+  // ===== 2. Cashflow ===== (selalu historis — monthSummary udah difilter per bulan by design)
   lines.push(`## 2. Cashflow ${monthLabel(month)}`);
   const sum = monthSummary(month);
   const savingRate = sum.income > 0 ? (sum.surplus / sum.income) * 100 : null;
@@ -93,7 +158,7 @@ export function buildMonthlyReport(month) {
   lines.push(`- Expense vs bulan lalu (${monthLabel(prevMonth)}): ${expenseDeltaPct !== null ? pct(expenseDeltaPct) : NA}`);
   lines.push("");
 
-  // ===== 3. Expense per Kategori =====
+  // ===== 3. Expense per Kategori ===== (selalu historis)
   lines.push(`## 3. Expense per Kategori ${monthLabel(month)}`);
   const spent = spentByCategory(month);
   const budgets = budgetsOfMonth(month);
@@ -115,7 +180,7 @@ export function buildMonthlyReport(month) {
   lines.push(mdTable(["Kategori", "Nominal", "% Expense", "Budget", "Selisih"], catRows));
   lines.push("");
 
-  // ===== 4. Budget vs Aktual =====
+  // ===== 4. Budget vs Aktual ===== (selalu historis)
   lines.push(`## 4. Budget vs Aktual ${monthLabel(month)}`);
   if (budgets.length === 0) {
     lines.push("_Belum ada budget di bulan ini._");
@@ -129,38 +194,35 @@ export function buildMonthlyReport(month) {
   lines.push("");
 
   // ===== 5. Akun =====
-  lines.push(`## 5. Akun (posisi per ${today})`);
-  const bal = accountBalances();
-  const acctRows = activeAccounts().map((a) => {
-    const b = bal[a.id] || 0;
-    const idr = a.currency === "USD" ? b * rate : b;
-    return [a.name, ACCT_TYPES[a.type] || a.type, a.currency, fmtMoneyPlain(b, a.currency), fmtIDRPlain(idr)];
-  });
+  lines.push(`## 5. Akun (${position.label})`);
+  const acctRows = position.accounts.map((a) => [
+    a.name, ACCT_TYPES[a.type] || a.type || "?", a.currency, fmtMoneyPlain(a.balance, a.currency), fmtIDRPlain(a.balanceIDR),
+  ]);
   lines.push(mdTable(["Akun", "Tipe", "Currency", "Saldo", "Ekuivalen IDR"], acctRows));
   lines.push("");
 
   // ===== 6. Investasi =====
-  lines.push(`## 6. Investasi (posisi per ${today})`);
+  lines.push(`## 6. Investasi (${position.label})`);
   let invTotal = 0, invCost = 0;
   const assetRows = [];
   Object.keys(ASSET_TYPES).forEach((type) => {
-    state.assets.filter((a) => a.type === type).forEach((a) => {
-      const val = assetValueIDR(a);
-      const cost = assetCostIDR(a);
+    position.assets.filter((a) => a.type === type).forEach((a) => {
+      const val = a.valueIDR;
+      const cost = a.costIDR;
       const p = val - cost;
       const pPct = cost > 0 ? (p / cost) * 100 : 0;
       invTotal += val; invCost += cost;
       assetRows.push([
-        a.symbol || a.name, ASSET_TYPES[a.type] || a.type,
+        a.symbol, ASSET_TYPES[a.type] || a.type,
         a.type === "stock_id" ? `${fmtNum(a.quantity)} lot` : String(a.quantity),
         fmtMoneyPlain(a.avgBuyPrice, a.currency),
-        `${fmtMoneyPlain(a.manualPrice, a.currency)} (${a.manualPriceUpdatedAt || "?"})`,
+        `${fmtMoneyPlain(a.price, a.currency)} (${a.priceDate || "?"})`,
         fmtIDRPlain(val), `${p >= 0 ? "+" : ""}${fmtIDRPlain(p)}`, `${pPct >= 0 ? "+" : ""}${pPct.toFixed(1)}%`,
       ]);
     });
   });
   lines.push(mdTable(["Symbol", "Tipe", "Qty", "Avg Buy", "Harga Terakhir", "Nilai", "P&L", "P&L %"], assetRows));
-  if (state.assets.length > 0) {
+  if (position.assets.length > 0) {
     const invPnl = invTotal - invCost;
     const invPnlPct = invCost > 0 ? (invPnl / invCost) * 100 : 0;
     lines.push(`**Total** — Nilai: ${fmtIDRPlain(invTotal)} · Invested: ${fmtIDRPlain(invCost)} · Unrealized P&L: ${invPnl >= 0 ? "+" : ""}${fmtIDRPlain(invPnl)} (${invPnl >= 0 ? "+" : ""}${invPnlPct.toFixed(1)}%)`);
@@ -168,25 +230,25 @@ export function buildMonthlyReport(month) {
   lines.push("");
 
   // ===== 7. Hutang =====
-  lines.push(`## 7. Hutang (posisi per ${today})`);
-  const debtRows = state.debts.map((d) => [
-    d.name, fmtIDRPlain(d.totalOutstanding), fmtIDRPlain(d.monthlyInstalment),
+  lines.push(`## 7. Hutang (${position.label})`);
+  const debtRows = position.debts.map((d) => [
+    d.name, fmtIDRPlain(d.outstanding), fmtIDRPlain(d.monthlyInstalment),
     d.dueDay ? `tgl ${d.dueDay}` : NA, d.remainingMonths ?? NA,
   ]);
   lines.push(mdTable(["Nama", "Outstanding", "Cicilan/bln", "Jatuh Tempo", "Sisa Bulan"], debtRows));
-  if (state.debts.length > 0) {
-    const totalOutstanding = state.debts.reduce((s, d) => s + (Number(d.totalOutstanding) || 0), 0);
-    const totalInstalment = state.debts.reduce((s, d) => s + (Number(d.monthlyInstalment) || 0), 0);
+  if (position.debts.length > 0) {
+    const totalOutstanding = position.debts.reduce((s, d) => s + d.outstanding, 0);
+    const totalInstalment = position.debts.reduce((s, d) => s + d.monthlyInstalment, 0);
     const dti = sum.income > 0 ? (totalInstalment / sum.income) * 100 : null;
     lines.push(`**Total** — Outstanding: ${fmtIDRPlain(totalOutstanding)} · Cicilan/bln: ${fmtIDRPlain(totalInstalment)} · DTI (vs income ${monthLabel(month)}): ${dti !== null ? dti.toFixed(1) + "%" : NA}`);
   }
   lines.push("");
 
   // ===== 8. Short Term Goals =====
-  lines.push(`## 8. Short Term Goals (posisi per ${today})`);
-  const goalRows = state.goals.map((g) => {
-    const t = Number(g.targetAmount) || 0;
-    const saved = goalSavedIDR(g.id);
+  lines.push(`## 8. Short Term Goals (${position.label})`);
+  const goalRows = position.goals.map((g) => {
+    const t = g.targetAmount;
+    const saved = g.saved;
     const p = t > 0 ? Math.max(0, Math.min(100, (saved / t) * 100)) : 0;
     const remaining = Math.max(0, t - saved);
     return [g.name, fmtIDRPlain(t), fmtIDRPlain(saved), `${p.toFixed(0)}%`, g.targetDate ? monthLabel(g.targetDate) : NA, fmtIDRPlain(remaining)];
@@ -194,7 +256,7 @@ export function buildMonthlyReport(month) {
   lines.push(mdTable(["Goal", "Target", "Terkumpul", "%", "Target Date", "Sisa Perlu Ditabung"], goalRows));
   lines.push("");
 
-  // ===== 9. Komitmen Rutin =====
+  // ===== 9. Komitmen Rutin ===== (selalu live — recurring itu komitmen SEKARANG, bukan posisi historis)
   lines.push("## 9. Komitmen Rutin (recurring aktif)");
   const activeRecurring = state.recurring.filter((r) => r.active !== false);
   const rcRows = activeRecurring.map((r) => [
@@ -209,7 +271,7 @@ export function buildMonthlyReport(month) {
       .reduce((s, r) => {
         const acct = acctById(r.accountId);
         const amt = Number(r.amount) || 0;
-        return s + (acct?.currency === "USD" ? amt * rate : amt);
+        return s + (acct?.currency === "USD" ? amt * liveRate : amt);
       }, 0);
     lines.push(`**Total komitmen expense rutin/bulan:** ${fmtIDRPlain(totalCommit)}`);
   }
@@ -221,9 +283,26 @@ export function buildMonthlyReport(month) {
   const trendRows = snaps.map((s, i) => {
     const prev = snaps[i - 1];
     const delta = prev ? s.netWorth - prev.netWorth : null;
-    return [monthLabel(s.month || s.id), fmtIDRPlain(s.netWorth), delta !== null ? `${delta >= 0 ? "+" : "−"}${fmtIDRPlain(Math.abs(delta))}` : NA];
+    return [monthLabel(s.month || s.id), fmtIDRPlain(s.netWorth), delta !== null ? signed(delta) : NA];
   });
   lines.push(mdTable(["Bulan", "Net Worth", "Delta"], trendRows));
+  if (snaps.length >= 2) {
+    const last = snaps[snaps.length - 1];
+    const prevSnapForComp = snaps[snaps.length - 2];
+    const parts = [];
+    const addCompDelta = (key, label) => {
+      if (typeof last[key] !== "number" || typeof prevSnapForComp[key] !== "number") return; // snapshot lama sebelum field ini ada
+      const d = last[key] - prevSnapForComp[key];
+      if (d !== 0) parts.push(`${label} ${signed(d)}`);
+    };
+    addCompDelta("totalCash", "Cash");
+    addCompDelta("totalAssets", "Assets");
+    addCompDelta("totalGoalSavings", "Goal Savings");
+    addCompDelta("totalDebt", "Debt");
+    if (parts.length > 0) {
+      lines.push(`- Perubahan komposisi (${monthLabel(prevSnapForComp.month || prevSnapForComp.id)} → ${monthLabel(last.month || last.id)}): ${parts.join(", ")}`);
+    }
+  }
   lines.push("");
 
   // ===== 11. Konteks untuk Analisis =====
