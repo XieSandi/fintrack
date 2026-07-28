@@ -173,7 +173,7 @@ export async function upsertSnapshot() {
 const COLLECTIONS = ["accounts", "categories", "transactions", "budgets", "assets", "debts", "goals", "recurring", "snapshots"];
 
 export async function exportAll() {
-  const out = { app: "fintrack", schemaVersion: 1, exportedAt: new Date().toISOString(), data: {} };
+  const out = { app: "fintrack", schemaVersion: 2, exportedAt: new Date().toISOString(), data: {} };
   for (const name of COLLECTIONS) {
     const snap = await getDocs(col(name));
     out.data[name] = snap.docs.map((d) => {
@@ -196,7 +196,13 @@ export async function exportAll() {
 
 export async function importAll(backup, mode /* "merge" | "replace" */) {
   if (backup?.app !== "fintrack" || !backup.data) throw new Error("File bukan backup FinTrack yang valid.");
-  if (backup.schemaVersion > 1) throw new Error("Versi backup lebih baru dari app. Update app dulu.");
+  // Ga ada field schemaVersion di file (backup dari sebelum field ini ada) → anggap v1. v1 & v2
+  // dua-duanya valid buat di-restore — field yang lebih baru (debtId/assetId/dll) di v1 memang
+  // ga ada di row-nya, dan itu perilaku LAMA yang benar (bukan sesuatu yang perlu di-isi default).
+  const schemaVersion = backup.schemaVersion || 1;
+  if (schemaVersion > 2) {
+    throw new Error("Backup dari versi app lebih baru. Update app dulu (Setting → Hard Refresh) baru import.");
+  }
 
   if (mode === "replace") {
     for (const name of COLLECTIONS) {

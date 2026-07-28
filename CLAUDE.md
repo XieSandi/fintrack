@@ -211,6 +211,9 @@ sebagai baris terpisah "🎯 Goals" di breakdown Total tab Wealth biar rows-nya 
 7. Angka harga asset selalu tampil dengan timestamp "per {tanggal}" — jangan pernah tampilkan
    harga tanpa keterangan kapan.
 8. Kalau nyentuh `js/calc.js`, jalankan `node tests/calc.test.mjs` sebelum selesai — harus hijau.
+9. Naikkan `schemaVersion` di `exportAll()`/`importAll()` (db.js) tiap ada perubahan struktur
+   data yang TIDAK backward-compatible (field baru yang opsional/nullable ga perlu — cuma kalau
+   backup lama jadi ga valid/nyasar kalau di-restore apa adanya).
 
 ## Known Quirks
 
@@ -312,7 +315,14 @@ sebagai baris terpisah "🎯 Goals" di breakdown Total tab Wealth biar rows-nya 
   (bukan transaksi) diarahkan ke `#/budget`, bukan buka sheet spesifik. Fix kecil terkait:
   `openBudgetSheet()` sekarang tetap bisa dibuka (buat akses tombol Hapus) walau
   `categoryId`-nya udah orphan — sebelumnya diam-diam nolak buka sama sekali dengan toast yang
-  salah ("Semua kategori sudah punya budget").
+  salah ("Semua kategori sudah punya budget"). Finding level ASSET (kind: "asset") cek konsistensi
+  `assets.quantity` vs jejak transaksi ber-`assetId` (`netQty = Σbeli − Σjual`, toleransi floating
+  point < 0.0001, bukan `!==` mentah) — SENGAJA cuma dicek buat asset yang PUNYA ≥1 transaksi;
+  asset tanpa transaksi sama sekali (posisi lama pra-fitur beli/jual) ga pernah di-flag, itu legit
+  manual. Wording-nya informatif bukan tuduhan ("selisih X — perlu dicek") karena selisih bisa
+  sengaja (posisi lama + transaksi baru bercampur). Tombol "Buka" manggil `openAssetSheet()`
+  (di-export dari `wealth.js` khusus buat ini). Transaksi ber-`assetId` yang `assetQty`/
+  `assetPrice`/`assetDir`-nya kosong/invalid juga di-flag di level transaksi (bukan asset).
 - **Efek samping transaksi ber-`debtId`/`assetId` DIPUSATKAN sebagai hook di `remove()` generik**
   (db.js): `applyDebtEffect()` (efek debt, dipanggil juga dari `add()`/`patch()` lewat
   `handleDebtPatch()`) dan `applyAssetQtyEffect()` (reverse `assets.quantity` — HANYA di `remove()`,

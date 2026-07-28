@@ -19,7 +19,12 @@ export function scanIntegrity(state) {
       if (t.toAccountId && !state.accounts.find((a) => a.id === t.toAccountId)) problems.push("akun tujuan ga ketemu");
       if (t.toGoalId && !state.goals.find((g) => g.id === t.toGoalId)) problems.push("goal (topup) ga ketemu");
       if (t.fromGoalId && !state.goals.find((g) => g.id === t.fromGoalId)) problems.push("goal (pencairan) ga ketemu");
-      if (t.assetId && !state.assets.find((a) => a.id === t.assetId)) problems.push("asset ga ketemu");
+      if (t.assetId) {
+        if (!state.assets.find((a) => a.id === t.assetId)) problems.push("asset ga ketemu");
+        if (!(Number(t.assetQty) > 0) || !(Number(t.assetPrice) > 0) || (t.assetDir !== "buy" && t.assetDir !== "sell")) {
+          problems.push("assetQty/assetPrice/assetDir kosong atau invalid");
+        }
+      }
     } else if (t.categoryId && !state.categories.find((c) => c.id === t.categoryId)) {
       problems.push("kategori ga ketemu");
     }
@@ -40,6 +45,28 @@ export function scanIntegrity(state) {
     if (!state.categories.find((c) => c.id === b.categoryId)) {
       issues.push({ kind: "budget", ref: b, problems: ["kategori ga ketemu"] });
     }
+  }
+
+  // Konsistensi assets.quantity vs jejak transaksi ber-assetId. Asset TANPA transaksi sama
+  // sekali TIDAK di-flag — itu posisi lama pra-fitur beli/jual yang legit manual. Finding-nya
+  // informatif, bukan tuduhan: selisih bisa sengaja (posisi lama + transaksi baru bercampur).
+  for (const a of state.assets) {
+    const assetTxs = state.transactions.filter((t) => t.type === "transfer" && t.assetId === a.id);
+    if (assetTxs.length === 0) continue;
+    const netQty = assetTxs.reduce((sum, t) => {
+      const qty = Number(t.assetQty) || 0;
+      return sum + (t.assetDir === "sell" ? -qty : qty);
+    }, 0);
+    const recorded = Number(a.quantity) || 0;
+    const diff = recorded - netQty;
+    if (Math.abs(diff) < 0.0001) continue; // toleransi floating point
+    const unit = a.type === "stock_id" ? "lot" : a.type === "stock_us" ? "sh" : "unit";
+    const fmt = (n) => Number(n.toFixed(4));
+    issues.push({
+      kind: "asset",
+      ref: a,
+      problems: [`tercatat ${fmt(recorded)} ${unit}, jejak transaksi ${fmt(netQty)} ${unit}, selisih ${fmt(Math.abs(diff))} ${unit} — perlu dicek`],
+    });
   }
 
   return issues;

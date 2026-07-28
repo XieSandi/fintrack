@@ -50,7 +50,7 @@ function makeState() {
   assertEqual(bal.acc_idr2, 500_000 + 100_000, "regular transfer: acc_idr2 (tujuan) dikredit");
 }
 
-// ================= 2. Topup goal =================
+// ============ 2. Topup goal (accountId = SUMBER, ga ada akun lain naik) ============
 {
   const s = makeState();
   s.goals = [{ id: "g1", targetAmount: 1_000_000 }];
@@ -63,7 +63,7 @@ function makeState() {
   assertEqual(calc.goalSavedIDR(s, "g1"), 300_000, "topup goal: goalSavedIDR naik");
 }
 
-// ================= 3. Pencairan (withdraw) goal =================
+// ======= 3. Pencairan (withdraw) goal (accountId = TUJUAN, naik) =======
 {
   const s = makeState();
   s.goals = [{ id: "g1", targetAmount: 1_000_000 }];
@@ -77,22 +77,45 @@ function makeState() {
   assertEqual(calc.goalSavedIDR(s, "g1"), 300_000 - 100_000, "pencairan goal: goalSavedIDR turun");
 }
 
-// ================= 4. Beli/jual asset =================
+// ==== 4. Beli asset (accountId = SUMBER, net worth TIDAK berubah) ====
+{
+  // qty asset di sini di-set manual di fixture "after" buat simulasi state SETELAH app nulis
+  // quantity baru — calc.js sendiri ga tau soal "beli asset menaikkan assets.quantity", itu
+  // logic terpisah di wealth.js (patch ke assets + add ke transactions, dua write beda).
+  // Yang mau dibuktikan di sini murni efek transaksinya ke accountBalances()/netWorthIDR().
+  const before = makeState();
+  before.accounts.push({ id: "acc_big", currency: "IDR", initialBalance: 10_000_000, isArchived: false });
+  before.assets = [{ id: "a1", type: "stock_id", quantity: 10, avgBuyPrice: 6000, manualPrice: 6000, currency: "IDR" }];
+  const nwBefore = calc.netWorthIDR(before);
+
+  const after = makeState();
+  after.accounts.push({ id: "acc_big", currency: "IDR", initialBalance: 10_000_000, isArchived: false });
+  after.assets = [{ id: "a1", type: "stock_id", quantity: 15, avgBuyPrice: 6000, manualPrice: 6000, currency: "IDR" }];
+  after.transactions = [
+    // Beli 5 lot @ 6.000/lembar = 5*100*6000 = 3.000.000
+    { type: "transfer", amount: 5 * 100 * 6000, accountId: "acc_big", assetId: "a1", assetDir: "buy", assetQty: 5, assetPrice: 6000, month: "2026-01", date: "2026-01-05" },
+  ];
+  const bal = calc.accountBalances(after);
+  assertEqual(bal.acc_big, 10_000_000 - 5 * 100 * 6000, "beli asset: akun sumber didebit (qty x100 buat stock_id)");
+  assertEqual(bal.acc_idr, 1_000_000, "beli asset: ga ada akun lain yang kekredit");
+  assertEqual(calc.netWorthIDR(after), nwBefore, "beli asset: net worth TIDAK berubah (cash turun, asset value naik senilai sama)");
+}
+
+// ============ 5. Jual asset (accountId = TUJUAN, naik) ============
 {
   const s = makeState();
   s.accounts.push({ id: "acc_big", currency: "IDR", initialBalance: 10_000_000, isArchived: false });
-  s.assets = [{ id: "a1", type: "stock_id", quantity: 10, avgBuyPrice: 6710, manualPrice: 6710, currency: "IDR" }];
+  s.assets = [{ id: "a1", type: "stock_id", quantity: 5, avgBuyPrice: 6710, manualPrice: 6500, currency: "IDR" }];
   s.transactions = [
-    // Beli 5 lot @ 6.000/lembar = 5*100*6000 = 3.000.000
-    { type: "transfer", amount: 5 * 100 * 6000, accountId: "acc_big", assetId: "a1", assetDir: "buy", assetQty: 5, assetPrice: 6000, month: "2026-01", date: "2026-01-05" },
     // Jual 3 lot @ 6.500/lembar = 3*100*6500 = 1.950.000
     { type: "transfer", amount: 3 * 100 * 6500, accountId: "acc_big", assetId: "a1", assetDir: "sell", assetQty: 3, assetPrice: 6500, month: "2026-01", date: "2026-01-10" },
   ];
   const bal = calc.accountBalances(s);
-  assertEqual(bal.acc_big, 10_000_000 - 5 * 100 * 6000 + 3 * 100 * 6500, "beli+jual asset: saldo akun turun pas beli, naik pas jual (qty x100 buat stock_id)");
+  assertEqual(bal.acc_big, 10_000_000 + 3 * 100 * 6500, "jual asset: accountId = akun TUJUAN, dikredit");
+  assertEqual(bal.acc_idr, 1_000_000, "jual asset: ga ada akun lain yang ke-debit");
 }
 
-// ================= 5. Net worth = cash + assets + goals - debt =================
+// ================= 6. Net worth = cash + assets + goals - debt =================
 {
   const s = makeState();
   s.assets = [{ id: "a1", type: "stock_us", quantity: 10, avgBuyPrice: 100, manualPrice: 120, currency: "USD" }];
@@ -116,30 +139,34 @@ function makeState() {
   assertEqual(nw, 20_500_000, "net worth: angka absolut sesuai perhitungan manual");
 }
 
-// ================= 6. monthSummary exclude transfer =================
+// === 7. monthSummary exclude SEMUA jenis transfer (biasa, goal topup/pencairan, asset beli/jual) ===
 {
   const s = makeState();
   s.goals = [{ id: "g1" }];
+  s.assets = [{ id: "a1", type: "stock_id", quantity: 10, avgBuyPrice: 6000, manualPrice: 6000, currency: "IDR" }];
   s.transactions = [
     { type: "expense", amount: 10_000, accountId: "acc_idr", month: "2026-02", date: "2026-02-01" },
     { type: "income", amount: 50_000, accountId: "acc_idr", month: "2026-02", date: "2026-02-02" },
     { type: "transfer", amount: 999_999, accountId: "acc_idr", toAccountId: "acc_idr2", month: "2026-02", date: "2026-02-03" },
     { type: "transfer", amount: 888_888, accountId: "acc_idr", toGoalId: "g1", month: "2026-02", date: "2026-02-04" },
+    { type: "transfer", amount: 777_777, accountId: "acc_idr2", fromGoalId: "g1", month: "2026-02", date: "2026-02-05" },
+    { type: "transfer", amount: 5 * 100 * 6000, accountId: "acc_idr", assetId: "a1", assetDir: "buy", assetQty: 5, assetPrice: 6000, month: "2026-02", date: "2026-02-06" },
+    { type: "transfer", amount: 2 * 100 * 6500, accountId: "acc_idr", assetId: "a1", assetDir: "sell", assetQty: 2, assetPrice: 6500, month: "2026-02", date: "2026-02-07" },
   ];
   const sum = calc.monthSummary(s, "2026-02");
-  assertEqual(sum.income, 50_000, "monthSummary: income exclude transfer (biasa & goal)");
-  assertEqual(sum.expense, 10_000, "monthSummary: expense exclude transfer (biasa & goal)");
+  assertEqual(sum.income, 50_000, "monthSummary: income exclude SEMUA jenis transfer");
+  assertEqual(sum.expense, 10_000, "monthSummary: expense exclude SEMUA jenis transfer");
   assertEqual(sum.surplus, 40_000, "monthSummary: surplus = income - expense");
 }
 
-// ================= 7. Saham IDX lot x100 =================
+// ================= 8. Saham IDX lot x100 =================
 {
   const s = makeState();
   const asset = { type: "stock_id", quantity: 10, manualPrice: 6710, currency: "IDR" };
   assertEqual(calc.assetValueIDR(s, asset), 10 * 100 * 6710, "stock_id: value pakai qty(lot) x100 lembar");
 }
 
-// ================= 8. Konversi USD x rate =================
+// ================= 9. Konversi USD x rate =================
 {
   const s = makeState();
   const asset = { type: "stock_us", quantity: 10, manualPrice: 120, currency: "USD" };
