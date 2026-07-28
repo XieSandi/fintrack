@@ -94,7 +94,7 @@ export const totalDebtIDR = () => calc.totalDebtIDR(state);
 export const goalSavedIDR = (goalId) => calc.goalSavedIDR(state, goalId);
 export const totalGoalSavingsIDR = () => calc.totalGoalSavingsIDR(state);
 export const netWorthIDR = () => calc.netWorthIDR(state);
-export const milestoneProgress = () => calc.milestoneProgress(state);
+export const milestoneProgress = () => calc.milestoneProgress(state, currentMonth());
 export const monthSummary = (month) => calc.monthSummary(state, month);
 export const spentByCategory = (month) => calc.spentByCategory(state, month);
 export const budgetsOfMonth = (month) => calc.budgetsOfMonth(state, month);

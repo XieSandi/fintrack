@@ -1,6 +1,6 @@
 # TASKS.md — Backlog Instruksi untuk Claude Code
 
-Cara pakai: buka session (`claude` di root repo), lalu bilang "kerjain TASK-F di TASKS.md".
+Cara pakai: buka session (`claude` di root repo), lalu bilang "kerjain TASK-G di TASKS.md".
 Kerjakan **satu task per session/branch**, urut prioritas. Baca CLAUDE.md dulu — semua
 ATURAN WAJIB berlaku untuk setiap task, terutama:
 
@@ -17,34 +17,6 @@ ATURAN WAJIB berlaku untuk setiap task, terutama:
 
 **Di-exclude sengaja (jangan dikerjain):** banner update SW (Hard Refresh cukup, single user);
 arsip transaksi lama (evaluasi nanti kalau >3.000 docs).
-
----
-
-## TASK-F (P2) — Main Milestone punya dimensi waktu (pakai `targetDate` yang vestigial)
-
-**Masalah:** `settings.targetDate` ada ("2028-12") tapi tanpa UI, tak dipakai. Milestone tanpa
-waktu = setengah informasi, tak bisa jawab "on-track atau enggak".
-
-**Implementasi:**
-- Card "Main Milestone & Kurs" (Setting): tambah `<input type="month">` untuk target date, simpan
-  ke `settings.targetDate`. Boleh dikosongkan.
-- Perluas `milestoneProgress()` (di **calc.js**; tambah test case) supaya juga
-  return, HANYA kalau `targetDate` terisi & belum tercapai:
-  - `monthsLeft` (bulan berjalan → targetDate, min 0)
-  - `neededPerMonth` = (target − nw) / monthsLeft
-  - `avgSurplus3m` = rata-rata surplus 3 bulan terakhir ber-data (pakai `monthSummary()`)
-  - `onTrack` = avgSurplus3m ≥ neededPerMonth
-- Tampilkan di bawah progress bar (Home + Wealth, satu sumber): "Sisa 29 bulan · perlu ± Rp
-  2,1jt/bln · surplus rata-rata lo Rp 2,4jt → **on track** ✓" atau "kurang ± Rp 300rb/bln".
-- Edge cases WAJIB: targetDate kosong → bar seperti sekarang tanpa baris pace. targetDate sudah
-  lewat tapi belum tercapai → "target date terlewat" (jangan bagi nol/negatif). Sudah tercapai →
-  tetap state "🏆 Tercapai!", pace disembunyikan. Belum ada data surplus → tampilkan
-  `neededPerMonth` saja tanpa klaim on-track.
-- Ganti label "vestigial" `targetDate` di CLAUDE.md dengan deskripsi peran barunya.
-- Sertakan info pace di laporan .md (section Ringkasan) — berguna buat AI.
-
-**Acceptance:** isi target date → baris pace muncul di Home & Wealth dengan angka terverifikasi;
-kosongkan → hilang tanpa error; target date lampau → pesan benar, tak crash.
 
 ---
 
@@ -83,10 +55,11 @@ benar: **reminder yang membuka sheet beli asset dengan nominal ter-prefill.**
 
 ## Urutan eksekusi yang disarankan
 
-1. ~~TASK-A~~, ~~TASK-B~~, ~~TASK-C~~, ~~TASK-D~~, ~~TASK-E~~ — udah beres (lihat git history /
-   CLAUDE.md bullet "Efek samping transaksi ber-`debtId`/`assetId`", "Cek Integritas Data",
-   ATURAN WAJIB #9, section Arsitektur, bullet `snapshots`, dan bullet "Export Laporan (.md)").
-2. **TASK-F**, lalu **TASK-G** — enhancement, tidak mendesak.
+1. ~~TASK-A~~, ~~TASK-B~~, ~~TASK-C~~, ~~TASK-D~~, ~~TASK-E~~, ~~TASK-F~~ — udah beres (lihat git
+   history / CLAUDE.md bullet "Efek samping transaksi ber-`debtId`/`assetId`", "Cek Integritas
+   Data", ATURAN WAJIB #9, section Arsitektur, bullet `snapshots`, "Export Laporan (.md)", dan
+   bullet `settings/main` buat pace Main Milestone).
+2. **TASK-G** — enhancement, tidak mendesak, satu-satunya yang tersisa.
 
 ## Roadmap (belum jadi task aktif)
 

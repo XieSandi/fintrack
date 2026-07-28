@@ -193,16 +193,30 @@ Blur mode (toggle 👁️ di card Total Balance) nge-blur semua `<span class="bl
   berjalan (bulan berjalan wilayah `upsertSnapshot`).
 - `settings/main` — targetNetWorth (= **Main Milestone**, dipakai card Total Balance Home DAN
   banner Wealth — SATU sumber, jangan bikin duplikat field), usdIdrManual,
-  apiKeys:{itick, finnhub}, lastBackupAt. Field `targetDate` (diisi sekali saat `seedIfNeeded()`,
-  nilai "2028-12") TIDAK punya UI buat diubah dan ga dipakai di mana pun — vestigial, jangan
-  dianggap sumber kebenaran tanggal target Main Milestone (beda dari `goals.targetDate` per-goal
-  yang aktif dipakai & bisa diedit).
-  Progress bar-nya (Home + Wealth) dihitung SATU tempat: `milestoneProgress()` (calc.js) →
-  `{target, nw, pct, achieved, hidden}` — `hidden:true` kalau `targetNetWorth` 0/kosong (bar
-  disembunyikan, bukan div-by-zero atau diam-diam fallback ke 100jt); `achieved:true` kalau
-  `nw >= target` → bar penuh warna emas (`#eab308→#facc15`, beda dari biru "in progress") + label
-  "🏆 Tercapai!" di Home/Wealth, plus ajakan "Set milestone berikutnya" di card Main Milestone
-  Setting (Setting.js) — target TIDAK di-auto-ubah, murni nudge visual buat user set manual.
+  apiKeys:{itick, finnhub}, lastBackupAt. Field `targetDate` ("YYYY-MM", opsional) SEKARANG
+  PUNYA UI (input `type="month"` di card Main Milestone & Kurs, Setting.js) dan dipakai buat
+  pace ("on-track atau enggak") — TIDAK LAGI vestigial (beda dari `goals.targetDate` per-goal
+  yang punya UI/peran terpisah di goals.js).
+  Progress bar-nya (Home + Wealth) dihitung SATU tempat: `milestoneProgress(state, nowMonth)`
+  (calc.js, `nowMonth` WAJIB dikirim eksplisit oleh caller — calc.js sendiri ga boleh baca
+  wall-clock biar tetap deterministik buat di-test) → `{target, nw, pct, achieved, hidden}` —
+  `hidden:true` kalau `targetNetWorth` 0/kosong (bar disembunyikan, bukan div-by-zero atau
+  diam-diam fallback ke 100jt); `achieved:true` kalau `nw >= target` → bar penuh warna emas
+  (`#eab308→#facc15`, beda dari biru "in progress") + label "🏆 Tercapai!" di Home/Wealth, plus
+  ajakan "Set milestone berikutnya" di card Main Milestone Setting — target TIDAK di-auto-ubah,
+  murni nudge visual buat user set manual. Kalau `targetDate` keisi DAN belum `achieved`, return
+  JUGA field pace: `monthsLeft` (min 0), `neededPerMonth` = (target−nw)/monthsLeft,
+  `avgSurplus3m` (rata-rata surplus 3 bulan TERAKHIR YANG ADA DATA — bulan kosong di-skip biar
+  ga narik rata-rata ke 0, bulan berjalan di-exclude karena masih parsial), `onTrack` =
+  avgSurplus3m ≥ neededPerMonth. Field-field ini SENGAJA ga ada sama sekali (bukan null/0) kalau
+  ga relevan — `targetDate` kosong → ga ada field pace apapun; udah `achieved` → pace
+  disembunyikan walau `targetDate` keisi; `targetDate` di masa lalu tapi belum achieved → cuma
+  `targetDatePassed:true` + `monthsLeft:0`, TANPA `neededPerMonth` (hindari bagi 0/negatif);
+  belum ada data surplus sama sekali → `neededPerMonth` doang, TANPA `avgSurplus3m`/`onTrack`
+  (jangan ngarang klaim on-track tanpa data). UI-nya `milestonePaceLine(mp)` (utils.js, plain
+  text tanpa markup) — SATU formatter dipakai Home, Wealth, DAN section Ringkasan laporan .md
+  (`report-md.js`, pace-nya SELALU dari posisi TERKINI walau lagi liat laporan bulan lampau —
+  pace itu konsep forward-looking "dari sekarang", bukan potret historis per bulan).
 
 Net worth = totalCashIDR + totalAssetsIDR + totalGoalSavingsIDR − totalDebtIDR (USD dikonversi
 `effectiveRate()`). Goal savings dihitung terpisah dari `totalAssetsIDR()` (bukan di-fold ke situ)

@@ -173,18 +173,98 @@ function makeState() {
   assertEqual(calc.assetValueIDR(s, asset), 10 * 120 * 15000, "stock_us: value dikonversi kurs efektif");
 }
 
-// ================= Bonus: milestoneProgress =================
+// ================= Bonus: milestoneProgress (dasar) =================
 {
   const s = makeState();
   s.settings.targetNetWorth = 0;
-  assertEqual(calc.milestoneProgress(s).hidden, true, "milestoneProgress: target 0 -> hidden (bukan div-by-zero)");
+  assertEqual(calc.milestoneProgress(s, "2026-07").hidden, true, "milestoneProgress: target 0 -> hidden (bukan div-by-zero)");
 
   const s2 = makeState();
   s2.settings.targetNetWorth = 100; // target super rendah, net worth pasti udah lewat
-  const mp = calc.milestoneProgress(s2);
+  const mp = calc.milestoneProgress(s2, "2026-07");
   assertEqual(mp.hidden, false, "milestoneProgress: target > 0 -> ga hidden");
   assertEqual(mp.achieved, true, "milestoneProgress: nw >= target -> achieved");
   assertEqual(mp.pct, 100, "milestoneProgress: pct di-cap 100 walau nw jauh lewat target");
+}
+
+// ========= Bonus: milestoneProgress pace (targetDate, TASK-F) =========
+// Base fixture (makeState, tanpa transaksi): totalCashIDR = 1.000.000 + 500.000 + 100*15000
+// = 3.000.000, jadi nw = 3.000.000 (ga ada asset/goal/debt).
+{
+  // targetDate kosong -> field pace sama sekali ga ada, walau belum achieved
+  const s = makeState();
+  s.settings.targetNetWorth = 10_000_000;
+  s.settings.targetDate = null;
+  const mp = calc.milestoneProgress(s, "2026-07");
+  assertEqual(mp.monthsLeft, undefined, "milestoneProgress pace: targetDate kosong -> ga ada monthsLeft");
+  assertEqual(mp.neededPerMonth, undefined, "milestoneProgress pace: targetDate kosong -> ga ada neededPerMonth");
+}
+{
+  // targetDate valid, BELUM ada data surplus -> neededPerMonth ada, avgSurplus3m/onTrack ga ada
+  const s = makeState();
+  s.settings.targetNetWorth = 9_000_000; // nw 3.000.000, needed = (9jt-3jt)/6 = 1.000.000
+  s.settings.targetDate = "2027-01"; // 6 bulan dari 2026-07
+  const mp = calc.milestoneProgress(s, "2026-07");
+  assertEqual(mp.monthsLeft, 6, "milestoneProgress pace: monthsLeft dihitung bener dari nowMonth ke targetDate");
+  assertEqual(mp.neededPerMonth, 1_000_000, "milestoneProgress pace: neededPerMonth = (target-nw)/monthsLeft");
+  assertEqual(mp.avgSurplus3m, undefined, "milestoneProgress pace: belum ada data surplus -> avgSurplus3m ga ada");
+  assertEqual(mp.onTrack, undefined, "milestoneProgress pace: belum ada data surplus -> onTrack ga ada (ga boleh ngarang klaim)");
+}
+{
+  // targetDate valid, ADA data surplus 3 bulan, surplus rata2 (1.200.000) >= needed -> onTrack
+  const s = makeState();
+  s.settings.targetNetWorth = 9_000_000;
+  s.settings.targetDate = "2027-01";
+  s.transactions = [
+    { type: "income", amount: 2_200_000, accountId: "acc_idr", month: "2026-04", date: "2026-04-05" },
+    { type: "expense", amount: 1_000_000, accountId: "acc_idr", month: "2026-04", date: "2026-04-10" }, // surplus 1.200.000
+    { type: "income", amount: 2_300_000, accountId: "acc_idr", month: "2026-05", date: "2026-05-05" },
+    { type: "expense", amount: 1_000_000, accountId: "acc_idr", month: "2026-05", date: "2026-05-10" }, // surplus 1.300.000
+    { type: "income", amount: 2_100_000, accountId: "acc_idr", month: "2026-06", date: "2026-06-05" },
+    { type: "expense", amount: 1_000_000, accountId: "acc_idr", month: "2026-06", date: "2026-06-10" }, // surplus 1.100.000
+  ];
+  // transaksi di atas juga nambah cash 3.600.000 -> nw jadi 3.000.000+3.600.000=6.600.000
+  // needed = (9.000.000-6.600.000)/6 = 400.000
+  const mp = calc.milestoneProgress(s, "2026-07");
+  assertEqual(mp.neededPerMonth, 400_000, "milestoneProgress pace: neededPerMonth ikut nw yang udah naik dari transaksi");
+  assertEqual(mp.avgSurplus3m, 1_200_000, "milestoneProgress pace: avgSurplus3m rata-rata 3 bulan TERAKHIR YANG ADA DATA (exclude bulan berjalan)");
+  assertEqual(mp.onTrack, true, "milestoneProgress pace: avgSurplus3m >= neededPerMonth -> onTrack");
+}
+{
+  // Sama kayak di atas tapi target JAUH lebih tinggi -> neededPerMonth > avgSurplus3m -> NOT on track
+  const s = makeState();
+  s.settings.targetNetWorth = 50_000_000;
+  s.settings.targetDate = "2027-01";
+  s.transactions = [
+    { type: "income", amount: 2_200_000, accountId: "acc_idr", month: "2026-04", date: "2026-04-05" },
+    { type: "expense", amount: 1_000_000, accountId: "acc_idr", month: "2026-04", date: "2026-04-10" },
+    { type: "income", amount: 2_300_000, accountId: "acc_idr", month: "2026-05", date: "2026-05-05" },
+    { type: "expense", amount: 1_000_000, accountId: "acc_idr", month: "2026-05", date: "2026-05-10" },
+    { type: "income", amount: 2_100_000, accountId: "acc_idr", month: "2026-06", date: "2026-06-05" },
+    { type: "expense", amount: 1_000_000, accountId: "acc_idr", month: "2026-06", date: "2026-06-10" },
+  ];
+  const mp = calc.milestoneProgress(s, "2026-07");
+  assertEqual(mp.avgSurplus3m, 1_200_000, "milestoneProgress pace: avgSurplus3m sama, target beda");
+  assertEqual(mp.onTrack, false, "milestoneProgress pace: neededPerMonth > avgSurplus3m -> NOT on track");
+}
+{
+  // targetDate udah lewat, belum achieved -> targetDatePassed, TANPA neededPerMonth (hindari bagi 0/negatif)
+  const s = makeState();
+  s.settings.targetNetWorth = 9_000_000;
+  s.settings.targetDate = "2026-01"; // sebelum nowMonth 2026-07
+  const mp = calc.milestoneProgress(s, "2026-07");
+  assertEqual(mp.targetDatePassed, true, "milestoneProgress pace: targetDate di masa lalu -> targetDatePassed");
+  assertEqual(mp.monthsLeft, 0, "milestoneProgress pace: monthsLeft di-floor 0 kalau targetDate lewat");
+  assertEqual(mp.neededPerMonth, undefined, "milestoneProgress pace: targetDate lewat -> neededPerMonth GA dihitung");
+}
+{
+  // Udah achieved (walau targetDate keisi) -> SEMUA field pace disembunyikan
+  const s = makeState();
+  s.settings.targetNetWorth = 100; // nw 3.000.000 >> target -> achieved
+  s.settings.targetDate = "2027-01";
+  const mp = calc.milestoneProgress(s, "2026-07");
+  assertEqual(mp.achieved, true, "milestoneProgress pace: sanity check achieved");
+  assertEqual(mp.monthsLeft, undefined, "milestoneProgress pace: udah tercapai -> pace disembunyikan walau targetDate keisi");
 }
 
 // ================= Bonus: effectiveRate fallback chain =================
