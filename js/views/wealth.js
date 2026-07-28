@@ -288,7 +288,7 @@ function assetRow(a) {
   return div;
 }
 
-function openAssetSheet(existing, contentRoot) {
+export function openAssetSheet(existing, contentRoot) {
   const a = existing || {
     type: assetFilter || "stock_id", symbol: "", name: "", quantity: "", avgBuyPrice: "",
     currency: "IDR", manualPrice: "",

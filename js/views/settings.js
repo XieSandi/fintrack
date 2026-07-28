@@ -9,6 +9,7 @@ import {
 import { buildMonthlyReport, availableReportMonths } from "../report-md.js";
 import { scanIntegrity } from "../integrity.js";
 import { openTxDetail } from "./home.js";
+import { openAssetSheet } from "./wealth.js";
 
 export function render(root) {
   const lastBackup = state.settings.lastBackupAt;
@@ -266,6 +267,8 @@ function openIntegritySheet() {
     row.style.cssText = "display:flex; align-items:center; gap:10px; padding:9px 0; border-bottom:1px solid var(--border)";
     const label = issue.kind === "transaction"
       ? `Transaksi ${issue.ref.date || "?"} · ${fmtIDR(issue.ref.amount).replace(/<[^>]+>/g, "")}`
+      : issue.kind === "asset"
+      ? `Asset ${issue.ref.symbol || issue.ref.name || "?"}`
       : `Budget ${issue.ref.month || "?"}`;
     row.innerHTML = `
       <div style="flex:1">
@@ -276,6 +279,7 @@ function openIntegritySheet() {
     row.querySelector("[data-open]").onclick = () => {
       closeSheet();
       if (issue.kind === "transaction") openTxDetail(issue.ref);
+      else if (issue.kind === "asset") openAssetSheet(issue.ref);
       else location.hash = "#/budget";
     };
     list.appendChild(row);

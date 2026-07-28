@@ -1,6 +1,6 @@
 # TASKS.md — Backlog Instruksi untuk Claude Code
 
-Cara pakai: buka session (`claude` di root repo), lalu bilang "kerjain TASK-B di TASKS.md".
+Cara pakai: buka session (`claude` di root repo), lalu bilang "kerjain TASK-D di TASKS.md".
 Kerjakan **satu task per session/branch**, urut prioritas. Baca CLAUDE.md dulu — semua
 ATURAN WAJIB berlaku untuk setiap task, terutama:
 
@@ -23,55 +23,6 @@ dikerjakan di session lampau tapi belum ke-dokumentasi. Untuk task bertanda **[V
 CEK DULU kondisi kode saat ini. Kalau ternyata sudah benar, JANGAN ubah kode — cukup betulkan
 CLAUDE.md biar akurat, dan tulis di ringkasan "sudah ada, dokumentasi diperbaiki". Kalau belum
 ada / setengah jalan, baru implementasikan.
-
----
-
-## TASK-B (P1) — Integrity check: konsistensi `assets.quantity`
-
-**Scope:** pelengkap TASK-A. `scanIntegrity()` belum mendeteksi kalau `quantity` asset melenceng
-dari jejak transaksinya (akibat bug, hapus lewat Firestore console, atau edit manual setelah ada
-transaksi).
-
-**Implementasi (`js/integrity.js`):**
-- Untuk setiap asset yang **punya ≥1 transaksi ber-`assetId`**: hitung
-  `netQty = Σ buy − Σ sell`, bandingkan dengan `assets.quantity`.
-- **JANGAN flag** asset tanpa transaksi sama sekali — itu posisi lama pra-fitur yang legit manual.
-- Toleransi floating point (selisih < 0.0001 dianggap sama), jangan `!==` mentah.
-- Finding read-only, informatif, TIDAK menuduh: "tercatat 15 lot, jejak transaksi 10 lot,
-  selisih 5 lot — perlu dicek" (selisih bisa sengaja: posisi lama + transaksi baru bercampur).
-  Tombol "Buka" → sheet edit asset.
-- Tambah juga: transaksi ber-`assetId` yang `assetQty`/`assetPrice`/`assetDir`-nya kosong/invalid.
-
-**Acceptance:** ubah `quantity` asset lewat form manual padahal ada transaksinya → cek integritas
-melaporkan selisih dengan angka benar; asset tanpa transaksi tak pernah jadi finding.
-
----
-
-## TASK-C (P1, kecil) — Naikkan `schemaVersion` backup ke 2 + audit test
-
-**Masalah:** `schemaVersion` masih 1 sejak rilis awal, padahal model berubah banyak (`goals`,
-`recurring`, `debtId`, `assetId`/`assetDir`/`assetQty`/`assetPrice`, `toGoalId`/`fromGoalId`).
-
-**Implementasi:**
-- `exportAll()` → `schemaVersion: 2`.
-- `importAll()`: terima versi 1 DAN 2. Versi 1 = valid, field baru dianggap tidak ada (jangan isi
-  default mengarang — entity tanpa `debtId`/`assetId` memang perilaku lama yang benar). Versi > 2
-  → tolak: "Backup dari versi app lebih baru. Update app dulu (Setting → Hard Refresh) baru
-  import." Tidak ada `schemaVersion` → perlakukan sebagai 1.
-- Tambah 1 baris aturan di CLAUDE.md: naikkan `schemaVersion` tiap ada perubahan struktur data
-  yang tidak backward-compatible.
-
-**Audit `tests/calc.test.mjs`** — pastikan 4 kasus `accountId` kondisional punya test masing-masing
-(paling gampang regresi):
-1. topup goal (`toGoalId`) — akun sumber turun, tak ada akun naik
-2. pencairan goal (`fromGoalId`) — `accountId` = tujuan, naik
-3. jual asset (`assetId`+`assetDir:"sell"`) — `accountId` = tujuan, naik
-4. beli asset (`assetDir:"buy"`) — akun sumber turun, net worth TIDAK berubah (cash turun, asset
-   naik senilai sama)
-Plus 1 case `monthSummary()` membuktikan keempatnya bukan income/expense. Tambahkan yang belum ada.
-
-**Acceptance:** export → `schemaVersion:2`; import file v1 sukses; file v3 palsu ditolak dengan
-pesan benar; `node tests/calc.test.mjs` hijau dengan case baru.
 
 ---
 
@@ -201,14 +152,13 @@ benar: **reminder yang membuka sheet beli asset dengan nominal ter-prefill.**
 
 ## Urutan eksekusi yang disarankan
 
-1. ~~TASK-A~~ — udah beres (lihat git history / CLAUDE.md bullet "Efek samping transaksi
-   ber-`debtId`/`assetId`" buat detailnya).
-2. **TASK-B + TASK-C** boleh satu session (dua-duanya kecil, area integritas/backup).
-3. **TASK-D** (dokumentasi + pindah milestoneProgress) — cepat, bersihin fondasi sebelum TASK-E/F
+1. ~~TASK-A~~, ~~TASK-B~~, ~~TASK-C~~ — udah beres (lihat git history / CLAUDE.md bullet "Efek
+   samping transaksi ber-`debtId`/`assetId`", "Cek Integritas Data", dan ATURAN WAJIB #9).
+2. **TASK-D** (dokumentasi + pindah milestoneProgress) — cepat, bersihin fondasi sebelum TASK-E/F
    yang menyentuh milestone & snapshot.
-4. **TASK-E** — value tertinggi buat tujuan awal export .md; taruh setelah fondasi beres karena
+3. **TASK-E** — value tertinggi buat tujuan awal export .md; taruh setelah fondasi beres karena
    nulis ke `snapshots`.
-5. **TASK-F**, lalu **TASK-G** — enhancement, tidak mendesak.
+4. **TASK-F**, lalu **TASK-G** — enhancement, tidak mendesak.
 
 ## Roadmap (belum jadi task aktif)
 
