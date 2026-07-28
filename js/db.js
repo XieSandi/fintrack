@@ -40,6 +40,9 @@ export async function remove(name, id) {
   if (name === "transactions" && before?.debtId) {
     await applyDebtEffect(before.debtId, Number(before.amount) || 0, true, 1);
   }
+  if (name === "transactions" && before?.assetId) {
+    await applyAssetQtyEffect(before.assetId, before.assetDir, Number(before.assetQty) || 0);
+  }
 }
 
 // ================= Efek cicilan ke debt (TASK-4) =================
@@ -75,6 +78,21 @@ async function handleDebtPatch(before, data) {
   }
   if (oldDebtId) await applyDebtEffect(oldDebtId, oldAmount, true, 1);
   if (newDebtId) await applyDebtEffect(newDebtId, -newAmount, true, -1);
+}
+
+// ================= Efek qty asset dari beli/jual =================
+// DIPUSATKAN di sini (pola sama applyDebtEffect) — nge-hook ke remove() generik, biar semua
+// jalur hapus transaksi ber-assetId otomatis konsisten. Sebelumnya reversal ini cuma hidup di
+// handler tombol Hapus sheet detail (wealth.js) — dipindah ke sini supaya bulkDelete() (yang
+// SENGAJA bypass remove() generik, raw batch write) juga bisa manggil logic yang sama secara
+// eksplisit tanpa duplikasi. avgBuyPrice SENGAJA GA di-reverse (butuh replay history buat
+// rekonstruksi avg sebelumnya) — cuma quantity yang exact-reversible.
+async function applyAssetQtyEffect(assetId, dir, qty) {
+  const asset = state.assets.find((a) => a.id === assetId);
+  if (!asset) return; // asset-nya udah kehapus duluan — ga ada yang bisa disesuaikan
+  const delta = dir === "buy" ? -qty : qty;
+  const newQty = Math.max(0, (Number(asset.quantity) || 0) + delta);
+  await patch("assets", assetId, { quantity: newQty });
 }
 
 // ================= Seeding (first run) =================
@@ -248,6 +266,11 @@ export function previewBulkDelete({ mode, month, year }) {
   const totalExpense = scope.transactions.filter((t) => t.type === "expense").reduce((s, t) => s + (Number(t.amount) || 0), 0);
   const totalIncome = scope.transactions.filter((t) => t.type === "income").reduce((s, t) => s + (Number(t.amount) || 0), 0);
   const dates = scope.transactions.map((t) => t.date).sort();
+  const assetTxs = scope.transactions.filter((t) => t.assetId);
+  const affectedAssetNames = [...new Set(assetTxs.map((t) => {
+    const a = state.assets.find((x) => x.id === t.assetId);
+    return a ? (a.symbol || a.name) : "?";
+  }))];
   return {
     transactions: scope.transactions.length,
     budgets: scope.budgets.length,
@@ -255,6 +278,8 @@ export function previewBulkDelete({ mode, month, year }) {
     totalExpense, totalIncome,
     dateFrom: dates[0] || null,
     dateTo: dates[dates.length - 1] || null,
+    assetTxCount: assetTxs.length,
+    affectedAssetNames,
   };
 }
 
@@ -310,6 +335,25 @@ export async function bulkDelete({ mode, month, year, includeMaster, keepApiKeys
       const data = { totalOutstanding: Math.max(0, (Number(debt.totalOutstanding) || 0) + agg.amount) };
       if (debt.remainingMonths != null) data.remainingMonths = Math.max(0, (Number(debt.remainingMonths) || 0) + agg.count);
       await patch("debts", debtId, data);
+    }
+  }
+
+  // Efek qty asset dari transaksi beli/jual — pola sama debt: agregasi per
+  // asset dulu (netQty = Σ beli − Σ jual), baru SATU patch() di akhir, bukan hook per transaksi.
+  // avgBuyPrice SENGAJA GA di-reverse (sama seperti hapus 1 transaksi via remove(), lihat
+  // applyAssetQtyEffect). Skip total kalau includeMaster — assets-nya sendiri toh ikut kehapus.
+  if (!includeMaster) {
+    const assetAgg = {}; // assetId -> netQty (Σ beli − Σ jual)
+    for (const t of scope.transactions) {
+      if (!t.assetId) continue;
+      const qty = Number(t.assetQty) || 0;
+      assetAgg[t.assetId] = (assetAgg[t.assetId] || 0) + (t.assetDir === "buy" ? qty : -qty);
+    }
+    for (const [assetId, netQty] of Object.entries(assetAgg)) {
+      const asset = state.assets.find((a) => a.id === assetId);
+      if (!asset) continue; // asset-nya udah kehapus duluan
+      const newQty = Math.max(0, (Number(asset.quantity) || 0) - netQty);
+      await patch("assets", assetId, { quantity: newQty });
     }
   }
 
