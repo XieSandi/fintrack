@@ -4,6 +4,7 @@
 import { state, budgetsOfMonth } from "./store.js";
 import { add, patch } from "./db.js";
 import { copyBudgetFromLastMonth } from "./views/budget.js";
+import { openAssetBuySheet } from "./views/wealth.js";
 import {
   openSheet, closeSheet, sheetHead, toast, escapeHtml, fmtMoney,
   todayStr, toDateStr, currentMonth, daysInMonth,
@@ -48,6 +49,8 @@ export function brokenReason(r) {
   if (r.type === "transfer") {
     if (r.toGoalId) {
       if (!state.goals.find((g) => g.id === r.toGoalId)) return "goal tujuan ga ketemu (mungkin udah kehapus)";
+    } else if (r.assetId) {
+      if (!state.assets.find((a) => a.id === r.assetId)) return "asset DCA ga ketemu (mungkin udah kehapus)";
     } else {
       const toAcct = state.accounts.find((a) => a.id === r.toAccountId);
       if (!toAcct) return "akun tujuan ga ketemu (mungkin udah kehapus)";
@@ -73,11 +76,20 @@ export function checkMonthlyRitual() {
 function openRitualSheet(due) {
   const month = currentMonth();
   const budgetEmpty = budgetsOfMonth(month).length === 0;
+  // Item DCA beli asset TIDAK ikut checklist "Catat Semua" — harga beli beda tiap bulan,
+  // qty harus diturunkan dari harga aktual, jadi tiap item dapet tombol sendiri yang buka
+  // openAssetBuySheet() dengan nominal/akun/tanggal ter-prefill (lihat CLAUDE.md bullet
+  // `recurring`). lastPostedMonth cuma di-set lewat callback onSaved sheet itu, BUKAN di sini.
+  const checklistItems = due.filter((r) => !r.assetId);
+  const assetItems = due.filter((r) => r.assetId);
 
   const el = openSheet(`
     ${sheetHead("Awal Bulan 📅")}
-    <div class="sub" style="margin-bottom:10px">${due.length} transaksi rutin udah jatuh tempo. Uncheck yang mau di-skip bulan ini.</div>
-    <div id="ritual-list"></div>
+    <div class="sub" style="margin-bottom:10px">${due.length} transaksi rutin udah jatuh tempo.${checklistItems.length > 0 ? " Uncheck yang mau di-skip bulan ini." : ""}</div>
+    ${checklistItems.length > 0 ? `<div id="ritual-list"></div>` : ""}
+    ${assetItems.length > 0 ? `
+    <div class="sub" style="margin:${checklistItems.length > 0 ? "14px" : "0"} 0 6px">📈 DCA beli asset — harga beda tiap bulan, catat manual satu-satu:</div>
+    <div id="ritual-asset-list"></div>` : ""}
     ${budgetEmpty ? `
     <label style="margin-top:14px; display:flex; align-items:center; gap:8px; text-transform:none; letter-spacing:0; font-size:13px; color:var(--text)">
       <input type="checkbox" id="ritual-copy-budget" style="width:auto" checked />
@@ -85,26 +97,58 @@ function openRitualSheet(due) {
     </label>` : ""}
     <div style="margin-top:18px; display:flex; gap:8px;">
       <button id="ritual-later" class="btn" style="flex:1">Nanti</button>
-      <button id="ritual-post" class="btn btn-primary" style="flex:1">Catat Semua</button>
+      ${checklistItems.length > 0 ? `<button id="ritual-post" class="btn btn-primary" style="flex:1">Catat Semua</button>` : ""}
     </div>
   `);
 
-  const list = el.querySelector("#ritual-list");
-  due.forEach((r) => {
-    const acct = state.accounts.find((a) => a.id === r.accountId);
-    const goal = r.toGoalId ? state.goals.find((g) => g.id === r.toGoalId) : null;
-    const reason = brokenReason(r);
-    const label = document.createElement("label");
-    label.style.cssText = `display:flex; align-items:center; gap:10px; padding:9px 0; border-bottom:1px solid var(--border)${reason ? "; opacity:.55" : ""}`;
-    label.innerHTML = `
-      <input type="checkbox" data-id="${r.id}" style="width:auto" ${reason ? "disabled" : "checked"} />
-      <div style="flex:1">
-        <div style="font-size:13px; font-weight:600">${escapeHtml(r.name)}</div>
-        <div class="sub" style="${reason ? "color:var(--yellow)" : ""}">${reason ? `⚠️ ${reason} — benerin dulu di #/recurring` : `tgl ${r.dayOfMonth} · ${escapeHtml(acct?.name || "?")}${goal ? ` → 🎯 ${escapeHtml(goal.name)}` : ""}`}</div>
-      </div>
-      <div style="font-size:13px; font-weight:700">${fmtMoney(r.amount, acct?.currency)}</div>`;
-    list.appendChild(label);
-  });
+  if (checklistItems.length > 0) {
+    const list = el.querySelector("#ritual-list");
+    checklistItems.forEach((r) => {
+      const acct = state.accounts.find((a) => a.id === r.accountId);
+      const goal = r.toGoalId ? state.goals.find((g) => g.id === r.toGoalId) : null;
+      const reason = brokenReason(r);
+      const label = document.createElement("label");
+      label.style.cssText = `display:flex; align-items:center; gap:10px; padding:9px 0; border-bottom:1px solid var(--border)${reason ? "; opacity:.55" : ""}`;
+      label.innerHTML = `
+        <input type="checkbox" data-id="${r.id}" style="width:auto" ${reason ? "disabled" : "checked"} />
+        <div style="flex:1">
+          <div style="font-size:13px; font-weight:600">${escapeHtml(r.name)}</div>
+          <div class="sub" style="${reason ? "color:var(--yellow)" : ""}">${reason ? `⚠️ ${reason} — benerin dulu di #/recurring` : `tgl ${r.dayOfMonth} · ${escapeHtml(acct?.name || "?")}${goal ? ` → 🎯 ${escapeHtml(goal.name)}` : ""}`}</div>
+        </div>
+        <div style="font-size:13px; font-weight:700">${fmtMoney(r.amount, acct?.currency)}</div>`;
+      list.appendChild(label);
+    });
+  }
+
+  if (assetItems.length > 0) {
+    const listA = el.querySelector("#ritual-asset-list");
+    assetItems.forEach((r) => {
+      const asset = state.assets.find((a) => a.id === r.assetId);
+      const acct = state.accounts.find((a) => a.id === r.accountId);
+      const reason = brokenReason(r);
+      const row = document.createElement("div");
+      row.style.cssText = `display:flex; align-items:center; gap:10px; padding:9px 0; border-bottom:1px solid var(--border)${reason ? "; opacity:.55" : ""}`;
+      row.innerHTML = `
+        <div style="flex:1">
+          <div style="font-size:13px; font-weight:600">${escapeHtml(r.name)}</div>
+          <div class="sub" style="${reason ? "color:var(--yellow)" : ""}">${reason ? `⚠️ ${reason} — benerin dulu di #/recurring` : `${escapeHtml(asset?.symbol || asset?.name || "?")} · ${escapeHtml(acct?.name || "?")} · harga beli beda tiap bulan, jadi diisi manual`}</div>
+        </div>
+        <div style="font-size:13px; font-weight:700">${fmtMoney(r.amount, acct?.currency)}</div>
+        ${reason ? "" : `<button class="btn" style="white-space:nowrap">Catat pembelian →</button>`}`;
+      if (!reason) {
+        row.querySelector("button").onclick = () => {
+          closeSheet();
+          openAssetBuySheet(asset, null, {
+            prefillAmount: r.amount,
+            prefillAccountId: r.accountId,
+            prefillDate: dateForDay(r.dayOfMonth),
+            onSaved: () => patch("recurring", r.id, { lastPostedMonth: month }),
+          });
+        };
+      }
+      listA.appendChild(row);
+    });
+  }
 
   const dismiss = () => {
     localStorage.setItem(DISMISS_KEY, todayStr());
@@ -113,32 +157,35 @@ function openRitualSheet(due) {
   el.querySelector("[data-close]").onclick = dismiss;
   el.querySelector("#ritual-later").onclick = dismiss;
 
-  el.querySelector("#ritual-post").onclick = async () => {
-    // !brokenReason(r) itu jaring pengaman — checkbox broken item udah disabled+unchecked
-    // dari render di atas, tapi jangan sampe kepost kalau somehow ke-checked.
-    const toPost = due.filter((r) => !brokenReason(r) && el.querySelector(`[data-id="${r.id}"]`).checked);
-    const doCopyBudget = budgetEmpty && !!el.querySelector("#ritual-copy-budget")?.checked;
-    closeSheet();
+  const postBtn = el.querySelector("#ritual-post");
+  if (postBtn) {
+    postBtn.onclick = async () => {
+      // !brokenReason(r) itu jaring pengaman — checkbox broken item udah disabled+unchecked
+      // dari render di atas, tapi jangan sampe kepost kalau somehow ke-checked.
+      const toPost = checklistItems.filter((r) => !brokenReason(r) && el.querySelector(`[data-id="${r.id}"]`).checked);
+      const doCopyBudget = budgetEmpty && !!el.querySelector("#ritual-copy-budget")?.checked;
+      closeSheet();
 
-    for (const r of toPost) {
-      const date = dateForDay(r.dayOfMonth);
-      await add("transactions", {
-        type: r.type, amount: r.amount, date, month: date.slice(0, 7),
-        accountId: r.accountId,
-        toAccountId: r.type === "transfer" && !r.toGoalId ? r.toAccountId : null,
-        toGoalId: r.type === "transfer" ? (r.toGoalId || null) : null,
-        categoryId: r.type === "transfer" ? null : r.categoryId,
-        debtId: r.type === "expense" ? (r.debtId || null) : null,
-        note: r.name,
-      });
-      await patch("recurring", r.id, { lastPostedMonth: month });
-    }
+      for (const r of toPost) {
+        const date = dateForDay(r.dayOfMonth);
+        await add("transactions", {
+          type: r.type, amount: r.amount, date, month: date.slice(0, 7),
+          accountId: r.accountId,
+          toAccountId: r.type === "transfer" && !r.toGoalId ? r.toAccountId : null,
+          toGoalId: r.type === "transfer" ? (r.toGoalId || null) : null,
+          categoryId: r.type === "transfer" ? null : r.categoryId,
+          debtId: r.type === "expense" ? (r.debtId || null) : null,
+          note: r.name,
+        });
+        await patch("recurring", r.id, { lastPostedMonth: month });
+      }
 
-    let msg = toPost.length > 0 ? `${toPost.length} transaksi tercatat ✓` : "Ga ada transaksi yang dicatat";
-    if (doCopyBudget) {
-      const { copied } = await copyBudgetFromLastMonth(month);
-      if (copied > 0) msg += ` · ${copied} budget disalin`;
-    }
-    toast(msg);
-  };
+      let msg = toPost.length > 0 ? `${toPost.length} transaksi tercatat ✓` : "Ga ada transaksi yang dicatat";
+      if (doCopyBudget) {
+        const { copied } = await copyBudgetFromLastMonth(month);
+        if (copied > 0) msg += ` · ${copied} budget disalin`;
+      }
+      toast(msg);
+    };
+  }
 }
