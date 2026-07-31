@@ -90,7 +90,7 @@ export function render(root) {
           </label>
           ${totalSub === "c2" ? `
           <label style="display:flex; align-items:center; gap:8px; text-transform:none; letter-spacing:0; font-size:12px; color:var(--muted2); margin:0">
-            <input type="checkbox" id="dg-keepkeys" style="width:auto" ${keepApiKeys ? "checked" : ""} /> Pertahankan API keys (FCS API/Finnhub) — ga usah setup ulang
+            <input type="checkbox" id="dg-keepkeys" style="width:auto" ${keepApiKeys ? "checked" : ""} /> Pertahankan API keys (Finnhub) — ga usah setup ulang
           </label>` : ""}
         </div>` : ""}
     </div>

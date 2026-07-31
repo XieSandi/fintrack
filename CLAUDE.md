@@ -38,7 +38,7 @@ js/calc.js            fungsi kalkulasi MURNI (saldo, net worth, dll) — TIDAK i
                        terima `state` sebagai parameter, ditest lewat tests/calc.test.mjs
 js/db.js              repository: CRUD generik, seeding kategori, snapshot bulanan, export/import
                        backup, bulkDelete()/previewBulkDelete() (reset data, js/views/danger.js)
-js/prices.js          auto price: FCS API (IDX), Finnhub (US), CoinGecko (crypto, tanpa key)
+js/prices.js          auto price: TradingView (IDX, tanpa key), Finnhub (US), CoinGecko (crypto)
 js/kurs.js            kurs USD/IDR auto via frankfurter.app, cache localStorage
 js/tx-sheet.js        bottom sheet tambah/edit transaksi (quick-add)
 js/recurring-sheet.js sheet "Awal Bulan": konfirmasi post recurring + opsi salin budget
@@ -210,7 +210,8 @@ Blur mode (toggle 👁️ di card Total Balance) nge-blur semua `<span class="bl
   berjalan (bulan berjalan wilayah `upsertSnapshot`).
 - `settings/main` — targetNetWorth (= **Main Milestone**, dipakai card Total Balance Home DAN
   banner Wealth — SATU sumber, jangan bikin duplikat field), usdIdrManual,
-  apiKeys:{fcsapi, finnhub}, lastBackupAt. Field `targetDate` ("YYYY-MM", opsional) SEKARANG
+  apiKeys:{finnhub}, lastBackupAt (saham IDX ga butuh key lagi, lihat bullet `js/prices.js`
+  di Known Quirks). Field `targetDate` ("YYYY-MM", opsional) SEKARANG
   PUNYA UI (input `type="month"` di card Main Milestone & Kurs, Setting.js) dan dipakai buat
   pace ("on-track atau enggak") — TIDAK LAGI vestigial (beda dari `goals.targetDate` per-goal
   yang punya UI/peran terpisah di goals.js).
@@ -264,18 +265,27 @@ sebagai baris terpisah "🎯 Goals" di breakdown Total tab Wealth biar rows-nya 
   `js/calc.js` sendiri WAJIB masuk `PRECACHE` (dipakai runtime lewat wrapper `store.js`).
   Nambah fungsi kalkulasi baru → taruh di `calc.js` (bukan langsung di `store.js`) + tambah
   test case-nya, biar tetap bisa ditest tanpa Firebase/browser.
-- FCS API (`js/prices.js`, `fetchIDX`) — pengganti iTick (provider lama, udah ga bisa dipakai
-  gratis lagi per pertengahan 2026). `GET https://api-v4.fcsapi.com/stock/latest?symbol=IDX:BBCA,IDX:BBRI&access_key=...`
-  (prefix `IDX:` WAJIB di tiap symbol, biar match persis bursa Indonesia — tanpa prefix,
-  server nyari best-match lintas SEMUA bursa dunia, bisa salah). Response
-  `{status, response:[{ticker:"IDX:BBCA", active:{c, ...}, ...}]}` — harga di field
-  `active.c`, `ticker` dipotong prefix bursa-nya buat dicocokin balik ke symbol asset kita.
-  Free tier: 500 credit/bulan, 3 request/menit, cache ~60 menit — jauh lebih dari cukup buat
-  auto-refresh 1x/20 jam yang app ini pakai. Endpoint + format request ini udah dikonfirmasi
-  hidup & CORS-friendly (`access-control-allow-origin: *`) lewat request langsung, TAPI field
-  `active.c` di response sukses BELUM diverifikasi pakai key asli (dokumentasi publik doang,
-  demo key selalu ditolak) — kalau harga IDX ga ke-update abis pasang key, cek dulu bentuk
-  response asli di Network tab browser sebelum ubah-ubah kode parsing.
+- TradingView scanner (`js/prices.js`, `fetchIDX`) — provider saham IDX SEKARANG, ganti dua kali:
+  iTick (provider awal, berhenti gratis pertengahan 2026) → dicoba FCS API (ternyata free plan-nya
+  EKSPLISIT nolak akses data stock/index, `{code:403,msg:"...In Free Plan you can't access this
+  market"}`, padahal marketing page-nya bilang free tier cover stock — jangan percaya klaim
+  "gratis" provider data manapun tanpa test pakai key asli dulu) → akhirnya `POST
+  https://scanner.tradingview.com/global/scan` dengan body `{symbols:{tickers:["IDX:BBCA",...],
+  query:{types:[]}}, columns:["close"]}`, response `{data:[{s:"IDX:BBCA", d:[<close>]}, ...]}`
+  (index array `d` ngikutin urutan `columns`, ticker di-strip prefix bursa buat dicocokin balik
+  ke symbol asset). **TANPA API key sama sekali** (beda dari iTick/FCS yang keduanya butuh key)
+  — CORS-nya reflect Origin header apa pun (`access-control-allow-origin: <origin request>`),
+  udah dites langsung dari origin production app ini (`xiesandi.cyou`) dan dari beberapa symbol
+  portfolio asli (BBCA/BBRI/ADRO/WBSA), semua balik harga valid. Delay ~10 menit
+  (`"update_mode":"delayed_streaming_600"` di response asli, field ini sengaja ga diminta di
+  `columns` app ini karena ga dipakai). **RISIKO YANG SENGAJA DITERIMA:** ini endpoint backend
+  publik TradingView yang ga resmi didokumentasikan buat dipakai luar situsnya (sama seperti
+  banyak widget ticker embed di internet manfaatin endpoint yang sama) — TIDAK ada jaminan
+  SLA/stabilitas kayak iTick/FCS yang emang API resmi berbayar/freemium. Kalau harga IDX
+  berhenti ke-update di kemudian hari, ini kandidat pertama yang dicek (mungkin butuh cari
+  provider resmi lagi, ATAU provider resmi baru yang genuinely gratis buat stock — cek dulu
+  pakai API key ASLI sebelum percaya klaim "free tier" di marketing page manapun, pelajaran
+  dari insiden FCS API di atas).
 - Dua mekanisme seeding kategori di `db.js`, sengaja beda: `seedIfNeeded()` = sekali doang
   (guard `settings.seeded`), buat kategori awal saat akun baru pertama kali dipakai.
   `ensurePresetCategories()` = jalan tiap sesi (`put()` id deterministik + merge, idempotent),
