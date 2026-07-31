@@ -4,6 +4,11 @@ Personal finance tracker PWA milik satu user (owner repo). Live di https://xiesa
 (GitHub Pages, custom domain, subpath). Track expense harian, budget bulanan, assets, debt,
 net worth menuju target Rp 100 juta akhir 2028.
 
+File ini isinya aturan "apa yang berlaku SEKARANG" buat kerja sehari-hari. Narasi historis
+"kenapa" di balik insiden/keputusan desain besar (provider harga IDX, infinite-reload-loop,
+bug timezone, dll) ada di `DECISIONS.md` — baca itu kalau butuh konteks lengkap, bukan cuma
+aturan ringkasnya.
+
 **Konsep target — sengaja 2 sistem terpisah (keputusan owner):**
 - **🏆 Main Milestone** — SATU angka besar (`settings.targetNetWorth`), benchmark net worth
   jangka panjang, pasif (progress otomatis dari `netWorthIDR()`, ga ada topup). Setup di
@@ -303,42 +308,27 @@ sebagai baris terpisah "🎯 Goals" di breakdown Total tab Wealth biar rows-nya 
   `js/calc.js` sendiri WAJIB masuk `PRECACHE` (dipakai runtime lewat wrapper `store.js`).
   Nambah fungsi kalkulasi baru → taruh di `calc.js` (bukan langsung di `store.js`) + tambah
   test case-nya, biar tetap bisa ditest tanpa Firebase/browser.
-- TradingView scanner (`js/prices.js`, `fetchIDX`) — provider saham IDX SEKARANG, ganti dua kali:
-  iTick (provider awal, berhenti gratis pertengahan 2026) → dicoba FCS API (ternyata free plan-nya
-  EKSPLISIT nolak akses data stock/index, `{code:403,msg:"...In Free Plan you can't access this
-  market"}`, padahal marketing page-nya bilang free tier cover stock — jangan percaya klaim
-  "gratis" provider data manapun tanpa test pakai key asli dulu) → akhirnya `POST
+- TradingView scanner (`js/prices.js`, `fetchIDX`) — provider saham IDX SEKARANG. `POST
   https://scanner.tradingview.com/global/scan` dengan body `{symbols:{tickers:["IDX:BBCA",...],
   query:{types:[]}}, columns:["close"]}`, response `{data:[{s:"IDX:BBCA", d:[<close>]}, ...]}`
   (index array `d` ngikutin urutan `columns`, ticker di-strip prefix bursa buat dicocokin balik
-  ke symbol asset). **TANPA API key sama sekali** (beda dari iTick/FCS yang keduanya butuh key)
-  — CORS-nya reflect Origin header apa pun (`access-control-allow-origin: <origin request>`),
-  udah dites langsung dari origin production app ini (`xiesandi.cyou`) dan dari beberapa symbol
-  portfolio asli (BBCA/BBRI/ADRO/WBSA), semua balik harga valid. **JANGAN set header
-  `Content-Type: application/json`** di `fetch()`-nya — itu bukan CORS-safelisted header,
-  jadi browser bakal preflight `OPTIONS` dulu, dan preflight TradingView cuma nge-allow
-  `Referer,Accept` (BUKAN `content-type`) di `Access-Control-Allow-Headers`-nya → request asli
-  ke-block CORS diam-diam (gagal total, ga ada network error yang jelas keliatan tanpa buka
-  DevTools). `curl` ga kena ini karena curl ga ngejalanin preflight — itu sebabnya verifikasi
-  awal via curl kelihatan sukses padahal beneran dipanggil dari browser gagal (bug nyata yang
-  sempet kejadian, fixed dengan cara HAPUS header itu; default `fetch()` buat body string —
-  `text/plain;charset=UTF-8` — CORS-safelisted, dan server TradingView tetap parse body-nya
-  sebagai JSON regardless declared content-type). Delay ~10 menit
-  (`"update_mode":"delayed_streaming_600"` di response asli, field ini sengaja ga diminta di
-  `columns` app ini karena ga dipakai). **RISIKO YANG SENGAJA DITERIMA:** ini endpoint backend
-  publik TradingView yang ga resmi didokumentasikan buat dipakai luar situsnya (sama seperti
-  banyak widget ticker embed di internet manfaatin endpoint yang sama) — TIDAK ada jaminan
-  SLA/stabilitas kayak iTick/FCS yang emang API resmi berbayar/freemium. Kalau harga IDX
-  berhenti ke-update di kemudian hari, ini kandidat pertama yang dicek (mungkin butuh cari
-  provider resmi lagi, ATAU provider resmi baru yang genuinely gratis buat stock — cek dulu
-  pakai API key ASLI sebelum percaya klaim "free tier" di marketing page manapun, pelajaran
-  dari insiden FCS API di atas). `refreshPrices()` (dipanggil dari tombol "🔄 Harga" di Wealth)
-  return field `errors: {idx?, us?, crypto?}` — error mentah per-provider (bukan cuma sentinel
-  "no_key") di-surface ke toast langsung, BUKAN cuma `console.warn` — PWA di HP ga punya akses
-  gampang ke DevTools, jadi ini satu-satunya cara diagnosis kenapa refresh gagal (mis. ad-blocker
-  device nge-block domain `tradingview.com` sebagai "widget/tracking", network beda-beda per
-  device meskipun endpoint-nya kebukti jalan lewat server-to-server test). Kalau nambah provider
-  baru, pertahankan pola ini — jangan biarkan error provider ketelan diam-diam lagi.
+  ke symbol asset). **TANPA API key sama sekali** — CORS-nya reflect Origin header apa pun,
+  udah dites langsung dari origin production app ini. **JANGAN set header
+  `Content-Type: application/json`** di `fetch()`-nya — itu bukan CORS-safelisted header, bikin
+  browser preflight `OPTIONS` yang bakal ke-block (TradingView cuma allow `Referer,Accept` di
+  `Access-Control-Allow-Headers` preflight-nya, bukan `content-type`) → request asli gagal diam-diam.
+  Biarkan `fetch()` pakai default Content-Type buat body string (`text/plain`, CORS-safelisted,
+  skip preflight) — server tetap parse body-nya sebagai JSON regardless declared type (riwayat
+  lengkap kenapa provider ini yang dipilih + bug CORS preflight yang sempet kejadian: lihat
+  `DECISIONS.md`). Delay ~10 menit (`update_mode: delayed_streaming_600`).
+  **RISIKO YANG SENGAJA DITERIMA:** endpoint backend publik TradingView, ga resmi
+  didokumentasikan buat dipakai eksternal — TIDAK ada jaminan SLA/stabilitas. Kalau harga IDX
+  berhenti ke-update, ini kandidat pertama yang dicek — cek dulu pakai API key ASLI (bukan cuma
+  baca marketing page) sebelum percaya klaim "free tier" provider pengganti manapun (lihat
+  `DECISIONS.md`). `refreshPrices()` (dipanggil dari tombol "🔄 Harga" di Wealth) return field
+  `errors: {idx?, us?, crypto?}` — error mentah per-provider di-surface ke toast langsung, BUKAN
+  cuma `console.warn` — PWA di HP ga punya akses gampang ke DevTools, jadi ini satu-satunya cara
+  diagnosis kenapa refresh gagal. Kalau nambah provider baru, pertahankan pola ini.
 - Dua mekanisme seeding kategori di `db.js`, sengaja beda: `seedIfNeeded()` = sekali doang
   (guard `settings.seeded`), buat kategori awal saat akun baru pertama kali dipakai.
   `ensurePresetCategories()` = jalan tiap sesi (`put()` id deterministik + merge, idempotent),
@@ -352,13 +342,13 @@ sebagai baris terpisah "🎯 Goals" di breakdown Total tab Wealth biar rows-nya 
 - **Tanggal kalender WAJIB pakai `toDateStr()`/`todayStr()` di `utils.js`** (local time, dari
   `getFullYear()/getMonth()/getDate()`) — **JANGAN** `new Date().toISOString().slice(0,10)` buat
   representasi "hari ini"/tanggal kalender. Di WIB (UTC+7) jam 00:00–07:00, `toISOString()`
-  mundur satu hari (masih UTC kemarin) — pernah bikin transaksi default kecatat tanggal salah,
+  mundur satu hari (masih UTC kemarin) — bisa bikin transaksi default kecatat tanggal salah,
   `currentMonth()` salah bulan awal bulan (snapshot bisa nimpa bulan lalu), sheet Awal Bulan ga
-  ke-trigger. `toISOString()` sendiri tetep valid buat timestamp MOMEN (`createdAt`,
-  `lastBackupAt`, `exportedAt` di db.js/settings.js) — itu memang harus UTC/absolute, bukan
-  tanggal kalender, jangan diubah. Kalau nambah kode baru yang butuh format Date → string
-  tanggal, pakai `toDateStr(d)`, jangan bikin ulang pad/getFullYear manual (udah pernah
-  ke-duplikasi di 3 file sebelum di-konsolidasi: utils.js, home.js, recurring-sheet.js).
+  ke-trigger (dampak nyata & kronologi kejadiannya: lihat `DECISIONS.md`). `toISOString()`
+  sendiri tetep valid buat timestamp MOMEN (`createdAt`, `lastBackupAt`, `exportedAt` di
+  db.js/settings.js) — itu memang harus UTC/absolute, bukan tanggal kalender, jangan diubah.
+  Kalau nambah kode baru yang butuh format Date → string tanggal, pakai `toDateStr(d)`, jangan
+  bikin ulang pad/getFullYear manual.
 - GitHub Pages (Fastly, di belakang custom domain xiesandi.cyou) nge-serve `sw.js` dengan
   `Cache-Control: max-age=14400` (4 jam), ga bisa dioverride header-nya. Update SW jadi bisa
   ke-detect telat. Register pakai `{ updateViaCache: "none" }` biar `reg.update()` minimal
@@ -366,10 +356,10 @@ sebagai baris terpisah "🎯 Goals" di breakdown Total tab Wealth biar rows-nya 
   **JANGAN** pasang query string cache-buster (`?v=${Date.now()}`) di URL registrasi SW dan
   **JANGAN** panggil `self.skipWaiting()` otomatis di `install` — kombinasi itu + `clients.claim()`
   + auto-`location.reload()` on `controllerchange` pernah bikin app kejebak infinite-reload-loop
-  di HP (pernah kejadian, lihat commit fix-nya). Sekarang SW baru sengaja nunggu pasif
-  ("waiting") sampe user trigger sendiri lewat tombol **Hard Refresh** di Setting
-  (`hardRefresh()` di `utils.js`: unregister semua SW + `caches.delete()` semua + reload) —
-  jangan tambahin balik auto-activate/auto-reload tanpa mikir ulang soal loop risk ini.
+  di HP (mekanisme lengkap kenapa loop-nya kejadian: lihat `DECISIONS.md`). Sekarang SW baru
+  sengaja nunggu pasif ("waiting") sampe user trigger sendiri lewat tombol **Hard Refresh** di
+  Setting (`hardRefresh()` di `utils.js`: unregister semua SW + `caches.delete()` semua + reload)
+  — jangan tambahin balik auto-activate/auto-reload tanpa mikir ulang soal loop risk ini.
 - Transaksi dengan `toGoalId` (topup), `fromGoalId` (pencairan), atau `assetId` (beli/jual asset)
   HARUS selalu dibuka lewat sheet khususnya (`openTopupSheet()`/`openWithdrawSheet()` di
   goals.js, `openAssetBuySheet()`/`openAssetSellSheet()` di wealth.js) — jangan lewat
@@ -404,8 +394,26 @@ sebagai baris terpisah "🎯 Goals" di breakdown Total tab Wealth biar rows-nya 
   di CLAUDE.md (dev doc, ga ke-ship ke browser); nulis literal di source JS bakal ke-expose ke
   siapapun yang buka situs (static site, semua JS ke-download terlepas dari status login), beda
   kelas exposure-nya dari data lain di app yang selalu datang dari Firestore ber-auth. Section 11
-  masih murni diturunkan dari
-  state yang udah ke-load.
+  ("Konteks untuk Analisis") ngikutin batasan yang sama — isinya murni diturunkan dari state yang
+  udah ke-load (target milestone, ringkasan jumlah asset auto-refresh vs manual, disclaimer
+  "data cuma yang tercatat di FinTrack") plus 5 pertanyaan pemandu analisis yang statis (ga
+  bergantung data), BUKAN konteks personal owner.
+- **Snapshot cuma ke-capture kalau app dibuka SAAT ONLINE bulan itu — ini KONSEKUENSI DESAIN,
+  BUKAN bug.** `upsertSnapshot()` (db.js) jalan sekali per sesi, dipicu listener di app.js dengan
+  guard `state.ready && !snapshotDone && navigator.onLine && state.uid` — jadi butuh ONLINE juga,
+  ga cukup cuma "app kebuka" (PWA ini offline-first, tapi snapshot-nya sendiri butuh koneksi).
+  Yang ditulis SELALU `currentMonth()` (bulan wall-clock SAAT itu) — TIDAK ada backfill
+  retroaktif buat bulan yang kelewat. Konsekuensinya: kalau user ga pernah buka app secara online
+  sepanjang suatu bulan, snapshot bulan itu PERMANEN kosong (ga ada mekanisme apapun yang
+  "menyusul" ngisi belakangan) → `isSnapshotComplete()` gagal buat bulan itu → laporan .md
+  (`report-md.js`, lihat bullet "Export Laporan (.md)" di atas) jatuh ke fallback "Posisi per
+  {tanggal export}" (posisi TERKINI + disclaimer), BUKAN posisi asli akhir bulan yang kelewat
+  itu. Wajar terjadi di app statis tanpa scheduler/cron server-side — **JANGAN** coba "nutupin"
+  ini dengan mekanisme aneh (background sync Service Worker, dsb.), itu di luar scope PWA statis
+  ini. Mitigasi yang ADA: backfill manual "Snapshot Historis" di Setting kalau user sadar
+  kelewat — TAPI itu SENGAJA minimal (`{month, netWorth, manual:true}`, TANPA `breakdown`), jadi
+  `isSnapshotComplete()` tetap `false` buat bulan itu walau udah di-backfill — laporan .md bulan
+  itu TETAP fallback ke posisi terkini, bukan otomatis "lengkap" cuma gara-gara ada angka manual.
 - **Zona Bahaya / Reset Data** (Setting → "🗑️ Reset Data", `#/danger`, `js/views/danger.js`,
   `bulkDelete()`/`previewBulkDelete()` di db.js) — 3 mode: per bulan, per tahun, atau total
   (dengan 2 sub-opsi yang beda drastis: **C1 "Hapus Semua Histori"** cuma nge-wipe
@@ -447,6 +455,7 @@ sebagai baris terpisah "🎯 Goals" di breakdown Total tab Wealth biar rows-nya 
   (di-export dari `wealth.js` khusus buat ini). Transaksi ber-`assetId` yang `assetQty`/
   `assetPrice`/`assetDir`-nya kosong/invalid juga di-flag di level transaksi (bukan asset).
 - **Efek samping transaksi ber-`debtId`/`assetId` DIPUSATKAN sebagai hook di `remove()` generik**
+  (kenapa dipusatkan sebagai hook, bukan ditulis manual di tiap sheet: lihat `DECISIONS.md`)
   (db.js): `applyDebtEffect()` (efek debt, dipanggil juga dari `add()`/`patch()` lewat
   `handleDebtPatch()`) dan `applyAssetQtyEffect()` (reverse `assets.quantity` — HANYA di `remove()`,
   karena create asset selalu lewat `openAssetBuySheet()`/`openAssetSellSheet()` yang udah nulis
