@@ -232,7 +232,12 @@ function renderAssets(root) {
       let msg = r.updated > 0 ? `${r.updated} harga terupdate ✓` : "Ga ada harga yang terupdate";
       if (r.noKey.length) msg += ` · butuh API key: ${r.noKey.join(", ")} (Setting)`;
       if (r.failed.length) msg += ` · gagal: ${r.failed.join(", ")}`;
-      toast(msg, 3500);
+      // Error mentah (network/CORS/dll) ditampilin eksplisit — PWA mobile susah buka DevTools,
+      // jadi ini satu-satunya cara user liat kenapa provider gagal tanpa laptop.
+      if (r.errors?.idx) msg += ` · IDX: ${r.errors.idx}`;
+      if (r.errors?.us) msg += ` · US: ${r.errors.us}`;
+      if (r.errors?.crypto) msg += ` · Crypto: ${r.errors.crypto}`;
+      toast(msg, 6000);
     } catch (e) { console.error(e); toast("Refresh gagal"); }
     // re-render otomatis via store emit setelah patch
   };

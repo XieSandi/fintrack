@@ -115,10 +115,10 @@ export function refreshableAssets() {
   return state.assets.filter((a) => AUTO_TYPES.includes(a.type) && a.manualOnly !== true && (a.symbol || "").trim());
 }
 
-// return { updated, failed: [symbol...], noKey: [provider...] }
+// return { updated, failed: [symbol...], noKey: [provider...], errors: {idx?, us?, crypto?} }
 export async function refreshPrices() {
   const targets = refreshableAssets();
-  const out = { updated: 0, failed: [], noKey: [] };
+  const out = { updated: 0, failed: [], noKey: [], errors: {} };
   if (targets.length === 0) return out;
 
   const idx = targets.filter((a) => a.type === "stock_id");
@@ -132,6 +132,12 @@ export async function refreshPrices() {
   ]);
 
   if (rUs.error === "finnhub_no_key") out.noKey.push("Finnhub (saham US)");
+  // Error mentah (bukan cuma sentinel "no_key") di-surface ke caller — biar keliatan di toast
+  // TANPA butuh buka DevTools (susah diakses di PWA mobile). Ini yang sebelumnya ketelen diam-diam
+  // di console.warn doang, bikin susah diagnosis kenapa refresh gagal (lihat CLAUDE.md Known Quirks).
+  if (rIdx.error) out.errors.idx = rIdx.error;
+  if (rUs.error && rUs.error !== "finnhub_no_key") out.errors.us = rUs.error;
+  if (rCrypto.error) out.errors.crypto = rCrypto.error;
 
   const updates = [];
   for (const a of targets) {
