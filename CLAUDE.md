@@ -211,7 +211,10 @@ Blur mode (toggle 👁️ di card Total Balance) nge-blur semua `<span class="bl
 - `settings/main` — targetNetWorth (= **Main Milestone**, dipakai card Total Balance Home DAN
   banner Wealth — SATU sumber, jangan bikin duplikat field), usdIdrManual,
   apiKeys:{finnhub}, lastBackupAt (saham IDX ga butuh key lagi, lihat bullet `js/prices.js`
-  di Known Quirks). Field `targetDate` ("YYYY-MM", opsional) SEKARANG
+  di Known Quirks), `projectionRateA`/`projectionRateB` (desimal 0–1, default 0.05/0.07 — dua
+  rate tahunan pembanding buat tab 🚀 Proyeksi di Wealth, lihat bullet Known Quirks "Dashboard
+  Proyeksi"; bisa diubah dari Setting ATAU kontrol cepat di tab Proyeksi sendiri, dua-duanya
+  `patch` ke field yang SAMA). Field `targetDate` ("YYYY-MM", opsional) SEKARANG
   PUNYA UI (input `type="month"` di card Main Milestone & Kurs, Setting.js) dan dipakai buat
   pace ("on-track atau enggak") — TIDAK LAGI vestigial (beda dari `goals.targetDate` per-goal
   yang punya UI/peran terpisah di goals.js).
@@ -260,6 +263,41 @@ sebagai baris terpisah "🎯 Goals" di breakdown Total tab Wealth biar rows-nya 
 
 ## Known Quirks
 
+- **Dashboard Proyeksi** (tab "🚀 Proyeksi" di Wealth → Total, `js/views/wealth.js`
+  `renderProjectionChart()`) — line chart Aktual vs Nabung-doang vs 2 skenario return
+  terkonfigurasi (`settings.projectionRateA`/`projectionRateB`), menuju 🏆 Main Milestone.
+  Primitif kalkulasinya murni & di-test (`calc.js`): `savingsOnlySeries(state, fromMonth,
+  toMonth)` (kumulatif net worth kalau cuma nabung surplus bulanan, di-anchor ke snapshot
+  pertama) dan `projectSeries({startValue, startMonth, months, monthlyContribution,
+  annualRate})` (compound bulanan generik, `annualRate:0` otomatis jadi proyeksi linear —
+  dipakai ulang buat skenario "nabung doang ke depan", TANPA fungsi terpisah). Orkestrasi
+  (nentuin startValue/horizon/snapshot mana) sengaja di view layer, bukan calc.js — itu soal
+  "gimana nampilinnya", bukan kalkulasi finansial murni.
+  **Keputusan desain penting:** SEMUA garis proyeksi (nabung-doang-ke-depan, Return A, Return B)
+  mulai dari net worth AKTUAL LIVE bulan ini (`netWorthIDR()`), BUKAN dari titik akhir garis
+  "Nabung doang" historis — dua pertanyaan yang beda ("kalau MULAI SEKARANG stop dapet return"
+  vs "kalau dari AWAL ga pernah dapet return", yang kedua udah dijawab lewat gap Aktual-vs-Nabung
+  di zona historis). Akibatnya boleh ada "lompatan" visual kecil pas garis abu solid (historis)
+  ketemu garis abu dashed (proyeksi) di titik bulan ini — bukan bug, itu representasi selisih
+  antara dua konsep tadi. Horizon proyeksi = `settings.targetDate` kalau keisi (di-clamp minimal
+  1 bulan biar ga degenerate kalau targetDate udah lewat), fallback 60 bulan (5 tahun) kalau
+  kosong. `monthlyContribution` proyeksi pakai `recentAvgSurplus()` (fungsi yang sama dipakai
+  `milestoneProgress()` buat pace, sekarang di-export biar reusable) — kalau belum ada data
+  surplus sama sekali, fallback 0 (proyeksi jadi murni compound growth tanpa kontribusi baru,
+  bukan crash/ngarang angka). Chart pakai `null` buat titik di luar rentang tiap dataset (biar
+  Chart.js bikin gap, bukan garis nyambung ke titik ga relevan) — SEMUA dataset share SATU axis
+  bulan gabungan (historis + horizon proyeksi). Garis Target di-skip total kalau
+  `milestoneProgress().hidden` (ga ada target di-set) — beda dari chart Tren Net Worth existing
+  yang masih gambar garis Target di y=0 kalau hidden (quirk lama, ga ikut dibenerin di sini,
+  di luar scope). Y-axis chart ini SENGAJA dibikin ikut blur mode (`isBlurred()` dari utils.js,
+  ganti tick jadi "•••") — ini PERTAMA KALINYA ada chart di app yang blur, chart lain (Tren Net
+  Worth, Income vs Expense) BELUM ikut blur mode sama sekali (canvas Chart.js ga kena CSS
+  `.blur-num`/`filter:blur()` yang dipakai teks DOM) — kalau nambah chart baru ke depannya dan
+  mau ikut blur, pola tick callback di sini bisa dicontek, TAPI jangan asumsikan chart LAMA udah
+  otomatis ke-cover. Ga ada anotasi garis vertikal "bulan ini" (disebut opsional di spec) — bikin
+  itu butuh `chartjs-plugin-annotation` (dependency baru, belum ada di CDN list app ini), sengaja
+  di-skip biar ga nambah dependency buat fitur yang ditandai opsional; transisi solid→dashed
+  sendiri udah cukup jadi penanda visual.
 - `tests/calc.test.mjs` — smoke test manual buat `js/calc.js`, jalankan
   `node tests/calc.test.mjs` (bukan bagian runtime app, sengaja GA masuk `PRECACHE` sw.js).
   `js/calc.js` sendiri WAJIB masuk `PRECACHE` (dipakai runtime lewat wrapper `store.js`).
@@ -294,7 +332,13 @@ sebagai baris terpisah "🎯 Goals" di breakdown Total tab Wealth biar rows-nya 
   berhenti ke-update di kemudian hari, ini kandidat pertama yang dicek (mungkin butuh cari
   provider resmi lagi, ATAU provider resmi baru yang genuinely gratis buat stock — cek dulu
   pakai API key ASLI sebelum percaya klaim "free tier" di marketing page manapun, pelajaran
-  dari insiden FCS API di atas).
+  dari insiden FCS API di atas). `refreshPrices()` (dipanggil dari tombol "🔄 Harga" di Wealth)
+  return field `errors: {idx?, us?, crypto?}` — error mentah per-provider (bukan cuma sentinel
+  "no_key") di-surface ke toast langsung, BUKAN cuma `console.warn` — PWA di HP ga punya akses
+  gampang ke DevTools, jadi ini satu-satunya cara diagnosis kenapa refresh gagal (mis. ad-blocker
+  device nge-block domain `tradingview.com` sebagai "widget/tracking", network beda-beda per
+  device meskipun endpoint-nya kebukti jalan lewat server-to-server test). Kalau nambah provider
+  baru, pertahankan pola ini — jangan biarkan error provider ketelan diam-diam lagi.
 - Dua mekanisme seeding kategori di `db.js`, sengaja beda: `seedIfNeeded()` = sekali doang
   (guard `settings.seeded`), buat kategori awal saat akun baru pertama kali dipakai.
   `ensurePresetCategories()` = jalan tiap sesi (`put()` id deterministik + merge, idempotent),

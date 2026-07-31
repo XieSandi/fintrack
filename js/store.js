@@ -99,3 +99,10 @@ export const monthSummary = (month) => calc.monthSummary(state, month);
 export const spentByCategory = (month) => calc.spentByCategory(state, month);
 export const budgetsOfMonth = (month) => calc.budgetsOfMonth(state, month);
 export const rangeSummary = (fromDate, toDate) => calc.rangeSummary(state, fromDate, toDate);
+export const savingsOnlySeries = (fromMonth, toMonth) => calc.savingsOnlySeries(state, fromMonth, toMonth);
+export const recentAvgSurplus = (nowMonth, count) => calc.recentAvgSurplus(state, nowMonth, count);
+export const monthsBetween = (fromYM, toYM) => calc.monthsBetween(fromYM, toYM);
+// projectSeries ga butuh `state` (murni matematika) tapi tetap di-wrap di sini — SEMUA view lain
+// import derived data lewat store.js, bukan langsung ke calc.js (lihat import list di file-file
+// views/); dipertahankan biar wealth.js ga perlu import dari dua sumber beda buat satu fitur.
+export const projectSeries = (opts) => calc.projectSeries(opts);

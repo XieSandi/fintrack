@@ -1,18 +1,19 @@
 import {
   state, activeAccounts, accountBalances, netWorthIDR, totalCashIDR,
   totalAssetsIDR, totalDebtIDR, totalGoalSavingsIDR, assetValueIDR, assetCostIDR,
-  effectiveRate, monthSummary, milestoneProgress,
+  effectiveRate, monthSummary, milestoneProgress, savingsOnlySeries, recentAvgSurplus,
+  monthsBetween, projectSeries,
 } from "../store.js";
-import { add, patch, remove } from "../db.js";
+import { add, patch, remove, updateSettings } from "../db.js";
 import {
-  fmtIDR, fmtMoney, fmtNum, escapeHtml, toast, openSheet, closeSheet, sheetHead,
+  fmtIDR, fmtMoney, fmtNum, fmtIDRPlain, escapeHtml, toast, openSheet, closeSheet, sheetHead,
   parseAmount, attachThousands, lastNMonths, monthLabel, todayStr, confirmDialog, monthOf,
-  fmtShort, milestonePaceLine,
+  fmtShort, milestonePaceLine, currentMonth, addMonths, isBlurred,
 } from "../utils.js";
 import { refreshPrices, refreshableAssets } from "../prices.js";
 
 let groupTab = "total";   // total | assets | liquid | debt
-let chartTab = "nw";      // nw | cashflow
+let chartTab = "nw";      // nw | cashflow | projection
 let assetFilter = "";     // "" = semua tipe
 let charts = [];
 
@@ -106,8 +107,10 @@ function renderTotal(root) {
       <div class="chart-tabs">
         <button data-chart="nw" class="${chartTab === "nw" ? "active" : ""}">📈 Tren Net Worth</button>
         <button data-chart="cashflow" class="${chartTab === "cashflow" ? "active" : ""}">💸 Income vs Expense</button>
+        <button data-chart="projection" class="${chartTab === "projection" ? "active" : ""}">🚀 Proyeksi</button>
       </div>
       <div id="chart-wrap"><canvas id="chart-main" height="170"></canvas></div>
+      <div id="chart-extra"></div>
     </div>
   `;
 
@@ -115,7 +118,7 @@ function renderTotal(root) {
     b.onclick = () => { chartTab = b.dataset.chart; render(root.parentElement); };
   });
 
-  renderChart(root, milestone.target);
+  renderChart(root, milestone);
 }
 
 const totalRow = (label, val, color) => `
@@ -124,7 +127,9 @@ const totalRow = (label, val, color) => `
     <span style="font-weight:700; color:${color}">${val < 0 ? "−" : ""}${fmtIDR(Math.abs(val))}</span>
   </div>`;
 
-function renderChart(root, target) {
+function renderChart(root, milestone) {
+  const target = milestone.target;
+  root.querySelector("#chart-extra").innerHTML = ""; // cuma dipake chartTab === "projection"
   if (!window.Chart) {
     root.querySelector("#chart-wrap").innerHTML = `<div class="empty">Chart library belum ke-load (butuh online sekali).</div>`;
     return;
@@ -134,7 +139,9 @@ function renderChart(root, target) {
   Chart.defaults.font.size = 10;
   const canvas = root.querySelector("#chart-main");
 
-  if (chartTab === "nw") {
+  if (chartTab === "projection") {
+    renderProjectionChart(root, canvas, gridColor, milestone);
+  } else if (chartTab === "nw") {
     const snaps = state.snapshots.slice(-12);
     if (snaps.length === 0) {
       root.querySelector("#chart-wrap").innerHTML = `<div class="empty">Snapshot bulanan akan terisi otomatis tiap app dibuka.</div>`;
@@ -180,6 +187,106 @@ function renderChart(root, target) {
       },
     }));
   }
+}
+
+// ================= PROYEKSI (TASK-1) =================
+// Nabung vs Aktual vs Return terkonfigurasi. Zona historis (solid) pakai data snapshot asli;
+// zona proyeksi (dashed) SEMUANYA mulai dari titik net worth AKTUAL bulan ini (bukan dari titik
+// akhir garis "Nabung doang" historis) — "kalau MULAI SEKARANG gue stop dapet return", bukan
+// "gimana kalau dari awal gue ga pernah dapet return" (dua pertanyaan beda; garis historis udah
+// jawab yang kedua lewat gap Aktual-vs-Nabung). Makanya boleh ada sedikit "lompatan" visual
+// pas garis abu solid (historis) ketemu garis abu dashed (proyeksi) di titik bulan ini — itu
+// bukan bug, itu selisih antara "kumulatif nabung dari awal" vs "posisi riil sekarang".
+function renderProjectionChart(root, canvas, gridColor, milestone) {
+  const wrap = root.querySelector("#chart-wrap");
+  if (state.snapshots.length < 2) {
+    wrap.innerHTML = `<div class="empty">Proyeksi muncul setelah ada minimal 2 bulan data.<br/>Sementara, isi <a href="#/settings" style="color:var(--blue)">Snapshot Historis</a> di Setting kalau punya data lama.</div>`;
+    return;
+  }
+
+  const nowMonth = currentMonth();
+  const rateA = Number(state.settings.projectionRateA ?? 0.05);
+  const rateB = Number(state.settings.projectionRateB ?? 0.07);
+  const targetDate = state.settings.targetDate;
+  const horizonMonths = targetDate ? Math.max(1, monthsBetween(nowMonth, targetDate)) : 60;
+
+  const firstSnapMonth = state.snapshots[0].month || state.snapshots[0].id;
+  const actualHist = state.snapshots.map((s) => ({ month: s.month || s.id, value: Number(s.netWorth) || 0 }));
+  const savingsHist = savingsOnlySeries(firstSnapMonth, nowMonth);
+
+  const nw = netWorthIDR();
+  const avgSurplus = recentAvgSurplus(nowMonth, 3) ?? 0;
+  const projSavings = projectSeries({ startValue: nw, startMonth: nowMonth, months: horizonMonths, monthlyContribution: avgSurplus, annualRate: 0 });
+  const projA = projectSeries({ startValue: nw, startMonth: nowMonth, months: horizonMonths, monthlyContribution: avgSurplus, annualRate: rateA });
+  const projB = projectSeries({ startValue: nw, startMonth: nowMonth, months: horizonMonths, monthlyContribution: avgSurplus, annualRate: rateB });
+
+  // Satu axis bulan gabungan (historis + proyeksi) — tiap dataset diisi `null` di luar rentangnya
+  // sendiri, Chart.js otomatis bikin gap (bukan garis nyambung ke titik yang ga relevan).
+  const lastMonth = addMonths(nowMonth, horizonMonths);
+  const allMonths = [];
+  for (let m = firstSnapMonth; m <= lastMonth; m = addMonths(m, 1)) allMonths.push(m);
+  const mapOf = (series) => Object.fromEntries(series.map((p) => [p.month, p.value]));
+  const dataFor = (map) => allMonths.map((m) => (m in map ? map[m] : null));
+
+  const actualMap = mapOf(actualHist);
+  const savingsMap = mapOf(savingsHist);
+  const projSavingsMap = mapOf(projSavings);
+  const projAMap = mapOf(projA);
+  const projBMap = mapOf(projB);
+
+  charts.push(new Chart(canvas, {
+    type: "line",
+    data: {
+      labels: allMonths.map(monthLabel),
+      datasets: [
+        { label: "Aktual", data: dataFor(actualMap), borderColor: "#60a5fa",
+          backgroundColor: "rgba(96,165,250,.12)", fill: true, tension: .3, pointRadius: 2, spanGaps: false },
+        { label: "Nabung doang", data: dataFor(savingsMap), borderColor: "#64748b",
+          pointRadius: 0, fill: false, spanGaps: false },
+        { label: "Proyeksi (nabung)", data: dataFor(projSavingsMap), borderColor: "#64748b",
+          borderDash: [5, 4], pointRadius: 0, fill: false, spanGaps: false },
+        { label: `Proyeksi ${(rateA * 100).toFixed(0)}%/th`, data: dataFor(projAMap), borderColor: "#86efac",
+          borderDash: [5, 4], pointRadius: 0, fill: false, spanGaps: false },
+        { label: `Proyeksi ${(rateB * 100).toFixed(0)}%/th`, data: dataFor(projBMap), borderColor: "#16a34a",
+          borderDash: [5, 4], pointRadius: 0, fill: false, spanGaps: false },
+        ...(milestone.hidden ? [] : [{ label: "Target", data: allMonths.map(() => milestone.target),
+          borderColor: "#facc15", borderDash: [2, 4], pointRadius: 0, fill: false }]),
+      ],
+    },
+    options: {
+      plugins: { legend: { labels: { boxWidth: 10, font: { size: 9 } } } },
+      scales: {
+        y: { grid: { color: gridColor }, ticks: { callback: (v) => isBlurred() ? "•••" : fmtShort(v) } },
+        x: { grid: { display: false }, ticks: { maxTicksLimit: 8 } },
+      },
+    },
+  }));
+
+  // Ringkasan teks: bulan pertama tiap skenario proyeksi nyentuh target (null = di luar horizon).
+  const extra = root.querySelector("#chart-extra");
+  const summaryLine = milestone.hidden
+    ? `Set 🏆 Main Milestone di Setting buat liat estimasi kapan tiap skenario capai target.`
+    : (() => {
+        const hitMonth = (series) => series.find((p) => p.value >= milestone.target)?.month || null;
+        const fmtHit = (m) => m ? monthLabel(m) : "di luar horizon";
+        return `Dengan surplus rata-rata ${fmtIDRPlain(avgSurplus)}/bln: nabung doang capai target ${fmtHit(hitMonth(projSavings))}; dengan ${(rateA * 100).toFixed(0)}% → ${fmtHit(hitMonth(projA))}; dengan ${(rateB * 100).toFixed(0)}% → ${fmtHit(hitMonth(projB))}.`;
+      })();
+  extra.innerHTML = `
+    <div class="sub" style="margin-top:10px">${summaryLine}</div>
+    <div class="row" style="margin-top:10px; gap:8px">
+      <div><label style="font-size:11px">Rate A (%/th)</label><input id="proj-rate-a" type="number" inputmode="decimal" step="0.5" min="0" max="100" value="${(rateA * 100).toFixed(1)}" /></div>
+      <div><label style="font-size:11px">Rate B (%/th)</label><input id="proj-rate-b" type="number" inputmode="decimal" step="0.5" min="0" max="100" value="${(rateB * 100).toFixed(1)}" /></div>
+    </div>`;
+  extra.querySelector("#proj-rate-a").onchange = async (e) => {
+    const v = parseFloat(e.target.value);
+    if (isNaN(v) || v < 0) return toast("Rate ga valid");
+    await updateSettings({ projectionRateA: v / 100 });
+  };
+  extra.querySelector("#proj-rate-b").onchange = async (e) => {
+    const v = parseFloat(e.target.value);
+    if (isNaN(v) || v < 0) return toast("Rate ga valid");
+    await updateSettings({ projectionRateB: v / 100 });
+  };
 }
 
 // ================= ASSETS =================
