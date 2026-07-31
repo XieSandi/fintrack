@@ -97,8 +97,56 @@ export const totalGoalSavingsIDR = (state) => state.goals.reduce((s, g) => s + g
 export const netWorthIDR = (state) =>
   totalCashIDR(state) + totalAssetsIDR(state) + totalGoalSavingsIDR(state) - totalDebtIDR(state);
 
+// ============== Dashboard Proyeksi (TASK-1): Nabung vs Aktual vs Return ==============
+// Dua fungsi murni di bawah ini adalah primitif yang dipakai js/views/wealth.js buat nyusun
+// chart proyeksi — orkestrasi (nentuin startValue/horizon/dari snapshot mana) sengaja TETAP di
+// view layer (bukan di sini), karena itu soal "gimana nampilinnya", bukan kalkulasi finansial
+// murni; pola yang sama kayak chart cashflow existing yang juga assemble data-nya di wealth.js.
+
+// Garis "Nabung doang" HISTORIS: kumulatif net worth kalau cuma nabung surplus bulanan tanpa
+// return — di-anchor ke snapshot PERTAMA dalam range (biar sebanding visual sama garis Aktual
+// yang mulai dari titik yang sama), lalu tiap bulan berikutnya ditambah `monthSummary().surplus`
+// (BUKAN di-derive dari snapshot bulan itu — snapshot cuma dipakai buat cari titik AWAL).
+// Return [] kalau ga ada snapshot dalam range (caller tampilin empty state, bukan chart kosong).
+export function savingsOnlySeries(state, fromMonth, toMonth) {
+  const idOf = (s) => s.month || s.id;
+  const snaps = state.snapshots
+    .filter((s) => idOf(s) >= fromMonth && idOf(s) <= toMonth)
+    .sort((a, b) => idOf(a).localeCompare(idOf(b)));
+  if (snaps.length === 0) return [];
+
+  let month = idOf(snaps[0]);
+  let value = Number(snaps[0].netWorth) || 0;
+  const out = [{ month, value }];
+  while (month < toMonth) {
+    month = addMonths(month, 1);
+    value += monthSummary(state, month).surplus;
+    out.push({ month, value });
+  }
+  return out;
+}
+
+// Proyeksi maju generik: compound bulanan (`annualRate` dikonversi ke rate bulanan biar compound
+// 12x balik persis ke `annualRate` per tahun) + kontribusi tetap tiap bulan. `annualRate: 0` →
+// otomatis linear (dipakai buat skenario "nabung doang" proyeksi ke depan, TANPA fungsi terpisah).
+// TIDAK butuh `state` — murni matematika dari input eksplisit — tapi tetap di-wrap tipis di
+// store.js (lihat di sana) biar view tetap satu sumber import buat semua derived data.
+export function projectSeries({ startValue, startMonth, months, monthlyContribution, annualRate }) {
+  const monthlyRate = Math.pow(1 + annualRate, 1 / 12) - 1;
+  let month = startMonth;
+  let value = startValue;
+  const out = [{ month, value }];
+  for (let i = 0; i < months; i++) {
+    month = addMonths(month, 1);
+    value = value * (1 + monthlyRate) + monthlyContribution;
+    out.push({ month, value });
+  }
+  return out;
+}
+
 // Selisih bulan dari fromYM ke toYM ("YYYY-MM"), bisa negatif kalau toYM di masa lalu.
-function monthsBetween(fromYM, toYM) {
+// Exported (TASK-1) — dipakai juga di luar milestoneProgress buat nentuin horizon proyeksi.
+export function monthsBetween(fromYM, toYM) {
   const [fy, fm] = fromYM.split("-").map(Number);
   const [ty, tm] = toYM.split("-").map(Number);
   return (ty - fy) * 12 + (tm - fm);
@@ -107,7 +155,9 @@ function monthsBetween(fromYM, toYM) {
 // Rata-rata surplus N bulan TERAKHIR YANG ADA DATANYA (bukan N bulan kalender terakhir mentah)
 // — bulan kosong (belum pakai app / belum ada transaksi) di-skip, ga ikut narik rata-rata ke 0.
 // Mundur dari nowMonth (EXCLUSIVE — bulan berjalan masih parsial, ga representatif buat pace).
-function recentAvgSurplus(state, nowMonth, count = 3, lookback = 24) {
+// Exported (TASK-1) — dipakai juga sebagai `monthlyContribution` default di dashboard proyeksi
+// (js/views/wealth.js), bukan cuma internal milestoneProgress.
+export function recentAvgSurplus(state, nowMonth, count = 3, lookback = 24) {
   const surpluses = [];
   let m = nowMonth;
   for (let i = 0; i < lookback && surpluses.length < count; i++) {

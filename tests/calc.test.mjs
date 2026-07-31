@@ -15,6 +15,18 @@ function assertEqual(actual, expected, msg) {
   }
 }
 
+// Buat kasus compound interest (projectSeries) — hasil floating point ga selalu match exact,
+// beda dari assertEqual yang dipakai fungsi lain di file ini (butuh toleransi kecil, lihat
+// TASK-1 di CLAUDE.md).
+function assertClose(actual, expected, tolerance, msg) {
+  if (Math.abs(actual - expected) > tolerance) {
+    failed++;
+    console.error(`✗ FAIL: ${msg}\n    expected: ~${expected}\n    got:      ${actual}`);
+  } else {
+    passed++;
+  }
+}
+
 // Fixture dasar: 2 akun IDR + 1 akun USD, kurs manual 15000 biar hasil predictable
 // (ga bergantung network/fallback 16000).
 function makeState() {
@@ -315,6 +327,56 @@ function makeState() {
   const sum = calc.rangeSummary(s, "2026-04-01", "2026-04-15");
   assertEqual(sum.income, 10_000, "rangeSummary: cuma hitung transaksi dalam rentang tanggal");
   assertEqual(sum.expense, 4_000, "rangeSummary: expense dalam rentang");
+}
+
+// ================= TASK-1: savingsOnlySeries =================
+{
+  const s = makeState();
+  s.snapshots = [
+    { id: "2026-01", month: "2026-01", netWorth: 5_000_000 },
+    { id: "2026-02", month: "2026-02", netWorth: 5_800_000 }, // Aktual (dgn return) - diabaikan, cuma dipakai buat cari anchor bulan pertama
+  ];
+  s.transactions = [
+    { type: "income", amount: 2_000_000, accountId: "acc_idr", month: "2026-02", date: "2026-02-05" },
+    { type: "expense", amount: 1_200_000, accountId: "acc_idr", month: "2026-02", date: "2026-02-10" }, // surplus 800.000
+    { type: "income", amount: 1_500_000, accountId: "acc_idr", month: "2026-03", date: "2026-03-05" },
+    { type: "expense", amount: 1_000_000, accountId: "acc_idr", month: "2026-03", date: "2026-03-10" }, // surplus 500.000
+  ];
+  const series = calc.savingsOnlySeries(s, "2026-01", "2026-03");
+  assertEqual(series.length, 3, "savingsOnlySeries: satu titik per bulan, dari snapshot pertama sampai toMonth");
+  assertEqual(series[0].month, "2026-01", "savingsOnlySeries: titik pertama = bulan snapshot pertama dalam range");
+  assertEqual(series[0].value, 5_000_000, "savingsOnlySeries: titik pertama = netWorth snapshot itu (anchor), BUKAN dari 0");
+  assertEqual(series[1].value, 5_000_000 + 800_000, "savingsOnlySeries: titik kedua = sebelumnya + surplus bulan itu (bukan dari snapshot 5.800.000)");
+  assertEqual(series[2].value, 5_000_000 + 800_000 + 500_000, "savingsOnlySeries: titik ketiga = kumulatif surplus, ga kepengaruh return asli");
+}
+{
+  const s = makeState();
+  assertEqual(calc.savingsOnlySeries(s, "2026-01", "2026-03").length, 0, "savingsOnlySeries: ga ada snapshot dalam range -> array kosong (bukan crash)");
+}
+
+// ================= TASK-1: projectSeries =================
+{
+  // rate 0 -> linear, hasil = startValue + months x contribution (exact, ga ada floating drift)
+  const series = calc.projectSeries({ startValue: 1_000_000, startMonth: "2026-01", months: 6, monthlyContribution: 100_000, annualRate: 0 });
+  assertEqual(series.length, 7, "projectSeries: length = months+1 (titik awal + tiap bulan)");
+  assertEqual(series[0].month, "2026-01", "projectSeries: titik pertama = startMonth");
+  assertEqual(series[0].value, 1_000_000, "projectSeries: titik pertama = startValue");
+  assertEqual(series[6].month, "2026-07", "projectSeries: titik terakhir = startMonth + months");
+  assertEqual(series[6].value, 1_000_000 + 6 * 100_000, "projectSeries: rate 0 -> linear (garis nabung doang proyeksi, TANPA fungsi terpisah)");
+}
+{
+  // rate 12%/tahun TANPA kontribusi, 12 bulan -> compound bulanan balik PERSIS ke rate tahunan
+  const series = calc.projectSeries({ startValue: 1_000_000, startMonth: "2026-01", months: 12, monthlyContribution: 0, annualRate: 0.12 });
+  assertClose(series[12].value, 1_000_000 * 1.12, 0.01, "projectSeries: rate 12% 1 tahun tanpa kontribusi -> value bulan ke-12 ~= startValue*1.12");
+}
+{
+  // kontribusi + rate -> cocokkan hitung manual satu titik (bulan ke-2)
+  const annualRate = 0.06;
+  const monthlyRate = Math.pow(1 + annualRate, 1 / 12) - 1;
+  const v1 = 1_000_000 * (1 + monthlyRate) + 50_000;
+  const v2 = v1 * (1 + monthlyRate) + 50_000;
+  const series = calc.projectSeries({ startValue: 1_000_000, startMonth: "2026-01", months: 2, monthlyContribution: 50_000, annualRate });
+  assertClose(series[2].value, v2, 0.0001, "projectSeries: kontribusi + rate -> nilai bulan ke-2 cocok hitung manual titik itu");
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

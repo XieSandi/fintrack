@@ -73,6 +73,11 @@ export function render(root) {
       <label>Kurs USD/IDR manual (kosongkan = auto)</label>
       <input id="s-kurs" inputmode="numeric" placeholder="auto: ${fmtNum(state.usdIdr?.rate || 0)} ${state.usdIdr ? `(per ${state.usdIdr.date})` : ""}" value="${state.settings.usdIdrManual ? fmtNum(state.settings.usdIdrManual) : ""}" />
       <div class="sub">Kurs efektif sekarang: ${fmtNum(effectiveRate())}</div>
+      <div class="sub" style="margin-top:12px">Dua rate pembanding buat 🚀 Proyeksi (Wealth) — skenario "kalau duit lo tumbuh X%/tahun". Boleh 0.</div>
+      <div class="row">
+        <div><label>Rate A (%/th)</label><input id="s-proj-rate-a" type="number" inputmode="decimal" step="0.5" min="0" max="100" value="${((Number(state.settings.projectionRateA ?? 0.05)) * 100).toFixed(1)}" /></div>
+        <div><label>Rate B (%/th)</label><input id="s-proj-rate-b" type="number" inputmode="decimal" step="0.5" min="0" max="100" value="${((Number(state.settings.projectionRateB ?? 0.07)) * 100).toFixed(1)}" /></div>
+      </div>
       <button id="btn-save-settings" class="btn btn-primary btn-sm" style="margin-top:12px">Simpan</button>
     </div>
 
@@ -151,7 +156,13 @@ export function render(root) {
     const target = parseAmount(root.querySelector("#s-target").value);
     const targetDate = root.querySelector("#s-target-date").value || null;
     const kursManual = parseAmount(root.querySelector("#s-kurs").value);
-    await updateSettings({ targetNetWorth: target || 100000000, targetDate, usdIdrManual: kursManual || null });
+    const rateA = parseFloat(root.querySelector("#s-proj-rate-a").value);
+    const rateB = parseFloat(root.querySelector("#s-proj-rate-b").value);
+    await updateSettings({
+      targetNetWorth: target || 100000000, targetDate, usdIdrManual: kursManual || null,
+      projectionRateA: (isNaN(rateA) || rateA < 0 ? 5 : rateA) / 100,
+      projectionRateB: (isNaN(rateB) || rateB < 0 ? 7 : rateB) / 100,
+    });
     toast("Settings disimpan ✓");
   };
 
