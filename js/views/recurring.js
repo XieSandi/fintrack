@@ -24,6 +24,7 @@ export function render(root) {
   items.forEach((r) => {
     const acct = state.accounts.find((a) => a.id === r.accountId);
     const goal = r.toGoalId ? state.goals.find((g) => g.id === r.toGoalId) : null;
+    const asset = r.assetId ? state.assets.find((a) => a.id === r.assetId) : null;
     const div = document.createElement("div");
     div.className = "list-item";
     const typeLabel = r.type === "expense" ? "Expense" : r.type === "income" ? "Income" : "Transfer";
@@ -33,7 +34,7 @@ export function render(root) {
     div.innerHTML = `
       <div style="flex:1">
         <div style="font-size:13px;font-weight:600">${escapeHtml(r.name)} ${r.active === false ? '<span class="badge badge-yellow">nonaktif</span>' : ""} ${reason ? '<span class="badge badge-red">⚠️ akun/kategori invalid</span>' : ""}</div>
-        <div class="set-sub">${dayLabel} · ${typeLabel} · ${fmtMoney(r.amount, acct?.currency)} · ${escapeHtml(acct?.name || "?")}${goal ? ` → 🎯 ${escapeHtml(goal.name)}` : ""}</div>
+        <div class="set-sub">${dayLabel} · ${typeLabel} · ${fmtMoney(r.amount, acct?.currency)} · ${escapeHtml(acct?.name || "?")}${goal ? ` → 🎯 ${escapeHtml(goal.name)}` : ""}${asset ? ` → 📈 ${escapeHtml(asset.symbol || asset.name)} (DCA)` : ""}</div>
         ${reason ? `<div class="stale-note" style="color:var(--yellow)">⚠️ ${reason}</div>` : ""}
       </div>
       <span style="color:var(--muted)">›</span>`;
@@ -53,12 +54,13 @@ function openRecurringSheet(existing) {
   }
   const r = existing || {
     name: "", type: "expense", amount: "", accountId: accounts[0].id,
-    toAccountId: accounts[1]?.id || accounts[0].id, toGoalId: "", categoryId: "", debtId: "",
+    toAccountId: accounts[1]?.id || accounts[0].id, toGoalId: "", assetId: "", categoryId: "", debtId: "",
     dayOfMonth: 1, active: true,
   };
   let type = r.type;
   let categoryId = r.categoryId;
-  let destKind = r.toGoalId ? "goal" : "account"; // cuma relevan pas type === "transfer"
+  // cuma relevan pas type === "transfer"
+  let destKind = r.toGoalId ? "goal" : r.assetId ? "asset" : "account";
 
   const el = openSheet(`
     ${sheetHead(existing ? "Edit Recurring" : "Tambah Recurring")}
@@ -86,10 +88,11 @@ function openRecurringSheet(existing) {
         ${accounts.map((a) => `<option value="${a.id}" ${a.id === r.accountId ? "selected" : ""}>${escapeHtml(a.name)} (${a.currency})</option>`).join("")}
       </select>
       <div id="to-acct-wrap" class="hidden">
-        ${state.goals.length > 0 ? `
+        ${(state.goals.length > 0 || state.assets.length > 0) ? `
         <div class="type-toggle" id="rc-dest-toggle" style="margin-top:8px">
           <button type="button" data-dest="account" class="${destKind === "account" ? "active t-transfer" : ""}">Akun</button>
-          <button type="button" data-dest="goal" class="${destKind === "goal" ? "active t-transfer" : ""}">🎯 Goal</button>
+          ${state.goals.length > 0 ? `<button type="button" data-dest="goal" class="${destKind === "goal" ? "active t-transfer" : ""}">🎯 Goal</button>` : ""}
+          ${state.assets.length > 0 ? `<button type="button" data-dest="asset" class="${destKind === "asset" ? "active t-transfer" : ""}">📈 Asset</button>` : ""}
         </div>` : ""}
         <div id="rc-to-account-wrap">
           <label>Ke Akun</label>
@@ -103,6 +106,14 @@ function openRecurringSheet(existing) {
           <select id="rc-to-goal">
             ${state.goals.map((g) => `<option value="${g.id}" ${g.id === (r.toGoalId || "") ? "selected" : ""}>🎯 ${escapeHtml(g.name)}</option>`).join("")}
           </select>
+        </div>` : ""}
+        ${state.assets.length > 0 ? `
+        <div id="rc-to-asset-wrap" class="hidden">
+          <label>Ke Asset (DCA)</label>
+          <select id="rc-to-asset">
+            ${state.assets.map((a) => `<option value="${a.id}" ${a.id === (r.assetId || "") ? "selected" : ""}>📈 ${escapeHtml(a.symbol || a.name)}</option>`).join("")}
+          </select>
+          <div class="sub" style="margin-top:4px">Nominal jadi target budget DCA — harga beli beda tiap bulan, diisi manual pas konfirmasi bulanan (ga auto-post).</div>
         </div>` : ""}
       </div>
     </div>
@@ -137,8 +148,9 @@ function openRecurringSheet(existing) {
       b.classList.toggle("active", b.dataset.dest === destKind);
       b.classList.toggle("t-transfer", b.dataset.dest === destKind);
     });
-    el.querySelector("#rc-to-account-wrap")?.classList.toggle("hidden", destKind === "goal");
-    el.querySelector("#rc-to-goal-wrap")?.classList.toggle("hidden", destKind === "account");
+    el.querySelector("#rc-to-account-wrap")?.classList.toggle("hidden", destKind !== "account");
+    el.querySelector("#rc-to-goal-wrap")?.classList.toggle("hidden", destKind !== "goal");
+    el.querySelector("#rc-to-asset-wrap")?.classList.toggle("hidden", destKind !== "asset");
   };
   const renderTypeButtons = () => {
     el.querySelectorAll("#rc-type-toggle button").forEach((b) => {
@@ -176,20 +188,24 @@ function openRecurringSheet(existing) {
     const accountId = el.querySelector("#rc-account").value;
     const toAccountId = el.querySelector("#rc-to-account").value;
     const toGoalId = el.querySelector("#rc-to-goal")?.value || "";
+    const assetId = el.querySelector("#rc-to-asset")?.value || "";
     const toGoal = type === "transfer" && destKind === "goal";
+    const toAsset = type === "transfer" && destKind === "asset";
     const dayOfMonth = Math.min(31, Math.max(1, Number(el.querySelector("#rc-day").value) || 1));
     const active = el.querySelector("#rc-active").checked;
 
     if (!name) return toast("Isi nama recurring");
     if (!amount || amount <= 0) return toast("Isi nominal");
     if (type !== "transfer" && !categoryId) return toast("Pilih kategori");
-    if (type === "transfer" && !toGoal && accountId === toAccountId) return toast("Akun asal & tujuan sama");
+    if (type === "transfer" && destKind === "account" && accountId === toAccountId) return toast("Akun asal & tujuan sama");
     if (toGoal && !toGoalId) return toast("Pilih goal tujuan");
+    if (toAsset && !assetId) return toast("Pilih asset tujuan");
 
     const data = {
       name, type, amount, accountId, dayOfMonth, active,
-      toAccountId: type === "transfer" && !toGoal ? toAccountId : null,
+      toAccountId: type === "transfer" && destKind === "account" ? toAccountId : null,
       toGoalId: toGoal ? toGoalId : null,
+      assetId: toAsset ? assetId : null,
       categoryId: type === "transfer" ? null : categoryId,
       debtId: type === "expense" ? (el.querySelector("#rc-debt")?.value || null) : null,
     };

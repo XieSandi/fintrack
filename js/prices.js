@@ -1,7 +1,10 @@
 // Integrasi harga otomatis — semua provider dipilih karena CORS-friendly
 // (bisa dipanggil langsung dari browser, cocok untuk static site):
 //
-//   stock_id  → iTick (api.itick.org)    — butuh API key (gratis: itick.org, personal use)
+//   stock_id  → FCS API (api-v4.fcsapi.com) — butuh API key (gratis: fcsapi.com/pricing,
+//               500 credit/bulan, 3 request/menit, cache ~60 menit — cukup buat auto-refresh
+//               1x/20 jam yang app ini pakai). Provider IDX sebelumnya (iTick) udah ga bisa
+//               dipakai gratis lagi per pertengahan 2026, makanya diganti.
 //   stock_us  → Finnhub (finnhub.io)     — butuh API key (gratis: finnhub.io, 60 call/min)
 //   crypto    → CoinGecko                — TANPA API key
 //
@@ -21,31 +24,30 @@ const keys = () => state.settings.apiKeys || {};
 
 // ---------- Adapters (masing-masing return Map<SYMBOL, price>) ----------
 
-// Free/personal tier iTick batasin /stock/quotes maks 3 simbol per call
-// ("your request is too much" kalau lebih) — jadi di-chunk per 3.
-const ITICK_CHUNK = 3;
-
+// FCS API: prefix "IDX:" di symbol biar match persis bursa Indonesia (bukan best-guess
+// lintas bursa kalau prefix di-skip, lihat dokumentasi fcsapi.com/document/stock-api).
+// Multi-symbol didukung satu call (comma-separated), TANPA batasan jumlah simbol per call
+// yang didokumentasikan (beda dari iTick dulu) — jadi ga perlu di-chunk.
 async function fetchIDX(symbols) {
-  const key = keys().itick;
-  if (!key) return { prices: new Map(), error: "itick_no_key" };
+  const key = keys().fcsapi;
+  if (!key) return { prices: new Map(), error: "fcsapi_no_key" };
   const prices = new Map();
   let error = null;
-  for (let i = 0; i < symbols.length; i += ITICK_CHUNK) {
-    const chunk = symbols.slice(i, i + ITICK_CHUNK);
-    try {
-      const url = `https://api.itick.org/stock/quotes?region=ID&codes=${encodeURIComponent(chunk.join(","))}`;
-      const res = await fetch(url, { headers: { token: key, "Accept": "application/json" } });
-      if (!res.ok) throw new Error(`iTick HTTP ${res.status}`);
-      const j = await res.json();
-      if (j?.code !== 0 || !j?.data) throw new Error(j?.msg || j?.message || "iTick: no data");
-      for (const [sym, r] of Object.entries(j.data)) {
-        const price = Number(r?.ld ?? r?.c ?? r?.close ?? r?.last ?? r?.price);
-        if (sym && price > 0) prices.set(String(sym).toUpperCase(), price);
-      }
-    } catch (e) {
-      console.warn("[prices:idx]", e);
-      error = String(e.message || e);
+  try {
+    const codes = symbols.map((s) => `IDX:${s}`).join(",");
+    const url = `https://api-v4.fcsapi.com/stock/latest?symbol=${encodeURIComponent(codes)}&access_key=${encodeURIComponent(key)}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`FCS API HTTP ${res.status}`);
+    const j = await res.json();
+    if (!j?.status || !Array.isArray(j?.response)) throw new Error(j?.msg || "FCS API: no data");
+    for (const r of j.response) {
+      const sym = String(r?.ticker || r?.symbol || "").split(":").pop().toUpperCase();
+      const price = Number(r?.active?.c ?? r?.c ?? r?.close ?? r?.last ?? r?.price);
+      if (sym && price > 0) prices.set(sym, price);
     }
+  } catch (e) {
+    console.warn("[prices:idx]", e);
+    error = String(e.message || e);
   }
   return { prices, error };
 }
@@ -118,7 +120,7 @@ export async function refreshPrices() {
     crypto.length ? fetchCrypto(crypto) : { prices: new Map() },
   ]);
 
-  if (rIdx.error === "itick_no_key") out.noKey.push("iTick (saham IDX)");
+  if (rIdx.error === "fcsapi_no_key") out.noKey.push("FCS API (saham IDX)");
   if (rUs.error === "finnhub_no_key") out.noKey.push("Finnhub (saham US)");
 
   const updates = [];
@@ -133,12 +135,12 @@ export async function refreshPrices() {
       updates.push(patch("assets", a.id, {
         manualPrice: price,
         manualPriceUpdatedAt: todayStr(),
-        priceSource: a.type === "stock_id" ? "itick" : a.type === "stock_us" ? "finnhub" : "coingecko",
+        priceSource: a.type === "stock_id" ? "fcsapi" : a.type === "stock_us" ? "finnhub" : "coingecko",
       }));
       out.updated++;
     } else {
       const providerMissingKey =
-        (a.type === "stock_id" && rIdx.error === "itick_no_key") ||
+        (a.type === "stock_id" && rIdx.error === "fcsapi_no_key") ||
         (a.type === "stock_us" && rUs.error === "finnhub_no_key");
       if (!providerMissingKey) out.failed.push(sym);
     }

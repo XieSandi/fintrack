@@ -330,7 +330,7 @@ export function openAssetSheet(existing, contentRoot) {
   `);
 
   const AUTO_HINTS = {
-    stock_id: "⚡ Auto price via iTick — isi API key di Setting → Integrasi Harga.",
+    stock_id: "⚡ Auto price via FCS API — isi API key di Setting → Integrasi Harga.",
     stock_us: "⚡ Auto price via Finnhub — isi API key di Setting → Integrasi Harga.",
     crypto: "⚡ Auto price via CoinGecko — gratis, ga butuh API key.",
   };
@@ -409,10 +409,16 @@ export function openAssetSheet(existing, contentRoot) {
 // rekonstruksi avg sebelumnya). Klik dari History cuma buka detail read-only + Hapus (hapus
 // me-reverse QUANTITY doang secara exact, avgBuyPrice ga ikut di-reverse — dikasih tau eksplisit
 // ke user, arahkan ke Edit Asset kalau perlu koreksi manual). Salah catat → hapus + catat ulang.
-export function openAssetBuySheet(asset, existingTx = null) { openAssetTradeSheet(asset, "buy", existingTx); }
-export function openAssetSellSheet(asset, existingTx = null) { openAssetTradeSheet(asset, "sell", existingTx); }
+// `opts` (dipakai recurring-sheet.js buat reminder DCA, lihat bullet `recurring` di CLAUDE.md):
+// {prefillAmount, prefillAccountId, prefillDate, onSaved}. Cuma relevan buat transaksi BARU
+// (existingTx null) — nominal DCA di-render sebagai field terpisah yang bantu ngitung qty dari
+// harga yang diisi manual (harga tetap ga di-prefill, beda tiap bulan), bukan meng-auto-post.
+// `onSaved` dipanggil SETELAH transaksi beneran tersimpan, biar caller (recurring-sheet.js) bisa
+// nge-set `lastPostedMonth` hanya kalau user benar-benar nyimpen, bukan pas tombol diklik.
+export function openAssetBuySheet(asset, existingTx = null, opts = {}) { openAssetTradeSheet(asset, "buy", existingTx, opts); }
+export function openAssetSellSheet(asset, existingTx = null, opts = {}) { openAssetTradeSheet(asset, "sell", existingTx, opts); }
 
-function openAssetTradeSheet(asset, dir, existingTx) {
+function openAssetTradeSheet(asset, dir, existingTx, opts = {}) {
   const isBuy = dir === "buy";
 
   if (existingTx) {
@@ -453,6 +459,11 @@ function openAssetTradeSheet(asset, dir, existingTx) {
 
   const el = openSheet(`
     ${sheetHead(isBuy ? `Catat Pembelian: ${escapeHtml(asset.symbol || asset.name)}` : `Catat Penjualan: ${escapeHtml(asset.symbol || asset.name)}`)}
+    ${opts.prefillAmount ? `
+    <div class="sub" style="margin-bottom:10px">📅 DCA rutin — harga beli beda tiap bulan, jadi diisi manual sesuai harga hari ini.</div>
+    <label>Nominal (Rp) — target budget DCA</label>
+    <input id="at-nominal" class="amount-input" inputmode="numeric" autocomplete="off" />
+    <div class="sub" style="margin-top:2px">Isi harga per unit, jumlah bakal keitung otomatis dari nominal ini (tetep bisa diedit manual).</div>` : ""}
     <label>${qtyLabel}</label>
     <input id="at-qty" inputmode="decimal" placeholder="0" autocomplete="off" />
     <label>Harga / unit (${asset.currency})</label>
@@ -460,10 +471,10 @@ function openAssetTradeSheet(asset, dir, existingTx) {
     <div id="at-hint" class="sub" style="margin-top:4px"></div>
     <label>${isBuy ? "Dari Akun" : "Ke Akun"}</label>
     <select id="at-account">
-      ${accounts.map((a) => `<option value="${a.id}">${escapeHtml(a.name)} (${a.currency})</option>`).join("")}
+      ${accounts.map((a) => `<option value="${a.id}" ${a.id === (opts.prefillAccountId || accounts[0].id) ? "selected" : ""}>${escapeHtml(a.name)} (${a.currency})</option>`).join("")}
     </select>
     <label>Tanggal</label>
-    <input id="at-date" type="date" value="${todayStr()}" />
+    <input id="at-date" type="date" value="${opts.prefillDate || todayStr()}" />
     <label>Catatan (opsional)</label>
     <input id="at-note" type="text" placeholder="${isBuy ? "cth: nambah posisi" : "cth: profit taking"}" />
     <button id="at-save" class="btn btn-primary btn-block" style="margin-top:18px">Simpan</button>
@@ -471,8 +482,9 @@ function openAssetTradeSheet(asset, dir, existingTx) {
 
   const qtyInput = el.querySelector("#at-qty");
   const priceInput = el.querySelector("#at-price");
+  const nominalInput = el.querySelector("#at-nominal");
   const hint = el.querySelector("#at-hint");
-  setTimeout(() => qtyInput.focus(), 250);
+  setTimeout(() => (nominalInput ? priceInput : qtyInput).focus(), 250);
   el.querySelector("[data-close]").onclick = closeSheet;
 
   const parseDec = (v) => parseFloat(String(v).replace(",", ".")) || 0;
@@ -494,6 +506,25 @@ function openAssetTradeSheet(asset, dir, existingTx) {
   qtyInput.addEventListener("input", updateHint);
   priceInput.addEventListener("input", updateHint);
   updateHint();
+
+  if (nominalInput) {
+    attachThousands(nominalInput);
+    nominalInput.value = fmtNum(opts.prefillAmount);
+    // Nominal DCA / harga = qty — dibulatkan ke lot penuh buat stock_id (ga bisa beli
+    // pecahan lot), dibiarin desimal buat tipe lain. Tetep bisa diedit manual abis ke-isi.
+    const recomputeQtyFromNominal = () => {
+      const nominal = parseAmount(nominalInput.value);
+      const price = parseDec(priceInput.value);
+      if (nominal > 0 && price > 0) {
+        const rawQty = nominal / (price * (asset.type === "stock_id" ? 100 : 1));
+        const qty = asset.type === "stock_id" ? Math.floor(rawQty) : Math.round(rawQty * 10000) / 10000;
+        qtyInput.value = qty > 0 ? String(qty) : "";
+        updateHint();
+      }
+    };
+    nominalInput.addEventListener("input", recomputeQtyFromNominal);
+    priceInput.addEventListener("input", recomputeQtyFromNominal);
+  }
 
   el.querySelector("#at-save").onclick = async () => {
     const qty = parseDec(qtyInput.value);
@@ -525,6 +556,7 @@ function openAssetTradeSheet(asset, dir, existingTx) {
       assetId: asset.id, assetDir: dir, assetQty: qty, assetPrice: price,
       note: note || `${isBuy ? "Beli" : "Jual"} ${asset.symbol || asset.name}`,
     });
+    opts.onSaved?.();
     toast(isBuy ? "Pembelian tercatat ✓" : "Penjualan tercatat ✓");
   };
 }

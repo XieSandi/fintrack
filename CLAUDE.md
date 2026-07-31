@@ -38,7 +38,7 @@ js/calc.js            fungsi kalkulasi MURNI (saldo, net worth, dll) — TIDAK i
                        terima `state` sebagai parameter, ditest lewat tests/calc.test.mjs
 js/db.js              repository: CRUD generik, seeding kategori, snapshot bulanan, export/import
                        backup, bulkDelete()/previewBulkDelete() (reset data, js/views/danger.js)
-js/prices.js          auto price: iTick (IDX), Finnhub (US), CoinGecko (crypto, tanpa key)
+js/prices.js          auto price: FCS API (IDX), Finnhub (US), CoinGecko (crypto, tanpa key)
 js/kurs.js            kurs USD/IDR auto via frankfurter.app, cache localStorage
 js/tx-sheet.js        bottom sheet tambah/edit transaksi (quick-add)
 js/recurring-sheet.js sheet "Awal Bulan": konfirmasi post recurring + opsi salin budget
@@ -155,30 +155,47 @@ Blur mode (toggle 👁️ di card Total Balance) nge-blur semua `<span class="bl
   di-topup lagi). Goal yang punya riwayat topup ATAU pencairan ga bisa dihapus langsung (harus
   beresin transaksinya dulu di History) — pola sama kayak proteksi hapus akun. Beda konsep dari
   Main Milestone (`settings.targetNetWorth`) — lihat catatan di atas.
-- `recurring` — {name, type, amount, accountId, toAccountId?, toGoalId?, categoryId?, debtId?,
-  dayOfMonth (1–31), active, lastPostedMonth? ("YYYY-MM")}. Template transfer bisa nabung rutin
-  ke **Short Term Goal** (`toGoalId`, menggantikan `toAccountId` — toggle "Akun"/"🎯 Goal" di
-  form, cuma muncul kalau ada ≥1 goal) — posting-nya (lihat bawah) menghasilkan transaksi topup
-  yang IDENTIK dengan `openTopupSheet()` (type transfer, accountId sumber, toGoalId, TANPA
-  toAccountId), jadi otomatis kejaring guard `txRow()` & kalkulasi goal (`goalSavedIDR()`,
-  `accountBalances()`) tanpa perubahan di situ. Dikelola di `#/recurring`. Tiap app dibuka, item aktif
-  yang `dayOfMonth` ≤ hari ini DAN `lastPostedMonth` ≠ bulan berjalan dianggap "jatuh tempo" →
-  muncul sheet **Awal Bulan** (`recurring-sheet.js`) buat konfirmasi (checklist, default semua
-  tercentang) + opsi salin budget bulan lalu kalau budget bulan ini kosong. **JANGAN AUTO-POST**
-  — transaksi baru dibuat pas user klik "Catat Semua". Tanggal transaksi yang di-post pakai
-  `dayOfMonth` template di bulan berjalan (bukan tanggal user konfirmasi) — representasi kejadian
-  riil, bukan kapan usernya buka app. Edit template TIDAK reset `lastPostedMonth` (biar ga dobel
-  post bulan yang sama). Sheet muncul maks 1x/hari kalau di-"Nanti"-in (flag tanggal di
-  localStorage, key `fintrack_recurring_dismissed_date`), dipanggil sekali per sesi dari app.js.
-  `dayOfMonth` di-clamp ke hari terakhir bulan berjalan (`daysInMonth()` di utils.js) — template
-  tgl 31 tetep kepost di bulan 30 hari, cek jatuh tempo maupun tanggal transaksinya pakai
-  effective day yang sama. Referensi akun/kategori/debt/goal yang udah diarsip/kehapus di-deteksi
-  via `brokenReason()` (recurring-sheet.js, dipakai bareng views/recurring.js) — item broken ga
-  bisa dicentang di sheet Awal Bulan (checkbox disabled) dan dapet badge merah di `#/recurring`,
-  TAPI ga ngeblok item lain yang sehat buat tetep di-post. `lastPostedMonth` juga di-reset
-  (null) otomatis oleh `bulkDelete()` (Zona Bahaya, lihat bawah) buat template yang
-  `lastPostedMonth`-nya masuk periode yang baru dihapus — biar sheet Awal Bulan nawarin lagi,
-  bukan nganggep udah pernah post buat bulan yang datanya udah lenyap.
+- `recurring` — {name, type, amount, accountId, toAccountId?, toGoalId?, assetId?, categoryId?,
+  debtId?, dayOfMonth (1–31), active, lastPostedMonth? ("YYYY-MM")}. Template transfer bisa
+  nabung rutin ke **Short Term Goal** (`toGoalId`, menggantikan `toAccountId` — toggle
+  "Akun"/"🎯 Goal"/"📈 Asset" di form, tiap opsi cuma muncul kalau ada ≥1 goal/asset) —
+  posting-nya (lihat bawah) menghasilkan transaksi topup yang IDENTIK dengan
+  `openTopupSheet()` (type transfer, accountId sumber, toGoalId, TANPA toAccountId), jadi
+  otomatis kejaring guard `txRow()` & kalkulasi goal (`goalSavedIDR()`, `accountBalances()`)
+  tanpa perubahan di situ. **DCA beli asset** (`assetId`, dest ketiga) SENGAJA BEDA POLA dari
+  goal/akun — assetnya TIDAK auto-post: harga beli beda tiap bulan dan `quantity` harus
+  diturunkan dari harga aktual, auto-post bakal mengarang qty. Item ber-`assetId` di sheet Awal
+  Bulan (lihat bawah) muncul sebagai baris TANPA checkbox, dengan tombol "Catat pembelian →"
+  yang buka `openAssetBuySheet(asset, null, {prefillAmount, prefillAccountId, prefillDate,
+  onSaved})` (wealth.js) — `amount` templatenya jadi field "Nominal (Rp)" ekstra di sheet itu
+  yang otomatis ngitung `qty` dari nominal ÷ harga yang diisi manual (floor ke lot penuh buat
+  `stock_id`, desimal buat tipe lain; tetap bisa dioverride manual). `lastPostedMonth` template
+  itu CUMA di-`patch()` lewat callback `onSaved` (dipanggil sheet SETELAH transaksi beneran
+  tersimpan) — bukan pas tombol diklik, biar user batal ga somehow ke-anggap udah post. Jalur
+  penulisan transaksinya TETAP `openAssetBuySheet()` yang sama dipakai fitur "Catat Pembelian"
+  manual (lihat bullet `assets` di atas) — sengaja TIDAK ada jalur tulis transaksi asset baru,
+  biar weighted average & guard `txRow()` ga terduplikasi. Dikelola di `#/recurring`. Tiap app
+  dibuka, item aktif yang `dayOfMonth` ≤ hari ini DAN `lastPostedMonth` ≠ bulan berjalan
+  dianggap "jatuh tempo" → muncul sheet **Awal Bulan** (`recurring-sheet.js`) buat konfirmasi
+  (checklist buat item non-asset, default semua tercentang; baris tombol terpisah buat item
+  DCA asset) + opsi salin budget bulan lalu kalau budget bulan ini kosong. Tombol "Catat Semua"
+  disembunyikan total kalau SEMUA item due adalah DCA asset (ga ada apa-apa buat di-checklist,
+  daripada nampilin tombol yang bakal bilang "ga ada transaksi yang dicatat"). **JANGAN
+  AUTO-POST** — transaksi non-asset baru dibuat pas user klik "Catat Semua". Tanggal transaksi
+  yang di-post (baik lewat "Catat Semua" maupun DCA asset) pakai `dayOfMonth` template di bulan
+  berjalan (bukan tanggal user konfirmasi) — representasi kejadian riil, bukan kapan usernya
+  buka app. Edit template TIDAK reset `lastPostedMonth` (biar ga dobel post bulan yang sama).
+  Sheet muncul maks 1x/hari kalau di-"Nanti"-in (flag tanggal di localStorage, key
+  `fintrack_recurring_dismissed_date`), dipanggil sekali per sesi dari app.js. `dayOfMonth`
+  di-clamp ke hari terakhir bulan berjalan (`daysInMonth()` di utils.js) — template tgl 31 tetep
+  kepost di bulan 30 hari, cek jatuh tempo maupun tanggal transaksinya pakai effective day yang
+  sama. Referensi akun/kategori/debt/goal/asset yang udah diarsip/kehapus di-deteksi via
+  `brokenReason()` (recurring-sheet.js, dipakai bareng views/recurring.js) — item broken ga bisa
+  dicentang/diklik di sheet Awal Bulan (checkbox disabled / tombol disembunyikan) dan dapet
+  badge merah di `#/recurring`, TAPI ga ngeblok item lain yang sehat buat tetep di-post.
+  `lastPostedMonth` juga di-reset (null) otomatis oleh `bulkDelete()` (Zona Bahaya, lihat bawah)
+  buat template yang `lastPostedMonth`-nya masuk periode yang baru dihapus — biar sheet Awal
+  Bulan nawarin lagi, bukan nganggep udah pernah post buat bulan yang datanya udah lenyap.
 - `snapshots/{YYYY-MM}` — net worth bulanan, di-upsert otomatis saat app dibuka (`upsertSnapshot`,
   db.js). Selain total (`totalCash`/`totalAssets`/`totalGoalSavings`/`totalDebt`/`netWorth`),
   nyimpen `breakdown` PER ITEM (angka mentah, bukan string terformat): `accounts` ({name,
@@ -193,7 +210,7 @@ Blur mode (toggle 👁️ di card Total Balance) nge-blur semua `<span class="bl
   berjalan (bulan berjalan wilayah `upsertSnapshot`).
 - `settings/main` — targetNetWorth (= **Main Milestone**, dipakai card Total Balance Home DAN
   banner Wealth — SATU sumber, jangan bikin duplikat field), usdIdrManual,
-  apiKeys:{itick, finnhub}, lastBackupAt. Field `targetDate` ("YYYY-MM", opsional) SEKARANG
+  apiKeys:{fcsapi, finnhub}, lastBackupAt. Field `targetDate` ("YYYY-MM", opsional) SEKARANG
   PUNYA UI (input `type="month"` di card Main Milestone & Kurs, Setting.js) dan dipakai buat
   pace ("on-track atau enggak") — TIDAK LAGI vestigial (beda dari `goals.targetDate` per-goal
   yang punya UI/peran terpisah di goals.js).
@@ -247,11 +264,18 @@ sebagai baris terpisah "🎯 Goals" di breakdown Total tab Wealth biar rows-nya 
   `js/calc.js` sendiri WAJIB masuk `PRECACHE` (dipakai runtime lewat wrapper `store.js`).
   Nambah fungsi kalkulasi baru → taruh di `calc.js` (bukan langsung di `store.js`) + tambah
   test case-nya, biar tetap bisa ditest tanpa Firebase/browser.
-- iTick (`js/prices.js`, `fetchIDX`) — terverifikasi live: `GET /stock/quotes?region=ID&codes=...`,
-  header `token`, response `{code, msg, data:{SYMBOL:{ld, ...}}}`, harga di field `ld`.
-  **Free/personal tier maks 3 simbol per call** (lebih dari itu → `{code:1, msg:"your request
-  is too much"}` walau HTTP 200) — kode udah nge-chunk per 3 (`ITICK_CHUNK`), jangan dihapus
-  kalau nambahin logic baru di sini.
+- FCS API (`js/prices.js`, `fetchIDX`) — pengganti iTick (provider lama, udah ga bisa dipakai
+  gratis lagi per pertengahan 2026). `GET https://api-v4.fcsapi.com/stock/latest?symbol=IDX:BBCA,IDX:BBRI&access_key=...`
+  (prefix `IDX:` WAJIB di tiap symbol, biar match persis bursa Indonesia — tanpa prefix,
+  server nyari best-match lintas SEMUA bursa dunia, bisa salah). Response
+  `{status, response:[{ticker:"IDX:BBCA", active:{c, ...}, ...}]}` — harga di field
+  `active.c`, `ticker` dipotong prefix bursa-nya buat dicocokin balik ke symbol asset kita.
+  Free tier: 500 credit/bulan, 3 request/menit, cache ~60 menit — jauh lebih dari cukup buat
+  auto-refresh 1x/20 jam yang app ini pakai. Endpoint + format request ini udah dikonfirmasi
+  hidup & CORS-friendly (`access-control-allow-origin: *`) lewat request langsung, TAPI field
+  `active.c` di response sukses BELUM diverifikasi pakai key asli (dokumentasi publik doang,
+  demo key selalu ditolak) — kalau harga IDX ga ke-update abis pasang key, cek dulu bentuk
+  response asli di Network tab browser sebelum ubah-ubah kode parsing.
 - Dua mekanisme seeding kategori di `db.js`, sengaja beda: `seedIfNeeded()` = sekali doang
   (guard `settings.seeded`), buat kategori awal saat akun baru pertama kali dipakai.
   `ensurePresetCategories()` = jalan tiap sesi (`put()` id deterministik + merge, idempotent),
