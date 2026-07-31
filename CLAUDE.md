@@ -276,7 +276,16 @@ sebagai baris terpisah "🎯 Goals" di breakdown Total tab Wealth biar rows-nya 
   ke symbol asset). **TANPA API key sama sekali** (beda dari iTick/FCS yang keduanya butuh key)
   — CORS-nya reflect Origin header apa pun (`access-control-allow-origin: <origin request>`),
   udah dites langsung dari origin production app ini (`xiesandi.cyou`) dan dari beberapa symbol
-  portfolio asli (BBCA/BBRI/ADRO/WBSA), semua balik harga valid. Delay ~10 menit
+  portfolio asli (BBCA/BBRI/ADRO/WBSA), semua balik harga valid. **JANGAN set header
+  `Content-Type: application/json`** di `fetch()`-nya — itu bukan CORS-safelisted header,
+  jadi browser bakal preflight `OPTIONS` dulu, dan preflight TradingView cuma nge-allow
+  `Referer,Accept` (BUKAN `content-type`) di `Access-Control-Allow-Headers`-nya → request asli
+  ke-block CORS diam-diam (gagal total, ga ada network error yang jelas keliatan tanpa buka
+  DevTools). `curl` ga kena ini karena curl ga ngejalanin preflight — itu sebabnya verifikasi
+  awal via curl kelihatan sukses padahal beneran dipanggil dari browser gagal (bug nyata yang
+  sempet kejadian, fixed dengan cara HAPUS header itu; default `fetch()` buat body string —
+  `text/plain;charset=UTF-8` — CORS-safelisted, dan server TradingView tetap parse body-nya
+  sebagai JSON regardless declared content-type). Delay ~10 menit
   (`"update_mode":"delayed_streaming_600"` di response asli, field ini sengaja ga diminta di
   `columns` app ini karena ga dipakai). **RISIKO YANG SENGAJA DITERIMA:** ini endpoint backend
   publik TradingView yang ga resmi didokumentasikan buat dipakai luar situsnya (sama seperti
