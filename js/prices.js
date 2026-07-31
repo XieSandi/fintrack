@@ -36,9 +36,13 @@ async function fetchIDX(symbols) {
   const prices = new Map();
   let error = null;
   try {
+    // SENGAJA ga set header Content-Type: application/json — itu bukan CORS-safelisted
+    // header, jadi browser bakal preflight OPTIONS dulu, dan preflight TradingView cuma
+    // izinin header Referer/Accept (bukan content-type) → request asli ke-block CORS.
+    // Default fetch() (text/plain) buat body string itu CORS-safelisted → skip preflight
+    // sama sekali, dan server tetap parse body-nya sebagai JSON regardless declared type.
     const res = await fetch("https://scanner.tradingview.com/global/scan", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         symbols: { tickers: symbols.map((s) => `IDX:${s}`), query: { types: [] } },
         columns: ["close"],
