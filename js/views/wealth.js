@@ -1,7 +1,7 @@
 import {
   state, activeAccounts, accountBalances, netWorthIDR, totalCashIDR,
-  totalAssetsIDR, totalDebtIDR, totalGoalSavingsIDR, assetValueIDR, assetCostIDR,
-  effectiveRate, monthSummary, milestoneProgress, savingsOnlySeries, recentAvgSurplus,
+  totalAssetsIDR, totalCapexIDR, totalDebtIDR, totalGoalSavingsIDR, assetValueIDR, assetCostIDR,
+  capexLocalValue, effectiveRate, monthSummary, milestoneProgress, savingsOnlySeries, recentAvgSurplus,
   monthsBetween, projectSeries,
 } from "../store.js";
 import { add, patch, remove, updateSettings } from "../db.js";
@@ -24,6 +24,7 @@ export const ASSET_TYPES = {
   deposito: "Deposito",
   gold: "Emas",
   crypto: "Crypto",
+  capex: "CAPEX (Barang Susut)",
   other: "Lainnya",
 };
 
@@ -68,7 +69,12 @@ const sumBtn = (key, label, val, color) => `
 function renderTotal(root) {
   const nw = netWorthIDR();
   const cash = totalCashIDR();
-  const assets = totalAssetsIDR();
+  const assetsRaw = totalAssetsIDR(); // termasuk CAPEX apa adanya
+  const capex = totalCapexIDR();
+  const includeCapex = state.settings.includeCapexInNetWorth === true;
+  const investAssets = assetsRaw - capex; // baris "Assets" di breakdown SELALU exclude CAPEX,
+  // CAPEX ditampilin baris terpisah (di bawah) supaya breakdown-nya tetap sum persis ke NET WORTH
+  // baik toggle include-nya ON maupun OFF (lihat CLAUDE.md bullet CAPEX).
   const goalSavings = totalGoalSavingsIDR();
   const debt = totalDebtIDR();
   const milestone = milestoneProgress();
@@ -93,7 +99,8 @@ function renderTotal(root) {
     <div class="card">
       <div class="table-like">
         ${totalRow("💧 Liquid (cash semua akun)", cash, "#93c5fd")}
-        ${totalRow("📈 Assets (investasi)", assets, "var(--green)")}
+        ${totalRow("📈 Assets (investasi)", investAssets, "var(--green)")}
+        ${capex > 0 && includeCapex ? totalRow("🏗️ CAPEX (Barang Susut)", capex, "#fbbf24") : ""}
         ${goalSavings > 0 ? totalRow("🎯 Short Term Goals (topup tersimpan)", goalSavings, "#c084fc") : ""}
         ${totalRow("💳 Debt", -debt, "var(--red)")}
         <div style="border-top:1px solid var(--border); margin-top:8px; padding-top:10px; display:flex; justify-content:space-between">
@@ -101,6 +108,7 @@ function renderTotal(root) {
           <span style="font-weight:800; font-size:13px; color:#93c5fd">${fmtIDR(nw)}</span>
         </div>
       </div>
+      ${capex > 0 && !includeCapex ? `<div class="sub" style="margin-top:10px">🏗️ CAPEX (Barang Susut): ${fmtIDR(capex)} — di luar Net Worth. Aktifkan di Setting kalau mau ikut dihitung.</div>` : ""}
     </div>
 
     <div class="card">
@@ -376,16 +384,23 @@ function assetRow(a) {
   const cost = assetCostIDR(a);
   const pnl = val - cost;
   const pnlPct = cost > 0 ? (pnl / cost) * 100 : 0;
+  const isCapex = a.type === "capex";
   const qtyLabel = a.type === "stock_id" ? `${fmtNum(a.quantity)} lot` : `${a.quantity}${a.type === "stock_us" ? " sh" : ""}`;
   const srcLabel = a.manualOnly === true ? "🔒 manual"
     : a.priceSource ? `⚡ ${a.priceSource}` : "manual";
+  const metaLine = isCapex
+    ? `Beli ${fmtMoney(a.avgBuyPrice, a.currency)} · susut ${(Number(a.depreciationPctMonth || 0) * 100).toFixed(1)}%/bln`
+    : `${qtyLabel} · avg ${fmtMoney(a.avgBuyPrice, a.currency)}`;
+  const staleLine = isCapex
+    ? `nilai sekarang ${fmtMoney(capexLocalValue(a), a.currency)} per ${todayStr()} · beli ${a.purchaseDate || "?"}`
+    : `harga ${fmtMoney(a.manualPrice, a.currency)} per ${a.manualPriceUpdatedAt || "?"} · ${srcLabel}`;
   const div = document.createElement("div");
   div.className = "asset-item";
   div.innerHTML = `
     <div>
-      <div class="asset-sym">${escapeHtml(a.symbol || a.name)}</div>
-      <div class="asset-meta">${qtyLabel} · avg ${fmtMoney(a.avgBuyPrice, a.currency)}</div>
-      <div class="stale-note">harga ${fmtMoney(a.manualPrice, a.currency)} per ${a.manualPriceUpdatedAt || "?"} · ${srcLabel}</div>
+      <div class="asset-sym">${escapeHtml(a.name || a.symbol)}</div>
+      <div class="asset-meta">${metaLine}</div>
+      <div class="stale-note">${staleLine}</div>
     </div>
     <div class="asset-right">
       <div class="asset-val">${fmtIDR(val)}</div>
@@ -398,7 +413,7 @@ function assetRow(a) {
 export function openAssetSheet(existing, contentRoot) {
   const a = existing || {
     type: assetFilter || "stock_id", symbol: "", name: "", quantity: "", avgBuyPrice: "",
-    currency: "IDR", manualPrice: "",
+    currency: "IDR", manualPrice: "", purchaseDate: todayStr(), depreciationPctMonth: "",
   };
 
   const el = openSheet(`
@@ -408,10 +423,10 @@ export function openAssetSheet(existing, contentRoot) {
       ${Object.entries(ASSET_TYPES).map(([k, v]) => `<option value="${k}" ${k === a.type ? "selected" : ""}>${v}</option>`).join("")}
     </select>
     <div class="row">
-      <div><label>Symbol / Kode</label><input id="a-symbol" placeholder="BBCA / VOO" value="${escapeHtml(a.symbol || "")}" /></div>
-      <div><label>Nama (opsional)</label><input id="a-name" placeholder="Bank Central Asia" value="${escapeHtml(a.name || "")}" /></div>
+      <div id="a-symbol-wrap"><label>Symbol / Kode</label><input id="a-symbol" placeholder="BBCA / VOO" value="${escapeHtml(a.symbol || "")}" /></div>
+      <div><label id="a-name-label">Nama (opsional)</label><input id="a-name" placeholder="Bank Central Asia" value="${escapeHtml(a.name || "")}" /></div>
     </div>
-    <div class="row">
+    <div class="row" id="a-qty-row">
       <div><label id="a-qty-label">Jumlah</label><input id="a-qty" inputmode="decimal" placeholder="10" value="${a.quantity ?? ""}" /></div>
       <div><label>Currency</label>
         <select id="a-currency">
@@ -421,20 +436,24 @@ export function openAssetSheet(existing, contentRoot) {
       </div>
     </div>
     <div class="row">
-      <div><label>Avg Buy / unit</label><input id="a-avg" inputmode="decimal" placeholder="6710" value="${a.avgBuyPrice ?? ""}" /></div>
-      <div><label>Harga sekarang / unit</label><input id="a-price" inputmode="decimal" placeholder="6175" value="${a.manualPrice ?? ""}" /></div>
+      <div><label id="a-avg-label">Avg Buy / unit</label><input id="a-avg" inputmode="decimal" placeholder="6710" value="${a.avgBuyPrice ?? ""}" /></div>
+      <div id="a-price-wrap"><label>Harga sekarang / unit</label><input id="a-price" inputmode="decimal" placeholder="6175" value="${a.manualPrice ?? ""}" /></div>
     </div>
-    <div class="sub">💡 Saham IDX: jumlah dalam <b>lot</b> (1 lot = 100 lembar), harga per <b>lembar</b>. US: jumlah dalam shares (boleh desimal), harga per share USD. Crypto: symbol umum (BTC, ETH, SOL...) atau CoinGecko ID.</div>
+    <div class="row hidden" id="a-capex-row">
+      <div><label>Tanggal Beli</label><input id="a-purchase-date" type="date" value="${a.purchaseDate || todayStr()}" /></div>
+      <div><label>Susut / bulan (%)</label><input id="a-deprec-pct" type="number" inputmode="decimal" step="0.1" min="0" max="100" placeholder="2" value="${a.depreciationPctMonth ? (Number(a.depreciationPctMonth) * 100) : ""}" /></div>
+    </div>
+    <div class="sub" id="a-hint-normal">💡 Saham IDX: jumlah dalam <b>lot</b> (1 lot = 100 lembar), harga per <b>lembar</b>. US: jumlah dalam shares (boleh desimal), harga per share USD. Crypto: symbol umum (BTC, ETH, SOL...) atau CoinGecko ID.</div>
+    <div class="sub hidden" id="a-hint-capex">📉 Nilai dihitung OTOMATIS tiap bulan: Harga Beli × (1 − susut%)<sup>bulan sejak Tanggal Beli</sup> — ga perlu update manual. Toggle "sertakan di Net Worth" ada di Setting.</div>
     <label id="a-manual-wrap" style="margin-top:12px; font-size:12px; text-transform:none; letter-spacing:0; color:var(--muted2)">
       <input type="checkbox" id="a-manual-only" style="width:auto" ${a.manualOnly === true ? "checked" : ""}/>
       🔒 Harga manual saja (skip auto-refresh)
     </label>
     <div class="sub" id="a-auto-hint"></div>
-    ${existing ? `
-    <div style="margin-top:14px; display:flex; gap:8px;">
+    <div id="a-trade-buttons" style="margin-top:14px; display:${existing ? "flex" : "none"}; gap:8px;">
       <button id="a-buy" class="btn" style="flex:1">💰 Catat Pembelian</button>
       <button id="a-sell" class="btn" style="flex:1">💸 Catat Penjualan</button>
-    </div>` : ""}
+    </div>
     <div style="margin-top:18px; display:flex; gap:8px;">
       ${existing ? `<button id="a-delete" class="btn btn-danger">Hapus</button>` : ""}
       <button id="a-save" class="btn btn-primary" style="flex:1">Simpan</button>
@@ -451,12 +470,24 @@ export function openAssetSheet(existing, contentRoot) {
   const curSel = el.querySelector("#a-currency");
   const qtyLabel = el.querySelector("#a-qty-label");
   const syncType = () => {
-    qtyLabel.textContent = typeSel.value === "stock_id" ? "Jumlah (lot)" : "Jumlah";
-    if (typeSel.value === "stock_id") curSel.value = "IDR";
-    if (typeSel.value === "stock_us") curSel.value = "USD";
-    const isAuto = !!AUTO_HINTS[typeSel.value];
-    el.querySelector("#a-auto-hint").textContent = AUTO_HINTS[typeSel.value] || "";
+    const t = typeSel.value;
+    const isCapexType = t === "capex";
+    qtyLabel.textContent = t === "stock_id" ? "Jumlah (lot)" : "Jumlah";
+    if (t === "stock_id") curSel.value = "IDR";
+    if (t === "stock_us") curSel.value = "USD";
+    const isAuto = !!AUTO_HINTS[t];
+    el.querySelector("#a-auto-hint").textContent = AUTO_HINTS[t] || "";
     el.querySelector("#a-manual-wrap").classList.toggle("hidden", !isAuto);
+
+    el.querySelector("#a-symbol-wrap").classList.toggle("hidden", isCapexType);
+    el.querySelector("#a-name-label").textContent = isCapexType ? "Nama Barang" : "Nama (opsional)";
+    el.querySelector("#a-qty-row").classList.toggle("hidden", isCapexType);
+    el.querySelector("#a-price-wrap").classList.toggle("hidden", isCapexType);
+    el.querySelector("#a-capex-row").classList.toggle("hidden", !isCapexType);
+    el.querySelector("#a-hint-normal").classList.toggle("hidden", isCapexType);
+    el.querySelector("#a-hint-capex").classList.toggle("hidden", !isCapexType);
+    el.querySelector("#a-avg-label").textContent = isCapexType ? "Harga Beli" : "Avg Buy / unit";
+    el.querySelector("#a-trade-buttons").style.display = (existing && !isCapexType) ? "flex" : "none";
   };
   typeSel.onchange = syncType;
   syncType();
@@ -466,23 +497,31 @@ export function openAssetSheet(existing, contentRoot) {
 
   el.querySelector("#a-save").onclick = async () => {
     const parseDec = (v) => parseFloat(String(v).replace(",", ".")) || 0;
+    const isCapexNow = typeSel.value === "capex";
     const data = {
       type: typeSel.value,
-      symbol: el.querySelector("#a-symbol").value.trim().toUpperCase(),
+      symbol: isCapexNow ? "" : el.querySelector("#a-symbol").value.trim().toUpperCase(),
       name: el.querySelector("#a-name").value.trim(),
-      quantity: parseDec(el.querySelector("#a-qty").value),
+      quantity: isCapexNow ? 1 : parseDec(el.querySelector("#a-qty").value),
       avgBuyPrice: parseDec(el.querySelector("#a-avg").value),
-      manualPrice: parseDec(el.querySelector("#a-price").value),
       currency: curSel.value,
-      manualOnly: el.querySelector("#a-manual-only").checked,
     };
+    if (isCapexNow) {
+      data.purchaseDate = el.querySelector("#a-purchase-date").value || todayStr();
+      const pct = parseDec(el.querySelector("#a-deprec-pct").value);
+      data.depreciationPctMonth = Math.max(0, Math.min(100, pct)) / 100;
+    } else {
+      data.manualPrice = parseDec(el.querySelector("#a-price").value);
+      data.manualOnly = el.querySelector("#a-manual-only").checked;
+      if (String(data.manualPrice) !== String(existing?.manualPrice ?? "")) {
+        data.manualPriceUpdatedAt = todayStr();
+      } else {
+        data.manualPriceUpdatedAt = existing?.manualPriceUpdatedAt || todayStr();
+      }
+    }
     if (!data.symbol && !data.name) return toast("Isi symbol atau nama");
     if (!data.quantity) return toast("Isi jumlah");
-    if (String(data.manualPrice) !== String(existing?.manualPrice ?? "")) {
-      data.manualPriceUpdatedAt = todayStr();
-    } else {
-      data.manualPriceUpdatedAt = existing?.manualPriceUpdatedAt || todayStr();
-    }
+    if (isCapexNow && !data.avgBuyPrice) return toast("Isi harga beli");
     closeSheet();
     if (existing) await patch("assets", existing.id, data);
     else await add("assets", data);
