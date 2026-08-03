@@ -8,8 +8,13 @@ export const fmtUSDPlain = (n) =>
   `$${(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 export const fmtMoneyPlain = (n, cur = "IDR") => (cur === "USD" ? fmtUSDPlain(n) : fmtIDRPlain(n));
 
-export const fmtIDR = (n) => `<span class="blur-num">${fmtIDRPlain(n)}</span>`;
-export const fmtUSD = (n) => `<span class="blur-num">${fmtUSDPlain(n)}</span>`;
+// Blur mode nge-mask pakai asterisk (bukan CSS filter:blur lagi) — `data-mask` diisi "*" sepanjang
+// teks aslinya, CSS (body.blur-mode .blur-num::after, style.css) yang nampilinnya nutupin teks
+// asli. Selalu lewat blurNum() biar mask-nya match panjang teks — JANGAN bikin span.blur-num
+// manual tanpa data-mask (lihat js/views/accounts.js buat contoh pemakaian di luar fmtIDR/fmtUSD).
+export const blurNum = (text) => `<span class="blur-num" data-mask="${"*".repeat(String(text).length)}">${text}</span>`;
+export const fmtIDR = (n) => blurNum(fmtIDRPlain(n));
+export const fmtUSD = (n) => blurNum(fmtUSDPlain(n));
 export const fmtMoney = (n, cur = "IDR") => (cur === "USD" ? fmtUSD(n) : fmtIDR(n));
 
 export const fmtNum = (n) => (n || 0).toLocaleString("id-ID");
