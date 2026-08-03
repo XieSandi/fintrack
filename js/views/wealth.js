@@ -2,7 +2,7 @@ import {
   state, activeAccounts, accountBalances, netWorthIDR, totalCashIDR,
   totalAssetsIDR, totalCapexIDR, totalDebtIDR, totalGoalSavingsIDR, assetValueIDR, assetCostIDR,
   capexLocalValue, effectiveRate, monthSummary, milestoneProgress, savingsOnlySeries, recentAvgSurplus,
-  monthsBetween, projectSeries, netWorthFromParts,
+  monthsBetween, projectSeries, snapshotNetWorth,
 } from "../store.js";
 import { add, patch, remove, updateSettings } from "../db.js";
 import {
@@ -29,14 +29,6 @@ export const ASSET_TYPES = {
 };
 
 const destroyCharts = () => { charts.forEach((c) => c.destroy()); charts = []; };
-
-// Snapshot lama (manual backfill / pre-fitur CAPEX) cuma punya `netWorth`, ga ada breakdown
-// total* top-level — dipakai buat recompute net worth historis SATU formula (netWorthFromParts,
-// calc.js) di chart Tren Net Worth & Proyeksi, biar ga divergen antar chart.
-const snapshotHasTotals = (s) => typeof s.totalCash === "number" && typeof s.totalAssets === "number";
-const snapshotNetWorth = (s, includeCapex) => snapshotHasTotals(s)
-  ? netWorthFromParts({ cash: s.totalCash, assets: s.totalAssets, capex: s.totalCapex, goalSavings: s.totalGoalSavings, debt: s.totalDebt }, includeCapex)
-  : (Number(s.netWorth) || 0);
 
 export function render(root) {
   destroyCharts();
@@ -251,15 +243,16 @@ function renderProjectionChart(root, canvas, gridColor, milestone) {
   const targetDate = state.settings.targetDate;
   const horizonMonths = targetDate ? Math.max(1, monthsBetween(nowMonth, targetDate)) : 60;
 
-  // Garis "Aktual" historis dihitung ULANG pakai toggle CAPEX yang berlaku SEKARANG (bukan
-  // `s.netWorth` mentah, yang bisa reflect toggle lama kalau user pernah gonta-ganti) — biar
-  // konsisten sama `nw` (titik awal semua garis proyeksi di bawah, dari `netWorthIDR()` yang juga
-  // toggle-aware). Beda dari chart Tren Net Worth yang sengaja nampilin DUA garis; di sini cuma
-  // SATU (ngikut toggle) biar chart 6-garis ini ga makin padat.
+  // Garis "Aktual" DAN "Nabung doang" historis dihitung ULANG pakai toggle CAPEX yang berlaku
+  // SEKARANG (bukan `s.netWorth` mentah, yang bisa reflect toggle lama kalau user pernah
+  // gonta-ganti) — biar konsisten sama `nw` (titik awal semua garis proyeksi di bawah, dari
+  // `netWorthIDR()` yang juga toggle-aware). Beda dari chart Tren Net Worth yang sengaja
+  // nampilin DUA garis; di sini cuma SATU per konsep (ngikut toggle) biar chart 6-garis ini ga
+  // makin padat.
   const includeCapexNow = state.settings.includeCapexInNetWorth === true;
   const firstSnapMonth = state.snapshots[0].month || state.snapshots[0].id;
   const actualHist = state.snapshots.map((s) => ({ month: s.month || s.id, value: snapshotNetWorth(s, includeCapexNow) }));
-  const savingsHist = savingsOnlySeries(firstSnapMonth, nowMonth);
+  const savingsHist = savingsOnlySeries(firstSnapMonth, nowMonth, includeCapexNow);
 
   const nw = netWorthIDR();
   const avgSurplus = recentAvgSurplus(nowMonth, 3) ?? 0;
