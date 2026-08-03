@@ -76,8 +76,16 @@ horizontal scroll, "Kelola →" ke `#/goals`) → **Budget bulan ini** (preview,
 Akun/Goals/Budget — bukan section terpisah yang punya card sendiri; 3 terbaru, txRow()
 di-share ke `transactions.js`).
 
-Blur mode (toggle 👁️ di card Total Balance) nge-blur semua `<span class="blur-num">` (dihasilkan
-`fmtIDR`/`fmtUSD` di `utils.js`) lewat CSS `body.blur-mode`, state di localStorage — bukan re-render.
+Blur mode (toggle 👁️ di card Total Balance) nge-mask semua `<span class="blur-num">` jadi asterisk
+(BUKAN CSS `filter:blur()` lagi) — teks asli `visibility:hidden`, `::after` nampilin
+`attr(data-mask)` ("*" sepanjang teks asli) nimpa di atasnya lewat `position:absolute`, warna
+semantik (hijau/merah/dll) tetep kebawa karena `color` cuma inherit, ga di-override (lihat
+`body.blur-mode .blur-num` di `css/style.css`). `data-mask`-nya diisi `blurNum()` (`utils.js`) —
+`fmtIDR`/`fmtUSD` udah lewat situ otomatis, tapi kalau ada view yang bikin `span.blur-num` manual
+(bukan lewat `fmtIDR`/`fmtUSD`, kayak saldo awal akun di `accounts.js`) WAJIB bungkus pakai
+`blurNum(text)` juga — span tanpa `data-mask` matching-length bakal nampilin mask kosong/kepanjangan.
+Chart.js (canvas, ga bisa kena CSS) pakai jalur terpisah: cek `isBlurred()` langsung di tick
+callback (`wealth.js`, balikin literal `"***"`). State toggle di localStorage — bukan re-render.
 
 ## Data Model (Firestore `users/{uid}/`)
 

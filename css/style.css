@@ -129,9 +129,19 @@ label { display: block; font-size: 11px; color: var(--muted); text-transform: up
 }
 .asset-toggle.active { background: #3b82f6; border-color: #60a5fa; color: #fff; }
 
-/* Blur mode — sembunyikan angka nominal (toggle mata di Home) */
-.blur-num { transition: filter .15s ease; }
-body.blur-mode .blur-num { filter: blur(7px); user-select: none; -webkit-user-select: none; }
+/* Blur mode — mask angka nominal jadi asterisk (toggle mata di Home). Teks asli disembunyikan
+   lewat visibility:hidden (bukan display:none, biar box tetap ambil ruang sesuai panjang teks
+   aslinya), ::after nampilin attr(data-mask) ("*" sepanjang teks asli, diisi blurNum() di
+   utils.js) persis di atasnya lewat position:absolute. visibility:visible di ::after nimpa
+   inherited hidden dari .blur-num, color-nya ikut inherit apa adanya (bukan di-override) biar
+   warna semantik (hijau income/merah expense/dll) tetep kebawa ke asterisk-nya. */
+body.blur-mode .blur-num {
+  position: relative; display: inline-block; visibility: hidden;
+}
+body.blur-mode .blur-num::after {
+  content: attr(data-mask); visibility: visible; position: absolute; left: 0; top: 0;
+  white-space: nowrap; user-select: none; -webkit-user-select: none;
+}
 .label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 4px; }
 .sub { font-size: 11px; color: var(--muted); margin-top: 4px; }
 .acct-scroll { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 6px; margin-bottom: 8px; scrollbar-width: none; }

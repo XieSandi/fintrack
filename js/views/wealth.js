@@ -264,7 +264,7 @@ function renderProjectionChart(root, canvas, gridColor, milestone) {
     options: {
       plugins: { legend: { labels: { boxWidth: 10, font: { size: 9 } } } },
       scales: {
-        y: { grid: { color: gridColor }, ticks: { callback: (v) => isBlurred() ? "•••" : fmtShort(v) } },
+        y: { grid: { color: gridColor }, ticks: { callback: (v) => isBlurred() ? "***" : fmtShort(v) } },
         x: { grid: { display: false }, ticks: { maxTicksLimit: 8 } },
       },
     },

@@ -1,7 +1,7 @@
 import { state, accountBalances } from "../store.js";
 import { add, patch, remove, upsertSnapshot } from "../db.js";
 import {
-  fmtNum, fmtMoney, escapeHtml, toast, openSheet, closeSheet, sheetHead, confirmDialog,
+  fmtNum, fmtMoney, blurNum, escapeHtml, toast, openSheet, closeSheet, sheetHead, confirmDialog,
   attachThousands, parseAmount, todayStr, monthOf,
 } from "../utils.js";
 
@@ -28,7 +28,7 @@ export function render(root) {
       <span style="width:10px;height:10px;border-radius:50%;background:${a.color || "#60a5fa"};flex-shrink:0"></span>
       <div style="flex:1">
         <div style="font-size:13px;font-weight:600">${escapeHtml(a.name)} ${a.isArchived ? '<span class="badge badge-yellow">arsip</span>' : ""}</div>
-        <div class="set-sub">${ACCT_TYPES[a.type] || a.type} · ${a.currency} · saldo awal <span class="blur-num">${fmtNum(a.initialBalance || 0)}</span></div>
+        <div class="set-sub">${ACCT_TYPES[a.type] || a.type} · ${a.currency} · saldo awal ${blurNum(fmtNum(a.initialBalance || 0))}</div>
       </div>
       <span style="color:var(--muted)">›</span>`;
     div.onclick = () => openAcctSheet(a);
