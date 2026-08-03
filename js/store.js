@@ -103,7 +103,6 @@ export const monthSummary = (month) => calc.monthSummary(state, month);
 export const spentByCategory = (month) => calc.spentByCategory(state, month);
 export const budgetsOfMonth = (month) => calc.budgetsOfMonth(state, month);
 export const rangeSummary = (fromDate, toDate) => calc.rangeSummary(state, fromDate, toDate);
-export const savingsOnlySeries = (fromMonth, toMonth, includeCapex) => calc.savingsOnlySeries(state, fromMonth, toMonth, includeCapex);
 export const recentAvgSurplus = (nowMonth, count) => calc.recentAvgSurplus(state, nowMonth, count);
 export const monthsBetween = (fromYM, toYM) => calc.monthsBetween(fromYM, toYM);
 // projectSeries ga butuh `state` (murni matematika) tapi tetap di-wrap di sini — SEMUA view lain

@@ -174,37 +174,14 @@ export function netWorthIDR(state, nowMonth) {
 }
 
 // ============== Dashboard Proyeksi (TASK-1): Nabung vs Aktual vs Return ==============
-// Dua fungsi murni di bawah ini adalah primitif yang dipakai js/views/wealth.js buat nyusun
-// chart proyeksi — orkestrasi (nentuin startValue/horizon/dari snapshot mana) sengaja TETAP di
-// view layer (bukan di sini), karena itu soal "gimana nampilinnya", bukan kalkulasi finansial
-// murni; pola yang sama kayak chart cashflow existing yang juga assemble data-nya di wealth.js.
-
-// Garis "Nabung doang" HISTORIS: kumulatif net worth kalau cuma nabung surplus bulanan tanpa
-// return — di-anchor ke snapshot PERTAMA dalam range (biar sebanding visual sama garis Aktual
-// yang mulai dari titik yang sama), lalu tiap bulan berikutnya ditambah `monthSummary().surplus`
-// (BUKAN di-derive dari snapshot bulan itu — snapshot cuma dipakai buat cari titik AWAL).
-// Return [] kalau ga ada snapshot dalam range (caller tampilin empty state, bukan chart kosong).
-// `includeCapex` (opsional, default false — samain toggle default `netWorthIDR()`) diteruskan ke
-// `snapshotNetWorth()` buat nentuin anchor-nya — biar KONSISTEN sama garis Aktual yang juga
-// toggle-aware (bukan `snaps[0].netWorth` mentah, yang bisa reflect toggle CAPEX lama kalau
-// pernah diganti; lihat CLAUDE.md bullet Chart Tren Net Worth).
-export function savingsOnlySeries(state, fromMonth, toMonth, includeCapex = false) {
-  const idOf = (s) => s.month || s.id;
-  const snaps = state.snapshots
-    .filter((s) => idOf(s) >= fromMonth && idOf(s) <= toMonth)
-    .sort((a, b) => idOf(a).localeCompare(idOf(b)));
-  if (snaps.length === 0) return [];
-
-  let month = idOf(snaps[0]);
-  let value = snapshotNetWorth(snaps[0], includeCapex);
-  const out = [{ month, value }];
-  while (month < toMonth) {
-    month = addMonths(month, 1);
-    value += monthSummary(state, month).surplus;
-    out.push({ month, value });
-  }
-  return out;
-}
+// Primitif murni di bawah ini dipakai js/views/wealth.js buat nyusun chart proyeksi — orkestrasi
+// (nentuin startValue/horizon/dari snapshot mana) sengaja TETAP di view layer (bukan di sini),
+// karena itu soal "gimana nampilinnya", bukan kalkulasi finansial murni; pola yang sama kayak
+// chart cashflow existing yang juga assemble data-nya di wealth.js.
+// (Sempat ada `savingsOnlySeries()` di sini buat garis "Nabung doang" HISTORIS terpisah dari
+// "Proyeksi (nabung)" forward-looking — dihapus lagi karena dua garis itu kelihatan
+// kontradiktif/ganjil berdampingan di chart yang sama, cuma satu konsep "nabung doang" yang
+// dipertahankan sekarang: forward projection dari `projectSeries` di bawah.)
 
 // Proyeksi maju generik: compound bulanan (`annualRate` dikonversi ke rate bulanan biar compound
 // 12x balik persis ke `annualRate` per tahun) + kontribusi tetap tiap bulan. `annualRate: 0` →

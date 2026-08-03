@@ -1,7 +1,7 @@
 import {
   state, activeAccounts, accountBalances, netWorthIDR, totalCashIDR,
   totalAssetsIDR, totalCapexIDR, totalDebtIDR, totalGoalSavingsIDR, assetValueIDR, assetCostIDR,
-  capexLocalValue, effectiveRate, monthSummary, milestoneProgress, savingsOnlySeries, recentAvgSurplus,
+  capexLocalValue, effectiveRate, monthSummary, milestoneProgress, recentAvgSurplus,
   monthsBetween, projectSeries, snapshotNetWorth,
 } from "../store.js";
 import { add, patch, remove, updateSettings } from "../db.js";
@@ -223,13 +223,13 @@ function renderChart(root, milestone) {
 }
 
 // ================= PROYEKSI (TASK-1) =================
-// Nabung vs Aktual vs Return terkonfigurasi. Zona historis (solid) pakai data snapshot asli;
-// zona proyeksi (dashed) SEMUANYA mulai dari titik net worth AKTUAL bulan ini (bukan dari titik
-// akhir garis "Nabung doang" historis) — "kalau MULAI SEKARANG gue stop dapet return", bukan
-// "gimana kalau dari awal gue ga pernah dapet return" (dua pertanyaan beda; garis historis udah
-// jawab yang kedua lewat gap Aktual-vs-Nabung). Makanya boleh ada sedikit "lompatan" visual
-// pas garis abu solid (historis) ketemu garis abu dashed (proyeksi) di titik bulan ini — itu
-// bukan bug, itu selisih antara "kumulatif nabung dari awal" vs "posisi riil sekarang".
+// Nabung vs Aktual vs Return terkonfigurasi. Zona historis (solid, "Aktual") pakai data snapshot
+// asli; zona proyeksi (dashed) SEMUANYA mulai dari titik net worth AKTUAL bulan ini — "Proyeksi
+// (nabung)" = skenario "kalau MULAI SEKARANG stop dapet return, cuma nabung surplus doang".
+// TIDAK ada garis historis "Nabung doang" terpisah (sempat ada, dihapus lagi) — dua garis
+// "kumulatif nabung dari awal" vs "Proyeksi (nabung)" ke depan kelihatan kontradiktif/ganjil
+// berdampingan (mirip nama, beda anchor & makna), jadi cuma satu konsep "nabung doang" yang
+// ditampilin: yang forward-looking dari sekarang.
 function renderProjectionChart(root, canvas, gridColor, milestone) {
   const wrap = root.querySelector("#chart-wrap");
   if (state.snapshots.length < 2) {
@@ -243,16 +243,14 @@ function renderProjectionChart(root, canvas, gridColor, milestone) {
   const targetDate = state.settings.targetDate;
   const horizonMonths = targetDate ? Math.max(1, monthsBetween(nowMonth, targetDate)) : 60;
 
-  // Garis "Aktual" DAN "Nabung doang" historis dihitung ULANG pakai toggle CAPEX yang berlaku
-  // SEKARANG (bukan `s.netWorth` mentah, yang bisa reflect toggle lama kalau user pernah
-  // gonta-ganti) — biar konsisten sama `nw` (titik awal semua garis proyeksi di bawah, dari
-  // `netWorthIDR()` yang juga toggle-aware). Beda dari chart Tren Net Worth yang sengaja
-  // nampilin DUA garis; di sini cuma SATU per konsep (ngikut toggle) biar chart 6-garis ini ga
-  // makin padat.
+  // Garis "Aktual" historis dihitung ULANG pakai toggle CAPEX yang berlaku SEKARANG (bukan
+  // `s.netWorth` mentah, yang bisa reflect toggle lama kalau user pernah gonta-ganti) — biar
+  // konsisten sama `nw` (titik awal semua garis proyeksi di bawah, dari `netWorthIDR()` yang
+  // juga toggle-aware). Beda dari chart Tren Net Worth yang sengaja nampilin DUA garis; di sini
+  // cuma SATU (ngikut toggle) biar chart 5-garis ini ga makin padat.
   const includeCapexNow = state.settings.includeCapexInNetWorth === true;
   const firstSnapMonth = state.snapshots[0].month || state.snapshots[0].id;
   const actualHist = state.snapshots.map((s) => ({ month: s.month || s.id, value: snapshotNetWorth(s, includeCapexNow) }));
-  const savingsHist = savingsOnlySeries(firstSnapMonth, nowMonth, includeCapexNow);
 
   const nw = netWorthIDR();
   const avgSurplus = recentAvgSurplus(nowMonth, 3) ?? 0;
@@ -269,7 +267,6 @@ function renderProjectionChart(root, canvas, gridColor, milestone) {
   const dataFor = (map) => allMonths.map((m) => (m in map ? map[m] : null));
 
   const actualMap = mapOf(actualHist);
-  const savingsMap = mapOf(savingsHist);
   const projSavingsMap = mapOf(projSavings);
   const projAMap = mapOf(projA);
   const projBMap = mapOf(projB);
@@ -281,8 +278,6 @@ function renderProjectionChart(root, canvas, gridColor, milestone) {
       datasets: [
         { label: "Aktual", data: dataFor(actualMap), borderColor: "#60a5fa",
           backgroundColor: "rgba(96,165,250,.12)", fill: true, tension: .3, pointRadius: 2, spanGaps: false },
-        { label: "Nabung doang", data: dataFor(savingsMap), borderColor: "#64748b",
-          pointRadius: 0, fill: false, spanGaps: false },
         { label: "Proyeksi (nabung)", data: dataFor(projSavingsMap), borderColor: "#64748b",
           borderDash: [5, 4], pointRadius: 0, fill: false, spanGaps: false },
         { label: `Proyeksi ${(rateA * 100).toFixed(0)}%/th`, data: dataFor(projAMap), borderColor: "#86efac",
