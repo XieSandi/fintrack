@@ -126,6 +126,17 @@ export function goalSavedIDR(state, goalId) {
 }
 export const totalGoalSavingsIDR = (state) => state.goals.reduce((s, g) => s + goalSavedIDR(state, g.id), 0);
 
+// Formula net worth dari breakdown MENTAH ({cash, assets, capex, goalSavings, debt}) + flag
+// includeCapex — TIDAK butuh `state` (murni angka yang udah di-breakdown, bukan live state) biar
+// bisa dipakai ulang buat recompute net worth HISTORIS (per snapshot lama, wealth.js chart Tren
+// Net Worth & Proyeksi) dan buat report-md.js (section 1, breakdown `position`) — SATU formula,
+// jangan diduplikasi manual di tempat-tempat itu (drift formula = angka with/without CAPEX ga
+// konsisten antar fitur). `assets` di sini SELALU raw (termasuk CAPEX apa adanya).
+export function netWorthFromParts({ cash, assets, capex, goalSavings, debt }, includeCapex) {
+  const base = (cash || 0) + (assets || 0) + (goalSavings || 0) - (debt || 0);
+  return includeCapex ? base : base - (capex || 0);
+}
+
 // Goal savings dihitung sebagai bagian net worth (uangnya ga hilang, cuma pindah "kantong").
 // CAPEX (barang fisik susut, lihat blok di atas) di-exclude/include tergantung toggle
 // `settings.includeCapexInNetWorth` — default FALSE (exclude) biar net worth existing user ga
@@ -136,10 +147,14 @@ export const totalGoalSavingsIDR = (state) => state.goals.reduce((s, g) => s + g
 // (bukan filter ulang assetValueIDR di tempat lain), `nowMonth` diteruskan biar CAPEX ke-hitung
 // pakai bulan yang bener (lihat capexValueIDR).
 export function netWorthIDR(state, nowMonth) {
-  const assets = totalAssetsIDR(state, nowMonth);
-  const capex = totalCapexIDR(state, nowMonth);
   const includeCapex = state.settings.includeCapexInNetWorth === true;
-  return totalCashIDR(state) + (includeCapex ? assets : assets - capex) + totalGoalSavingsIDR(state) - totalDebtIDR(state);
+  return netWorthFromParts({
+    cash: totalCashIDR(state),
+    assets: totalAssetsIDR(state, nowMonth),
+    capex: totalCapexIDR(state, nowMonth),
+    goalSavings: totalGoalSavingsIDR(state),
+    debt: totalDebtIDR(state),
+  }, includeCapex);
 }
 
 // ============== Dashboard Proyeksi (TASK-1): Nabung vs Aktual vs Return ==============

@@ -407,6 +407,13 @@ function makeState() {
   const nwIncluded = calc.netWorthIDR(s, "2026-01");
   assertEqual(nwIncluded, calc.totalCashIDR(s) + 10_000_000, "capex: toggle ON -> netWorthIDR INCLUDE nilai CAPEX");
 }
+{
+  // netWorthFromParts: formula generik dari breakdown mentah, dipakai ulang buat recompute
+  // net worth historis (chart Tren Net Worth/Proyeksi, report-md.js) — TIDAK butuh `state`.
+  const parts = { cash: 1_000_000, assets: 5_000_000, capex: 2_000_000, goalSavings: 300_000, debt: 200_000 };
+  assertEqual(calc.netWorthFromParts(parts, true), 1_000_000 + 5_000_000 + 300_000 - 200_000, "netWorthFromParts: includeCapex true -> assets apa adanya (udah termasuk capex)");
+  assertEqual(calc.netWorthFromParts(parts, false), 1_000_000 + (5_000_000 - 2_000_000) + 300_000 - 200_000, "netWorthFromParts: includeCapex false -> assets dikurangi capex");
+}
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
