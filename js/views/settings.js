@@ -1,8 +1,8 @@
 import { state, effectiveRate, milestoneProgress } from "../store.js";
-import { exportAll, importAll, updateSettings, put } from "../db.js";
+import { exportAll, importAll, updateSettings, put, previewCapexBackfill, backfillCapexToSnapshots } from "../db.js";
 import { auth, signOut } from "../firebase.js";
 import {
-  fmtNum, fmtIDR, escapeHtml, toast, parseAmount, attachThousands,
+  fmtNum, fmtIDR, fmtIDRPlain, escapeHtml, toast, parseAmount, attachThousands,
   confirmDialog, todayStr, hardRefresh, currentMonth, monthLabel, addMonths,
   openSheet, closeSheet, sheetHead,
 } from "../utils.js";
@@ -20,6 +20,7 @@ export function render(root) {
   const nGoals = state.goals.length;
   const nRecurring = state.recurring.filter((r) => r.active !== false).length;
   const milestone = milestoneProgress();
+  const capexBackfillRows = previewCapexBackfill();
 
   root.innerHTML = `
     ${backupOld ? `<div class="card" style="border-color:#a16207; background:#1c1400">
@@ -90,6 +91,20 @@ export function render(root) {
       <input id="snap-nw" inputmode="numeric" placeholder="cth: 15000000 atau -2000000" autocomplete="off" />
       <button id="btn-add-snapshot" class="btn btn-primary btn-sm" style="margin-top:12px">Simpan Snapshot</button>
     </div>
+
+    ${capexBackfillRows.length > 0 ? `
+    <div class="card">
+      <div class="card-title">🏗️ Backfill CAPEX ke Snapshot Lama</div>
+      <div class="sub" style="margin-bottom:10px">Snapshot dari sebelum fitur CAPEX ada belum misahin nilai CAPEX dari total Assets — chart Tren Net Worth & laporan .md buat bulan lama jadinya nunjukin garis/angka "+ CAPEX" dan "tanpa CAPEX" yang sama persis. Backfill ini nyocokin nama asset CAPEX SEKARANG ke breakdown snapshot lama, isi field totalCapex-nya pakai nilai ASLI yang udah kesimpen waktu itu (ga ngarang angka baru).</div>
+      <div class="table-like">
+        ${capexBackfillRows.map((r) => `
+          <div style="display:flex; justify-content:space-between; padding:6px 0; font-size:12px">
+            <span class="sub">${monthLabel(r.month)} (${escapeHtml(r.matchedSymbols.join(", "))})</span>
+            <span>${fmtIDRPlain(r.totalCapex)}</span>
+          </div>`).join("")}
+      </div>
+      <button id="btn-capex-backfill" class="btn btn-primary btn-sm" style="margin-top:12px">Backfill ${capexBackfillRows.length} Snapshot</button>
+    </div>` : ""}
 
     <div class="card">
       <div class="card-title">Backup & Restore</div>
@@ -181,6 +196,13 @@ export function render(root) {
     root.querySelector("#snap-nw").value = "";
     toast(`Snapshot ${monthLabel(month)} disimpan ✓`);
   };
+
+  root.querySelector("#btn-capex-backfill")?.addEventListener("click", async () => {
+    if (!navigator.onLine) return toast("Lagi offline — coba lagi kalau udah online");
+    if (!confirmDialog(`Backfill totalCapex ke ${capexBackfillRows.length} snapshot lama? Ini nambah 1 field baru ke dokumen snapshot itu, ga menghapus/menimpa data lain.`)) return;
+    const n = await backfillCapexToSnapshots();
+    toast(`Backfill selesai — ${n} snapshot terupdate ✓`);
+  });
 
   root.querySelector("#btn-export").onclick = async () => {
     toast("Menyiapkan backup...");
