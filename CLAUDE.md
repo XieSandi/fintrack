@@ -370,6 +370,27 @@ terpisah "🎯 Goals" di breakdown Total tab Wealth biar rows-nya sum ke net wor
   (`savingsOnlySeries()`, calc.js) TIDAK ikut di-toggle-in — anchor-nya masih `snaps[0].netWorth`
   mentah, quirk kecil yang sengaja belum dibenerin (di luar scope, dampaknya minor & cuma
   kerasa kalau toggle pernah diganti DAN ada histori snapshot lama).
+- **Backfill CAPEX ke Snapshot Lama** (Setting, card "🏗️ Backfill CAPEX ke Snapshot Lama" —
+  CUMA muncul kalau `previewCapexBackfill()` nemu sesuatu buat di-backfill, `js/db.js`
+  `previewCapexBackfill()`/`backfillCapexToSnapshots()`) — snapshot yang dibuat SEBELUM fitur
+  CAPEX ada ga punya field `totalCapex` sama sekali (undefined), padahal asset yang SEKARANG
+  bertipe `capex` bisa aja udah ada waktu itu (cuma belum diklasifikasikan sebagai capex, ke-
+  hitung sebagai "assets" biasa) — bikin chart Tren Net Worth/Proyeksi & report-md.js section
+  1/10 nunjukin garis/angka "+ CAPEX" dan "tanpa CAPEX" IDENTIK buat bulan-bulan itu (BUKAN
+  karena beneran ga ada CAPEX waktu itu, tapi karena datanya emang belum misah). Backfill ini
+  BEST-EFFORT: cocokin `breakdown.assets[i].symbol` tiap snapshot lama vs symbol/name asset yang
+  SEKARANG bertipe capex (case-insensitive), jumlahin `valueIDR` yang match jadi `totalCapex`
+  bulan itu — angka ASLI yang udah kesimpen di snapshot itu waktu itu, BUKAN dikarang/diestimasi.
+  SENGAJA TIDAK mengubah `breakdown.assets[i].type` (biarin historisnya apa adanya) — jadi
+  section 6 "Investasi" report utk bulan lama TETAP ngelompokkin item itu ke tipe LAMA-nya
+  (bukan pindah ke grup CAPEX), quirk kecil yang diterima demi ga nulis ulang breakdown historis
+  (cuma nambah 1 field top-level baru). Snapshot TANPA `breakdown.assets` (manual backfill
+  `{month, netWorth, manual:true}`) DI-SKIP total — ga ada data buat direkonstruksi, JANGAN
+  ngarang. Preview & eksekusi jalan SATU fungsi matching yang sama (`previewCapexBackfill()`,
+  dipanggil juga dari dalam `backfillCapexToSnapshots()`) — pola sama `previewBulkDelete()`/
+  `bulkDelete()`, preview ga boleh drift dari yang beneran ke-apply. One-shot per snapshot yang
+  belum ke-backfill — card otomatis ilang begitu semua snapshot yang match udah punya
+  `totalCapex` (re-render lewat `store.on()` biasa setelah `patch()` masing-masing snapshot).
 - `tests/calc.test.mjs` — smoke test manual buat `js/calc.js`, jalankan
   `node tests/calc.test.mjs` (bukan bagian runtime app, sengaja GA masuk `PRECACHE` sw.js).
   `js/calc.js` sendiri WAJIB masuk `PRECACHE` (dipakai runtime lewat wrapper `store.js`).

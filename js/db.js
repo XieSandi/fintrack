@@ -214,6 +214,51 @@ export async function upsertSnapshot() {
   }, { merge: true });
 }
 
+// ================= Backfill CAPEX ke Snapshot Lama =================
+// Snapshot yang dibuat SEBELUM fitur CAPEX ada ga punya field `totalCapex` (undefined) — bikin
+// chart Tren Net Worth/Proyeksi & report-md.js section 1/10 nampilin garis/angka "+ CAPEX" dan
+// "tanpa CAPEX" IDENTIK buat bulan-bulan lama, padahal asset yang SEKARANG bertipe capex bisa aja
+// udah ada waktu itu (cuma belum diklasifikasikan sebagai capex, jadi ke-hitung sebagai "assets"
+// biasa). Dua fungsi ini nge-backfill `totalCapex` ke snapshot lama secara BEST-EFFORT: cocokin
+// `breakdown.assets[i].symbol` snapshot itu vs symbol/name asset yang SEKARANG bertipe capex,
+// jumlahin `valueIDR`-nya (angka yang BENERAN kesimpen di snapshot itu waktu itu, BUKAN dikarang)
+// jadi `totalCapex` bulan tersebut. SENGAJA TIDAK mengubah `breakdown.assets[i].type` (biarin
+// historisnya apa adanya, cuma tambah field top-level `totalCapex` yang dipakai buat split
+// with/without CAPEX) — jadi section 6 "Investasi" report utk bulan lama TETAP ngelompokkin
+// item itu ke tipe LAMA-nya (bukan pindah ke grup CAPEX), quirk kecil yang diterima demi ga
+// nulis ulang breakdown historis. Snapshot TANPA breakdown (manual backfill
+// `{month, netWorth, manual:true}`) DI-SKIP — ga ada data buat direkonstruksi, JANGAN ngarang.
+// `previewCapexBackfill()` dipakai Setting buat preview sebelum eksekusi (pola sama
+// `previewBulkDelete()`/`bulkDelete()`) — preview & eksekusi jalan LOGIC MATCHING yang sama biar
+// ga drift.
+function capexSymbolSet() {
+  return new Set(
+    state.assets.filter((a) => a.type === "capex").map((a) => (a.symbol || a.name || "").toUpperCase()).filter(Boolean)
+  );
+}
+
+export function previewCapexBackfill() {
+  const symbols = capexSymbolSet();
+  if (symbols.size === 0) return [];
+  return state.snapshots
+    .filter((s) => typeof s.totalCapex !== "number" && Array.isArray(s.breakdown?.assets))
+    .map((s) => {
+      const matched = s.breakdown.assets.filter((a) => symbols.has((a.symbol || "").toUpperCase()));
+      const totalCapex = matched.reduce((sum, a) => sum + (Number(a.valueIDR) || 0), 0);
+      return { month: s.month || s.id, matchedSymbols: matched.map((a) => a.symbol), totalCapex };
+    })
+    .filter((r) => r.matchedSymbols.length > 0)
+    .sort((a, b) => a.month.localeCompare(b.month));
+}
+
+export async function backfillCapexToSnapshots() {
+  const rows = previewCapexBackfill();
+  for (const r of rows) {
+    await patch("snapshots", r.month, { totalCapex: r.totalCapex });
+  }
+  return rows.length;
+}
+
 // ================= Backup / Restore =================
 const COLLECTIONS = ["accounts", "categories", "transactions", "budgets", "assets", "debts", "goals", "recurring", "snapshots"];
 
