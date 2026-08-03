@@ -144,6 +144,36 @@ Blur mode (toggle 👁️ di card Total Balance) nge-blur semua `<span class="bl
   (pre-fitur ini) tetap bisa diedit manual lewat form biasa — ga dipaksa punya jejak transaksi.
   Asset yang punya transaksi ber-`assetId` ga bisa dihapus langsung — pola sama proteksi hapus
   akun/goal/debt.
+  **Tipe `capex`** (CAPEX / Barang Susut — laptop, kendaraan, elektronik, dll) BEDA POLA total
+  dari tipe lain: nilainya BUKAN harga manual yang di-refresh, tapi AUTO-DIHITUNG tiap saat pakai
+  declining balance — `capexValueIDR()`/`capexLocalValue()` (calc.js): `value = avgBuyPrice ×
+  (1 − depreciationPctMonth)^bulan-sejak-purchaseDate`. `quantity` DIPAKSA 1 (form sheet hide
+  field ini buat tipe capex — ga ada konsep qty buat barang fisik satuan), `avgBuyPrice` DIREUSE
+  sebagai harga beli awal (bukan field baru) biar `assetCostIDR()` otomatis jalan tanpa kode
+  baru → P&L existing di `assetRow()`/report-md.js otomatis kebaca sebagai "kerugian" dari
+  penyusutan. Field baru: `purchaseDate` ("YYYY-MM-DD"), `depreciationPctMonth` (desimal 0–1,
+  input form-nya persen mis. "2" = 0.02, pola sama `projectionRateA/B`). **TIDAK auto-refresh**
+  (bukan bagian `AUTO_TYPES` di `prices.js`) dan **TIDAK punya Catat Pembelian/Penjualan**
+  (tombol itu di-hide di `openAssetSheet()` kalau tipe capex) — barang fisik dicatat sekali,
+  harga & tanggal beli diedit manual kalau salah, ga ada konsep "harga pasar per unit" yang
+  ditransaksikan kayak saham/crypto. `nowMonth` WAJIB dikirim eksplisit ke
+  `assetValueIDR()`/`totalAssetsIDR()`/`netWorthIDR()` (calc.js) sekarang — semua caller lewat
+  `store.js` yang otomatis nyuntik `currentMonth()`, JANGAN panggil versi calc.js langsung dari
+  view tanpa parameter itu.
+  **Toggle Net Worth** (`settings.includeCapexInNetWorth`, checkbox di Setting → "🏆 Main
+  Milestone & Kurs", default **FALSE/exclude**) — nentuin CAPEX ikut `netWorthIDR()` atau ngga.
+  `totalAssetsIDR()` SENDIRI TETAP SELALU termasuk CAPEX apa adanya (dipakai tab Assets Wealth —
+  itu "semua yang lo punya", bukan konsep net worth); `netWorthIDR()` yang conditional-subtract
+  lewat `totalCapexIDR()` (calc.js) BUKAN filter ulang di tempat lain. Efeknya: breakdown Total
+  tab Wealth ("📈 Assets (investasi)") SELALU nampilin nilai EXCLUDE CAPEX (biar rows-nya tetap
+  sum persis ke NET WORTH baik toggle ON/OFF) + baris "🏗️ CAPEX" terpisah CUMA muncul di situ
+  kalau toggle ON; kalau OFF, nilainya tetep kelihatan tapi sebagai catatan `.sub` di luar
+  tabel breakdown (bukan salah satu row yang di-sum). `report-md.js` section 1 nunjukin nilai
+  CAPEX + status include/exclude-nya secara eksplisit (jangan asumsikan Assets di laporan =
+  Net worth − Cash − Goals + Debt kalau CAPEX ada, dua-duanya sengaja BISA beda). Snapshot bulanan
+  (`upsertSnapshot()`) nyimpen `totalCapex` + per-asset `purchaseDate`/`depreciationPctMonth` di
+  breakdown — field opsional/additive, snapshot lama (pre-fitur) `undefined` → fallback 0, JADI
+  **schemaVersion TIDAK dinaikkan** buat perubahan ini (backup lama tetap valid di-restore).
 - `debts` — outstanding, monthlyInstalment, dueDay, remainingMonths. Mengurangi net worth.
   Transaksi expense bisa opsional bawa `debtId` (dropdown "Potong hutang?" di `openTxSheet()`
   kalau ada ≥1 debt, dan di form `recurring`) — CREATE/EDIT/DELETE transaksi ber-`debtId`
@@ -244,10 +274,11 @@ Blur mode (toggle 👁️ di card Total Balance) nge-blur semua `<span class="bl
   (`report-md.js`, pace-nya SELALU dari posisi TERKINI walau lagi liat laporan bulan lampau —
   pace itu konsep forward-looking "dari sekarang", bukan potret historis per bulan).
 
-Net worth = totalCashIDR + totalAssetsIDR + totalGoalSavingsIDR − totalDebtIDR (USD dikonversi
-`effectiveRate()`). Goal savings dihitung terpisah dari `totalAssetsIDR()` (bukan di-fold ke situ)
-biar tab Assets di Wealth (isinya cuma investasi) ga ikut kebawa angka goal — tapi tetep ditambah
-sebagai baris terpisah "🎯 Goals" di breakdown Total tab Wealth biar rows-nya sum ke net worth.
+Net worth = totalCashIDR + totalAssetsIDR (− totalCapexIDR kalau toggle exclude, lihat bullet
+`assets` tipe `capex`) + totalGoalSavingsIDR − totalDebtIDR (USD dikonversi `effectiveRate()`).
+Goal savings dihitung terpisah dari `totalAssetsIDR()` (bukan di-fold ke situ) biar tab Assets di
+Wealth (isinya cuma investasi) ga ikut kebawa angka goal — tapi tetep ditambah sebagai baris
+terpisah "🎯 Goals" di breakdown Total tab Wealth biar rows-nya sum ke net worth.
 
 ## ATURAN WAJIB saat mengubah kode
 

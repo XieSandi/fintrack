@@ -379,5 +379,34 @@ function makeState() {
   assertClose(series[2].value, v2, 0.0001, "projectSeries: kontribusi + rate -> nilai bulan ke-2 cocok hitung manual titik itu");
 }
 
+// ================= CAPEX: auto-depresiasi + toggle net worth =================
+{
+  // Declining balance 10%/bulan x 3 bulan sejak tanggal beli
+  const s = makeState();
+  s.assets = [{ id: "cx1", type: "capex", quantity: 1, avgBuyPrice: 10_000_000, currency: "IDR", purchaseDate: "2026-01-15", depreciationPctMonth: 0.1 }];
+  const val = calc.assetValueIDR(s, s.assets[0], "2026-04");
+  assertClose(val, 10_000_000 * Math.pow(0.9, 3), 1, "capex: value auto-susut declining balance 10%/bulan x 3 bulan");
+}
+{
+  // Bulan yang sama dengan purchaseMonth -> elapsed 0 -> value = harga beli persis, belum susut
+  const s = makeState();
+  s.assets = [{ id: "cx1", type: "capex", quantity: 1, avgBuyPrice: 5_000_000, currency: "IDR", purchaseDate: "2026-03-01", depreciationPctMonth: 0.05 }];
+  assertEqual(calc.assetValueIDR(s, s.assets[0], "2026-03"), 5_000_000, "capex: bulan beli sendiri -> belum susut sama sekali");
+}
+{
+  // Default toggle (includeCapexInNetWorth ga di-set) -> CAPEX EXCLUDE dari net worth, TAPI
+  // TETAP masuk totalAssetsIDR (tab Assets = semua yang dipunya, bukan cuma yang dihitung NW).
+  const s = makeState();
+  s.assets = [{ id: "cx1", type: "capex", quantity: 1, avgBuyPrice: 10_000_000, currency: "IDR", purchaseDate: "2026-01-01", depreciationPctMonth: 0 }];
+  const assetsTotal = calc.totalAssetsIDR(s, "2026-01");
+  const nwExcluded = calc.netWorthIDR(s, "2026-01");
+  assertEqual(assetsTotal, 10_000_000, "capex: totalAssetsIDR SELALU termasuk CAPEX (tab Assets = semua yang dipunya)");
+  assertEqual(nwExcluded, calc.totalCashIDR(s), "capex: default toggle OFF -> netWorthIDR EXCLUDE nilai CAPEX");
+
+  s.settings.includeCapexInNetWorth = true;
+  const nwIncluded = calc.netWorthIDR(s, "2026-01");
+  assertEqual(nwIncluded, calc.totalCashIDR(s) + 10_000_000, "capex: toggle ON -> netWorthIDR INCLUDE nilai CAPEX");
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

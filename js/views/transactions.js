@@ -61,12 +61,23 @@ export function render(root) {
     info.innerHTML = `${rows.length} transaksi · total expense ${fmtIDR(totExp)}`;
     list.appendChild(info);
 
+    const dayTotals = {};
+    rows.forEach((t) => {
+      const d = (dayTotals[t.date] ||= { exp: 0, inc: 0 });
+      if (t.type === "expense") d.exp += Number(t.amount || 0);
+      else if (t.type === "income") d.inc += Number(t.amount || 0);
+    });
+
     let lastDate = null;
     rows.forEach((t) => {
       if (t.date !== lastDate) {
+        const dt = dayTotals[t.date];
+        const parts = [];
+        if (dt.exp > 0) parts.push(`<span class="exp">-${fmtIDR(dt.exp)}</span>`);
+        if (dt.inc > 0) parts.push(`<span class="inc">+${fmtIDR(dt.inc)}</span>`);
         const h = document.createElement("div");
         h.className = "tx-group-date";
-        h.textContent = dateLabel(t.date);
+        h.innerHTML = `<span>${escapeHtml(dateLabel(t.date))}</span><span class="tx-group-totals">${parts.join("")}</span>`;
         list.appendChild(h);
         lastDate = t.date;
       }

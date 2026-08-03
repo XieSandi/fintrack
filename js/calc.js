@@ -54,8 +54,12 @@ export function totalCashIDR(state) {
   }, 0);
 }
 
-// Nilai asset (harga manual). Saham IDX: qty dalam LOT → ×100 lembar.
-export function assetValueIDR(state, a) {
+// Nilai asset (harga manual). Saham IDX: qty dalam LOT → ×100 lembar. CAPEX (lihat blok di
+// bawah) dispatch ke capexValueIDR — nilainya auto-dihitung dari penyusutan, bukan harga manual.
+// `nowMonth` cuma dipakai buat CAPEX (tipe lain abaikan parameter ini) — WAJIB dikirim eksplisit
+// oleh caller (store.js → currentMonth()), calc.js ga boleh baca wall-clock sendiri.
+export function assetValueIDR(state, a, nowMonth) {
+  if (a.type === "capex") return capexValueIDR(state, a, nowMonth);
   const rate = effectiveRate(state);
   const qty = Number(a.quantity) || 0;
   const price = Number(a.manualPrice) || 0;
@@ -73,7 +77,36 @@ export function assetCostIDR(state, a) {
   return a.currency === "USD" ? val * rate : val;
 }
 
-export const totalAssetsIDR = (state) => state.assets.reduce((s, a) => s + assetValueIDR(state, a), 0);
+// ============== CAPEX: asset fisik yang auto-susut nilainya tiap bulan ==============
+// Barang habis pakai/susut (laptop, kendaraan, elektronik, dll) — beda dari investasi (saham/
+// reksadana/dll) yang nilainya naik-turun ngikutin harga pasar, CAPEX SELALU turun predictable
+// tiap bulan pakai reducing-balance (declining balance, kayak metode akuntansi): value = harga
+// beli × (1 − pct)^bulan-berjalan-sejak-tanggal-beli. `quantity` SELALU 1 (dipaksa di form asset,
+// ga ada konsep qty buat barang fisik satuan). `avgBuyPrice` DIREUSE sebagai harga beli awal
+// (bukan field baru) — biar assetCostIDR() otomatis jalan tanpa perubahan, jadi P&L existing di
+// assetRow()/report-md.js otomatis kebaca sebagai "kerugian" dari penyusutan tanpa kode baru.
+export function capexLocalValue(state, a, nowMonth) {
+  const price = Number(a.avgBuyPrice) || 0;
+  const pct = Number(a.depreciationPctMonth) || 0;
+  const purchaseMonth = (a.purchaseDate || "").slice(0, 7);
+  if (!purchaseMonth || !nowMonth) return price;
+  const elapsed = Math.max(0, monthsBetween(purchaseMonth, nowMonth));
+  return price * Math.pow(1 - pct, elapsed);
+}
+
+export function capexValueIDR(state, a, nowMonth) {
+  const rate = effectiveRate(state);
+  const val = capexLocalValue(state, a, nowMonth);
+  return a.currency === "USD" ? val * rate : val;
+}
+
+export const totalAssetsIDR = (state, nowMonth) =>
+  state.assets.reduce((s, a) => s + assetValueIDR(state, a, nowMonth), 0);
+
+// Total nilai CAPEX doang — dipakai netWorthIDR buat conditional include/exclude (toggle
+// settings.includeCapexInNetWorth) TANPA filter ulang assetValueIDR di dua tempat beda.
+export const totalCapexIDR = (state, nowMonth) =>
+  state.assets.filter((a) => a.type === "capex").reduce((s, a) => s + assetValueIDR(state, a, nowMonth), 0);
 export const totalDebtIDR = (state) => state.debts.reduce((s, d) => s + (Number(d.totalOutstanding) || 0), 0);
 
 // Saldo goal = total topup (toGoalId) − total pencairan (fromGoalId).
@@ -94,8 +127,20 @@ export function goalSavedIDR(state, goalId) {
 export const totalGoalSavingsIDR = (state) => state.goals.reduce((s, g) => s + goalSavedIDR(state, g.id), 0);
 
 // Goal savings dihitung sebagai bagian net worth (uangnya ga hilang, cuma pindah "kantong").
-export const netWorthIDR = (state) =>
-  totalCashIDR(state) + totalAssetsIDR(state) + totalGoalSavingsIDR(state) - totalDebtIDR(state);
+// CAPEX (barang fisik susut, lihat blok di atas) di-exclude/include tergantung toggle
+// `settings.includeCapexInNetWorth` — default FALSE (exclude) biar net worth existing user ga
+// tiba-tiba berubah pas fitur ini nongol pertama kali; barang kayak laptop/kendaraan pribadi
+// juga umumnya ga dianggap "investable net worth" di banyak filosofi personal finance.
+// totalAssetsIDR() SENDIRI TETAP selalu termasuk CAPEX (dipakai tab Assets Wealth — itu emang
+// "semua yang lo punya", bukan konsep net worth) — exclude-nya cuma di sini lewat SUBTRACT
+// (bukan filter ulang assetValueIDR di tempat lain), `nowMonth` diteruskan biar CAPEX ke-hitung
+// pakai bulan yang bener (lihat capexValueIDR).
+export function netWorthIDR(state, nowMonth) {
+  const assets = totalAssetsIDR(state, nowMonth);
+  const capex = totalCapexIDR(state, nowMonth);
+  const includeCapex = state.settings.includeCapexInNetWorth === true;
+  return totalCashIDR(state) + (includeCapex ? assets : assets - capex) + totalGoalSavingsIDR(state) - totalDebtIDR(state);
+}
 
 // ============== Dashboard Proyeksi (TASK-1): Nabung vs Aktual vs Return ==============
 // Dua fungsi murni di bawah ini adalah primitif yang dipakai js/views/wealth.js buat nyusun
@@ -181,7 +226,7 @@ export function recentAvgSurplus(state, nowMonth, count = 3, lookback = 24) {
 export function milestoneProgress(state, nowMonth) {
   const target = Number(state.settings.targetNetWorth) || 0;
   if (target <= 0) return { target: 0, nw: 0, pct: 0, achieved: false, hidden: true };
-  const nw = netWorthIDR(state);
+  const nw = netWorthIDR(state, nowMonth);
   const pct = Math.max(0, Math.min(100, (nw / target) * 100));
   const achieved = nw >= target;
   const result = { target, nw, pct, achieved, hidden: false };

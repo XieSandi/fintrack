@@ -4,8 +4,8 @@ import {
   getDoc, getDocs, serverTimestamp, writeBatch,
 } from "./firebase.js";
 import {
-  state, netWorthIDR, totalCashIDR, totalAssetsIDR, totalDebtIDR, totalGoalSavingsIDR,
-  accountBalances, assetValueIDR, assetCostIDR, effectiveRate, goalSavedIDR, activeAccounts,
+  state, netWorthIDR, totalCashIDR, totalAssetsIDR, totalCapexIDR, totalDebtIDR, totalGoalSavingsIDR,
+  accountBalances, assetValueIDR, assetCostIDR, capexLocalValue, effectiveRate, goalSavedIDR, activeAccounts,
 } from "./store.js";
 import { currentMonth } from "./utils.js";
 
@@ -175,8 +175,13 @@ export async function upsertSnapshot() {
       symbol: a.symbol || a.name, type: a.type, currency: a.currency,
       quantity: Number(a.quantity) || 0,
       avgBuyPrice: Number(a.avgBuyPrice) || 0,
-      price: Number(a.manualPrice) || 0,
-      priceDate: a.manualPriceUpdatedAt || null,
+      // CAPEX ga punya "harga manual" — price-nya diturunkan dari penyusutan (lihat calc.js
+      // capexLocalValue). priceDate diisi bulan snapshot ini (`m`) — bukan tanggal refresh manual
+      // kayak tipe lain, tapi tetap ada timestamp-nya (ATURAN WAJIB #7), bukan "?" kosong.
+      price: a.type === "capex" ? Math.round(capexLocalValue(a) * 100) / 100 : Number(a.manualPrice) || 0,
+      priceDate: a.type === "capex" ? m : (a.manualPriceUpdatedAt || null),
+      purchaseDate: a.type === "capex" ? (a.purchaseDate || null) : null,
+      depreciationPctMonth: a.type === "capex" ? (Number(a.depreciationPctMonth) || 0) : null,
       valueIDR: Math.round(assetValueIDR(a)),
       costIDR: Math.round(assetCostIDR(a)),
     })),
@@ -200,6 +205,7 @@ export async function upsertSnapshot() {
     month: m,
     totalCash: Math.round(totalCashIDR()),
     totalAssets: Math.round(totalAssetsIDR()),
+    totalCapex: Math.round(totalCapexIDR()),
     totalGoalSavings: Math.round(totalGoalSavingsIDR()),
     totalDebt: Math.round(totalDebtIDR()),
     netWorth: Math.round(netWorthIDR()),

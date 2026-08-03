@@ -148,7 +148,10 @@ body.blur-mode .blur-num { filter: blur(7px); user-select: none; -webkit-user-se
 .summary3 .v { font-size: 13px; font-weight: 700; margin-top: 2px; }
 
 /* ---------- Transactions ---------- */
-.tx-group-date { font-size: 11px; color: var(--muted2); font-weight: 700; margin: 16px 2px 6px; }
+.tx-group-date { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 11px; color: var(--muted2); font-weight: 700; margin: 16px 2px 6px; }
+.tx-group-totals { display: flex; gap: 8px; }
+.tx-group-totals .exp { color: var(--red); }
+.tx-group-totals .inc { color: var(--green); }
 .tx-item {
   display: flex; align-items: center; gap: 12px;
   background: var(--card); border: 1px solid var(--border); border-radius: 10px;

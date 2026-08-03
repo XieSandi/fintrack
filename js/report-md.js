@@ -2,8 +2,8 @@
 // Beda dari exportAll() (db.js): itu backup JSON buat restore, ini human/AI-readable.
 // Fungsi murni, ga nulis apa-apa ke Firestore, cuma baca dari store.
 import {
-  state, activeAccounts, accountBalances, totalCashIDR, totalAssetsIDR, totalDebtIDR,
-  totalGoalSavingsIDR, netWorthIDR, assetValueIDR, assetCostIDR, goalSavedIDR,
+  state, activeAccounts, accountBalances, totalCashIDR, totalAssetsIDR, totalCapexIDR, totalDebtIDR,
+  totalGoalSavingsIDR, netWorthIDR, assetValueIDR, assetCostIDR, capexLocalValue, goalSavedIDR,
   effectiveRate, monthSummary, spentByCategory, budgetsOfMonth, catById, acctById, milestoneProgress,
 } from "./store.js";
 import {
@@ -70,6 +70,7 @@ function buildPosition(month, isCurrentMonth) {
       disclaimer: null,
       cash: snap.totalCash || 0,
       assetsTotal: snap.totalAssets || 0,
+      capexTotal: snap.totalCapex || 0, // snapshot lama (pre-fitur CAPEX) ga punya field ini -> 0
       goalSavingsTotal: snap.totalGoalSavings || 0,
       debtTotal: snap.totalDebt || 0,
       nw: snap.netWorth || 0,
@@ -91,6 +92,7 @@ function buildPosition(month, isCurrentMonth) {
       : null,
     cash: totalCashIDR(),
     assetsTotal: totalAssetsIDR(),
+    capexTotal: totalCapexIDR(),
     goalSavingsTotal: totalGoalSavingsIDR(),
     debtTotal: totalDebtIDR(),
     nw: netWorthIDR(),
@@ -102,7 +104,8 @@ function buildPosition(month, isCurrentMonth) {
     assets: state.assets.map((a) => ({
       symbol: a.symbol || a.name, type: a.type, currency: a.currency,
       quantity: Number(a.quantity) || 0, avgBuyPrice: Number(a.avgBuyPrice) || 0,
-      price: Number(a.manualPrice) || 0, priceDate: a.manualPriceUpdatedAt || null,
+      price: a.type === "capex" ? capexLocalValue(a) : Number(a.manualPrice) || 0,
+      priceDate: a.type === "capex" ? todayStr() : (a.manualPriceUpdatedAt || null),
       valueIDR: assetValueIDR(a), costIDR: assetCostIDR(a),
     })),
     debts: state.debts.map((d) => ({
@@ -142,6 +145,12 @@ export function buildMonthlyReport(month) {
   const nwDelta = prevSnap ? position.nw - prevSnap.netWorth : null;
   lines.push(`- **Net worth: ${fmtIDRPlain(position.nw)}**${nwDelta !== null ? ` (Δ ${signed(nwDelta)} vs ${monthLabel(prevMonthKey)})` : ""}`);
   lines.push(`- Cash: ${fmtIDRPlain(position.cash)} · Assets: ${fmtIDRPlain(position.assetsTotal)} · Goal savings: ${fmtIDRPlain(position.goalSavingsTotal)} · Debt: −${fmtIDRPlain(position.debtTotal)}`);
+  if (position.capexTotal > 0) {
+    // Assets di atas SELALU nilai penuh (termasuk CAPEX) — toggle Setting cuma mempengaruhi Net
+    // worth di baris atas, BUKAN angka Assets ini, jadi dua-duanya sengaja ga "nyambung" 1:1.
+    const includeCapexNow = state.settings.includeCapexInNetWorth === true;
+    lines.push(`- Termasuk dalam Assets: 🏗️ CAPEX (Barang Susut) ${fmtIDRPlain(position.capexTotal)} — ${includeCapexNow ? "IKUT" : "TIDAK ikut"} dihitung di Net worth (toggle di Setting → Main Milestone & Kurs)`);
+  }
   const target = Number(state.settings.targetNetWorth) || 0;
   if (target > 0) {
     const milestonePct = Math.max(0, (position.nw / target) * 100);
