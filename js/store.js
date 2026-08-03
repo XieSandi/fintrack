@@ -97,12 +97,13 @@ export const goalSavedIDR = (goalId) => calc.goalSavedIDR(state, goalId);
 export const totalGoalSavingsIDR = () => calc.totalGoalSavingsIDR(state);
 export const netWorthIDR = () => calc.netWorthIDR(state, currentMonth());
 export const netWorthFromParts = (parts, includeCapex) => calc.netWorthFromParts(parts, includeCapex);
+export const snapshotNetWorth = (s, includeCapex) => calc.snapshotNetWorth(s, includeCapex);
 export const milestoneProgress = () => calc.milestoneProgress(state, currentMonth());
 export const monthSummary = (month) => calc.monthSummary(state, month);
 export const spentByCategory = (month) => calc.spentByCategory(state, month);
 export const budgetsOfMonth = (month) => calc.budgetsOfMonth(state, month);
 export const rangeSummary = (fromDate, toDate) => calc.rangeSummary(state, fromDate, toDate);
-export const savingsOnlySeries = (fromMonth, toMonth) => calc.savingsOnlySeries(state, fromMonth, toMonth);
+export const savingsOnlySeries = (fromMonth, toMonth, includeCapex) => calc.savingsOnlySeries(state, fromMonth, toMonth, includeCapex);
 export const recentAvgSurplus = (nowMonth, count) => calc.recentAvgSurplus(state, nowMonth, count);
 export const monthsBetween = (fromYM, toYM) => calc.monthsBetween(fromYM, toYM);
 // projectSeries ga butuh `state` (murni matematika) tapi tetap di-wrap di sini — SEMUA view lain

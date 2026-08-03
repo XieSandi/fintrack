@@ -352,24 +352,29 @@ terpisah "🎯 Goals" di breakdown Total tab Wealth biar rows-nya sum ke net wor
   — SELALU dua garis "Net Worth (+ CAPEX)" vs "Net Worth (tanpa CAPEX)" (bukan cuma pas ada
   CAPEX — sengaja ga di-gate, biar user selalu bisa bandingin) + garis Target, legend selalu
   tampil. Dua garis itu dihitung ULANG per snapshot lewat `snapshotNetWorth(s, includeCapex)`
-  (helper modul `wealth.js`, wrapping `netWorthFromParts()` calc.js) dari field total* MENTAH
-  (`totalCash`/`totalAssets`/`totalCapex`/`totalGoalSavings`/`totalDebt`, semua top-level di doc
-  snapshot, lihat bullet `snapshots`) — BUKAN dari `s.netWorth` yang tersimpan, karena `netWorth`
-  itu udah "jadi" pakai toggle `settings.includeCapexInNetWorth` SAAT snapshot itu dibuat. Kalau
+  (calc.js, pure — wrapping `netWorthFromParts()`, di-export lewat `store.js` biar satu sumber
+  dipakai wealth.js DAN report-md.js, lihat di bawah) dari field total* MENTAH (`totalCash`/
+  `totalAssets`/`totalCapex`/`totalGoalSavings`/`totalDebt`, semua top-level di doc snapshot,
+  lihat bullet `snapshots`) — BUKAN dari `s.netWorth` yang tersimpan, karena `netWorth` itu udah
+  "jadi" pakai toggle `settings.includeCapexInNetWorth` SAAT snapshot itu dibuat. Kalau
   toggle-nya pernah diganti, satu garis `netWorth` doang bakal keliatan "lompat" padahal cuma
   definisi yang beda, bukan net worth beneran berubah — makanya dua garis di sini SELALU dihitung
   pakai definisi yang SAMA di semua titik, terlepas toggle waktu itu apa. Snapshot lama yang cuma
   punya `netWorth` (manual backfill `{month, netWorth, manual:true}`, atau snapshot dari sebelum
   fitur CAPEX ada — ga punya `totalCash`/`totalAssets` top-level) fallback ke `netWorth` apa
-  adanya buat dua-duanya (`snapshotHasTotals()` check) — ga ada cukup data buat dipisah, jangan
-  ngarang breakdown yang ga ada. Chart 🚀 Proyeksi (`renderProjectionChart()`) BEDA POLA — garis
-  "Aktual" historis di situ CUMA SATU (chart-nya udah padat, 6 garis), ngikutin toggle SEKARANG
+  adanya buat SEMUA variant `includeCapex` — ga ada cukup data buat dipisah, jangan ngarang
+  breakdown yang ga ada (bisa dibenerin per-snapshot lewat card "🏗️ Backfill CAPEX ke Snapshot
+  Lama" di Setting kalau breakdown-nya masih ada, lihat bullet itu di bawah). Chart 🚀 Proyeksi
+  (`renderProjectionChart()`) BEDA POLA dikit — garis "Aktual" DAN "Nabung doang" historis di
+  situ CUMA SATU per konsep (chart-nya udah padat, 6 garis), ngikutin toggle SEKARANG
   (`state.settings.includeCapexInNetWorth`, live — bukan toggle yang berlaku waktu snapshot itu
   dibuat) lewat `snapshotNetWorth()` yang sama, biar konsisten sama titik awal semua garis
-  proyeksi (`nw` dari `netWorthIDR()`, yang juga toggle-aware). Garis "Nabung doang"
-  (`savingsOnlySeries()`, calc.js) TIDAK ikut di-toggle-in — anchor-nya masih `snaps[0].netWorth`
-  mentah, quirk kecil yang sengaja belum dibenerin (di luar scope, dampaknya minor & cuma
-  kerasa kalau toggle pernah diganti DAN ada histori snapshot lama).
+  proyeksi (`nw` dari `netWorthIDR()`, yang juga toggle-aware). Garis "Nabung doang" secara
+  spesifik: `savingsOnlySeries(state, fromMonth, toMonth, includeCapex)` (calc.js) SEKARANG
+  nerima parameter `includeCapex` (default `false`, samain default toggle) dan pakai
+  `snapshotNetWorth()` buat anchor-nya (BUKAN `snaps[0].netWorth` mentah lagi kayak sebelumnya)
+  — jadi anchor-nya konsisten sama garis Aktual, ga ada lagi gap antara dua garis itu kalau
+  toggle-nya pernah diganti.
 - **Backfill CAPEX ke Snapshot Lama** (Setting, card "🏗️ Backfill CAPEX ke Snapshot Lama" —
   CUMA muncul kalau `previewCapexBackfill()` nemu sesuatu buat di-backfill, `js/db.js`
   `previewCapexBackfill()`/`backfillCapexToSnapshots()`) — snapshot yang dibuat SEBELUM fitur

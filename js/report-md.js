@@ -3,7 +3,7 @@
 // Fungsi murni, ga nulis apa-apa ke Firestore, cuma baca dari store.
 import {
   state, activeAccounts, accountBalances, totalCashIDR, totalAssetsIDR, totalCapexIDR, totalDebtIDR,
-  totalGoalSavingsIDR, netWorthIDR, netWorthFromParts, assetValueIDR, assetCostIDR, capexLocalValue, goalSavedIDR,
+  totalGoalSavingsIDR, netWorthIDR, netWorthFromParts, snapshotNetWorth, assetValueIDR, assetCostIDR, capexLocalValue, goalSavedIDR,
   effectiveRate, monthSummary, spentByCategory, budgetsOfMonth, catById, acctById, milestoneProgress,
 } from "./store.js";
 import {
@@ -153,14 +153,7 @@ export function buildMonthlyReport(month) {
 
   const prevMonthKey = addMonths(month, -1);
   const prevSnap = state.snapshots.find((s) => s.id === prevMonthKey);
-  let nwDelta = null;
-  if (prevSnap) {
-    const prevHasTotals = typeof prevSnap.totalCash === "number" && typeof prevSnap.totalAssets === "number";
-    const prevNwForToggle = prevHasTotals
-      ? netWorthFromParts({ cash: prevSnap.totalCash, assets: prevSnap.totalAssets, capex: prevSnap.totalCapex, goalSavings: prevSnap.totalGoalSavings, debt: prevSnap.totalDebt }, includeCapexNow)
-      : (prevSnap.netWorth || 0);
-    nwDelta = nwForToggle - prevNwForToggle;
-  }
+  const nwDelta = prevSnap ? nwForToggle - snapshotNetWorth(prevSnap, includeCapexNow) : null;
 
   lines.push(`- **Net worth (+ CAPEX): ${fmtIDRPlain(nwWithCapex)}**`);
   lines.push(`- **Net worth (tanpa CAPEX): ${fmtIDRPlain(nwWithoutCapex)}**`);
@@ -314,14 +307,10 @@ export function buildMonthlyReport(month) {
   // laporan ini bisa bandingin trennya sendiri (lihat section 1 buat penjelasan lebih lengkap).
   lines.push("## 10. Tren Net Worth");
   const snaps = state.snapshots.slice(-12);
-  const snapHasTotals = (s) => typeof s.totalCash === "number" && typeof s.totalAssets === "number";
-  const snapNetWorth = (s, includeCapex) => snapHasTotals(s)
-    ? netWorthFromParts({ cash: s.totalCash, assets: s.totalAssets, capex: s.totalCapex, goalSavings: s.totalGoalSavings, debt: s.totalDebt }, includeCapex)
-    : (s.netWorth || 0);
   const trendRows = snaps.map((s) => [
     monthLabel(s.month || s.id),
-    fmtIDRPlain(snapNetWorth(s, true)),
-    fmtIDRPlain(snapNetWorth(s, false)),
+    fmtIDRPlain(snapshotNetWorth(s, true)),
+    fmtIDRPlain(snapshotNetWorth(s, false)),
   ]);
   lines.push(mdTable(["Bulan", "Net Worth (+ CAPEX)", "Net Worth (tanpa CAPEX)"], trendRows));
   if (snaps.length >= 2) {

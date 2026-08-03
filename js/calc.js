@@ -137,6 +137,22 @@ export function netWorthFromParts({ cash, assets, capex, goalSavings, debt }, in
   return includeCapex ? base : base - (capex || 0);
 }
 
+// Net worth SATU dokumen snapshot, toggle-aware — SATU tempat dipakai ulang di mana pun perlu
+// "net worth bulan X ini, ngikut definisi toggle YANG BERLAKU SEKARANG" (chart Tren Net Worth,
+// garis Aktual & Nabung doang di Proyeksi (wealth.js), section 1 & 10 report-md.js) — jangan
+// diduplikasi manual, drift antar tempat itu justru masalah yang lagi dibenerin di sini.
+// Snapshot lama yang cuma punya `netWorth` (manual backfill / sebelum fitur CAPEX ada, ga punya
+// `totalCash`/`totalAssets` top-level) fallback ke `netWorth` apa adanya buat includeCapex
+// manapun — ga ada breakdown buat direkonstruksi, jangan ngarang.
+export function snapshotNetWorth(s, includeCapex) {
+  const hasTotals = typeof s.totalCash === "number" && typeof s.totalAssets === "number";
+  if (!hasTotals) return Number(s.netWorth) || 0;
+  return netWorthFromParts(
+    { cash: s.totalCash, assets: s.totalAssets, capex: s.totalCapex, goalSavings: s.totalGoalSavings, debt: s.totalDebt },
+    includeCapex
+  );
+}
+
 // Goal savings dihitung sebagai bagian net worth (uangnya ga hilang, cuma pindah "kantong").
 // CAPEX (barang fisik susut, lihat blok di atas) di-exclude/include tergantung toggle
 // `settings.includeCapexInNetWorth` — default FALSE (exclude) biar net worth existing user ga
@@ -168,7 +184,11 @@ export function netWorthIDR(state, nowMonth) {
 // yang mulai dari titik yang sama), lalu tiap bulan berikutnya ditambah `monthSummary().surplus`
 // (BUKAN di-derive dari snapshot bulan itu — snapshot cuma dipakai buat cari titik AWAL).
 // Return [] kalau ga ada snapshot dalam range (caller tampilin empty state, bukan chart kosong).
-export function savingsOnlySeries(state, fromMonth, toMonth) {
+// `includeCapex` (opsional, default false — samain toggle default `netWorthIDR()`) diteruskan ke
+// `snapshotNetWorth()` buat nentuin anchor-nya — biar KONSISTEN sama garis Aktual yang juga
+// toggle-aware (bukan `snaps[0].netWorth` mentah, yang bisa reflect toggle CAPEX lama kalau
+// pernah diganti; lihat CLAUDE.md bullet Chart Tren Net Worth).
+export function savingsOnlySeries(state, fromMonth, toMonth, includeCapex = false) {
   const idOf = (s) => s.month || s.id;
   const snaps = state.snapshots
     .filter((s) => idOf(s) >= fromMonth && idOf(s) <= toMonth)
@@ -176,7 +196,7 @@ export function savingsOnlySeries(state, fromMonth, toMonth) {
   if (snaps.length === 0) return [];
 
   let month = idOf(snaps[0]);
-  let value = Number(snaps[0].netWorth) || 0;
+  let value = snapshotNetWorth(snaps[0], includeCapex);
   const out = [{ month, value }];
   while (month < toMonth) {
     month = addMonths(month, 1);

@@ -353,6 +353,35 @@ function makeState() {
   const s = makeState();
   assertEqual(calc.savingsOnlySeries(s, "2026-01", "2026-03").length, 0, "savingsOnlySeries: ga ada snapshot dalam range -> array kosong (bukan crash)");
 }
+{
+  // Anchor toggle-aware: snapshot pertama PUNYA breakdown total* (totalAssets 8jt, di dalamnya
+  // CAPEX 2jt) -> anchor beda tergantung includeCapex, BUKAN netWorth mentah yang tersimpan.
+  const s = makeState();
+  s.snapshots = [
+    { id: "2026-01", month: "2026-01", netWorth: 9_000_000, totalCash: 1_000_000, totalAssets: 8_000_000, totalCapex: 2_000_000, totalGoalSavings: 0, totalDebt: 0 },
+  ];
+  const withCapex = calc.savingsOnlySeries(s, "2026-01", "2026-01", true);
+  const withoutCapex = calc.savingsOnlySeries(s, "2026-01", "2026-01", false);
+  assertEqual(withCapex[0].value, 1_000_000 + 8_000_000, "savingsOnlySeries: includeCapex true -> anchor pakai assets penuh (netWorthFromParts)");
+  assertEqual(withoutCapex[0].value, 1_000_000 + (8_000_000 - 2_000_000), "savingsOnlySeries: includeCapex false -> anchor exclude CAPEX, BUKAN netWorth mentah 9jt yang tersimpan");
+}
+
+// ================= snapshotNetWorth =================
+{
+  // Snapshot lengkap (punya totalCash/totalAssets) -> recompute lewat netWorthFromParts, dua
+  // variant BISA beda dari `netWorth` mentah yang tersimpan (angka itu cuma "sudah jadi" ngikut
+  // toggle SAAT snapshot itu dibuat, bukan sumber kebenaran buat kedua variant).
+  const s = { totalCash: 1_000_000, totalAssets: 5_000_000, totalCapex: 1_500_000, totalGoalSavings: 200_000, totalDebt: 100_000, netWorth: 999_999 };
+  assertEqual(calc.snapshotNetWorth(s, true), 1_000_000 + 5_000_000 + 200_000 - 100_000, "snapshotNetWorth: includeCapex true -> assets penuh");
+  assertEqual(calc.snapshotNetWorth(s, false), 1_000_000 + (5_000_000 - 1_500_000) + 200_000 - 100_000, "snapshotNetWorth: includeCapex false -> assets exclude capex");
+}
+{
+  // Snapshot lama/manual backfill TANPA totalCash/totalAssets -> fallback ke netWorth mentah,
+  // buat KEDUA variant (ga ada breakdown buat direkonstruksi, jangan ngarang).
+  const s = { netWorth: 3_000_000, manual: true };
+  assertEqual(calc.snapshotNetWorth(s, true), 3_000_000, "snapshotNetWorth: snapshot tanpa breakdown -> fallback netWorth mentah (includeCapex true)");
+  assertEqual(calc.snapshotNetWorth(s, false), 3_000_000, "snapshotNetWorth: snapshot tanpa breakdown -> fallback netWorth mentah (includeCapex false)");
+}
 
 // ================= TASK-1: projectSeries =================
 {
