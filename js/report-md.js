@@ -3,7 +3,7 @@
 // Fungsi murni, ga nulis apa-apa ke Firestore, cuma baca dari store.
 import {
   state, activeAccounts, accountBalances, totalCashIDR, totalAssetsIDR, totalCapexIDR, totalDebtIDR,
-  totalGoalSavingsIDR, netWorthIDR, assetValueIDR, assetCostIDR, capexLocalValue, goalSavedIDR,
+  totalGoalSavingsIDR, netWorthIDR, netWorthFromParts, assetValueIDR, assetCostIDR, capexLocalValue, goalSavedIDR,
   effectiveRate, monthSummary, spentByCategory, budgetsOfMonth, catById, acctById, milestoneProgress,
 } from "./store.js";
 import {
@@ -140,21 +140,36 @@ export function buildMonthlyReport(month) {
   // ===== 1. Ringkasan =====
   lines.push("## 1. Ringkasan");
   lines.push(`_${position.label}${position.disclaimer ? ` — ${position.disclaimer}` : "."}_`);
+  // Net worth SELALU ditampilin DUA variant eksplisit (+ CAPEX / tanpa CAPEX) — bukan cuma satu
+  // angka ambigu — biar AI yang analisis laporan ini bisa bandingin dua skenario itu sendiri,
+  // bukan cuma nerima satu angka yang bisa maksudnya beda-beda tergantung toggle waktu itu.
+  // Dua-duanya dihitung dari breakdown MENTAH position (cash/assetsTotal RAW/capexTotal/dst)
+  // lewat SATU formula (`netWorthFromParts()`, calc.js) — biar konsisten sama chart Wealth.
+  const partsNow = { cash: position.cash, assets: position.assetsTotal, capex: position.capexTotal, goalSavings: position.goalSavingsTotal, debt: position.debtTotal };
+  const nwWithCapex = netWorthFromParts(partsNow, true);
+  const nwWithoutCapex = netWorthFromParts(partsNow, false);
+  const includeCapexNow = state.settings.includeCapexInNetWorth === true;
+  const nwForToggle = includeCapexNow ? nwWithCapex : nwWithoutCapex;
+
   const prevMonthKey = addMonths(month, -1);
   const prevSnap = state.snapshots.find((s) => s.id === prevMonthKey);
-  const nwDelta = prevSnap ? position.nw - prevSnap.netWorth : null;
-  lines.push(`- **Net worth: ${fmtIDRPlain(position.nw)}**${nwDelta !== null ? ` (Δ ${signed(nwDelta)} vs ${monthLabel(prevMonthKey)})` : ""}`);
-  lines.push(`- Cash: ${fmtIDRPlain(position.cash)} · Assets: ${fmtIDRPlain(position.assetsTotal)} · Goal savings: ${fmtIDRPlain(position.goalSavingsTotal)} · Debt: −${fmtIDRPlain(position.debtTotal)}`);
-  if (position.capexTotal > 0) {
-    // Assets di atas SELALU nilai penuh (termasuk CAPEX) — toggle Setting cuma mempengaruhi Net
-    // worth di baris atas, BUKAN angka Assets ini, jadi dua-duanya sengaja ga "nyambung" 1:1.
-    const includeCapexNow = state.settings.includeCapexInNetWorth === true;
-    lines.push(`- Termasuk dalam Assets: 🏗️ CAPEX (Barang Susut) ${fmtIDRPlain(position.capexTotal)} — ${includeCapexNow ? "IKUT" : "TIDAK ikut"} dihitung di Net worth (toggle di Setting → Main Milestone & Kurs)`);
+  let nwDelta = null;
+  if (prevSnap) {
+    const prevHasTotals = typeof prevSnap.totalCash === "number" && typeof prevSnap.totalAssets === "number";
+    const prevNwForToggle = prevHasTotals
+      ? netWorthFromParts({ cash: prevSnap.totalCash, assets: prevSnap.totalAssets, capex: prevSnap.totalCapex, goalSavings: prevSnap.totalGoalSavings, debt: prevSnap.totalDebt }, includeCapexNow)
+      : (prevSnap.netWorth || 0);
+    nwDelta = nwForToggle - prevNwForToggle;
   }
+
+  lines.push(`- **Net worth (+ CAPEX): ${fmtIDRPlain(nwWithCapex)}**`);
+  lines.push(`- **Net worth (tanpa CAPEX): ${fmtIDRPlain(nwWithoutCapex)}**`);
+  lines.push(`- Dipakai app sekarang (toggle CAPEX di Wealth → Total): **${includeCapexNow ? "+ CAPEX" : "tanpa CAPEX"}** → ${fmtIDRPlain(nwForToggle)}${nwDelta !== null ? ` (Δ ${signed(nwDelta)} vs ${monthLabel(prevMonthKey)})` : ""}`);
+  lines.push(`- Cash: ${fmtIDRPlain(position.cash)} · Assets (termasuk CAPEX): ${fmtIDRPlain(position.assetsTotal)}${position.capexTotal > 0 ? ` (di dalamnya CAPEX: ${fmtIDRPlain(position.capexTotal)})` : ""} · Goal savings: ${fmtIDRPlain(position.goalSavingsTotal)} · Debt: −${fmtIDRPlain(position.debtTotal)}`);
   const target = Number(state.settings.targetNetWorth) || 0;
   if (target > 0) {
-    const milestonePct = Math.max(0, (position.nw / target) * 100);
-    lines.push(`- Progress 🏆 Main Milestone: ${fmtIDRPlain(position.nw)} dari ${fmtIDRPlain(target)} (${milestonePct.toFixed(1)}%)`);
+    const milestonePct = Math.max(0, (nwForToggle / target) * 100);
+    lines.push(`- Progress 🏆 Main Milestone: ${fmtIDRPlain(nwForToggle)} dari ${fmtIDRPlain(target)} (${milestonePct.toFixed(1)}%)`);
   }
   const paceLine = milestonePaceLine(liveMilestone);
   if (paceLine) {
@@ -294,14 +309,21 @@ export function buildMonthlyReport(month) {
   lines.push("");
 
   // ===== 10. Tren Net Worth =====
+  // DUA kolom net worth (+ CAPEX / tanpa CAPEX) — bukan `s.netWorth` mentah, biar konsisten sama
+  // chart Tren Net Worth (Wealth) yang juga selalu nampilin dua garis, dan biar AI yang analisis
+  // laporan ini bisa bandingin trennya sendiri (lihat section 1 buat penjelasan lebih lengkap).
   lines.push("## 10. Tren Net Worth");
   const snaps = state.snapshots.slice(-12);
-  const trendRows = snaps.map((s, i) => {
-    const prev = snaps[i - 1];
-    const delta = prev ? s.netWorth - prev.netWorth : null;
-    return [monthLabel(s.month || s.id), fmtIDRPlain(s.netWorth), delta !== null ? signed(delta) : NA];
-  });
-  lines.push(mdTable(["Bulan", "Net Worth", "Delta"], trendRows));
+  const snapHasTotals = (s) => typeof s.totalCash === "number" && typeof s.totalAssets === "number";
+  const snapNetWorth = (s, includeCapex) => snapHasTotals(s)
+    ? netWorthFromParts({ cash: s.totalCash, assets: s.totalAssets, capex: s.totalCapex, goalSavings: s.totalGoalSavings, debt: s.totalDebt }, includeCapex)
+    : (s.netWorth || 0);
+  const trendRows = snaps.map((s) => [
+    monthLabel(s.month || s.id),
+    fmtIDRPlain(snapNetWorth(s, true)),
+    fmtIDRPlain(snapNetWorth(s, false)),
+  ]);
+  lines.push(mdTable(["Bulan", "Net Worth (+ CAPEX)", "Net Worth (tanpa CAPEX)"], trendRows));
   if (snaps.length >= 2) {
     const last = snaps[snaps.length - 1];
     const prevSnapForComp = snaps[snaps.length - 2];
@@ -313,6 +335,7 @@ export function buildMonthlyReport(month) {
     };
     addCompDelta("totalCash", "Cash");
     addCompDelta("totalAssets", "Assets");
+    addCompDelta("totalCapex", "CAPEX");
     addCompDelta("totalGoalSavings", "Goal Savings");
     addCompDelta("totalDebt", "Debt");
     if (parts.length > 0) {

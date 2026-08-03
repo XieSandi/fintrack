@@ -78,11 +78,6 @@ export function render(root) {
         <div><label>Rate A (%/th)</label><input id="s-proj-rate-a" type="number" inputmode="decimal" step="0.5" min="0" max="100" value="${((Number(state.settings.projectionRateA ?? 0.05)) * 100).toFixed(1)}" /></div>
         <div><label>Rate B (%/th)</label><input id="s-proj-rate-b" type="number" inputmode="decimal" step="0.5" min="0" max="100" value="${((Number(state.settings.projectionRateB ?? 0.07)) * 100).toFixed(1)}" /></div>
       </div>
-      <label style="margin-top:12px; font-size:12px; text-transform:none; letter-spacing:0; color:var(--muted2)">
-        <input type="checkbox" id="s-include-capex" style="width:auto" ${state.settings.includeCapexInNetWorth === true ? "checked" : ""}/>
-        🏗️ Sertakan CAPEX (Barang Susut) di Net Worth
-      </label>
-      <div class="sub">Default: TIDAK disertakan — barang kayak laptop/kendaraan susut nilainya tiap bulan, ga selalu dianggap "investable" net worth. Tetep kelihatan di tab Assets (Wealth) apapun toggle-nya.</div>
       <button id="btn-save-settings" class="btn btn-primary btn-sm" style="margin-top:12px">Simpan</button>
     </div>
 
@@ -163,12 +158,10 @@ export function render(root) {
     const kursManual = parseAmount(root.querySelector("#s-kurs").value);
     const rateA = parseFloat(root.querySelector("#s-proj-rate-a").value);
     const rateB = parseFloat(root.querySelector("#s-proj-rate-b").value);
-    const includeCapex = root.querySelector("#s-include-capex").checked;
     await updateSettings({
       targetNetWorth: target || 100000000, targetDate, usdIdrManual: kursManual || null,
       projectionRateA: (isNaN(rateA) || rateA < 0 ? 5 : rateA) / 100,
       projectionRateB: (isNaN(rateB) || rateB < 0 ? 7 : rateB) / 100,
-      includeCapexInNetWorth: includeCapex,
     });
     toast("Settings disimpan ✓");
   };

@@ -2,7 +2,7 @@ import {
   state, activeAccounts, accountBalances, netWorthIDR, totalCashIDR,
   totalAssetsIDR, totalCapexIDR, totalDebtIDR, totalGoalSavingsIDR, assetValueIDR, assetCostIDR,
   capexLocalValue, effectiveRate, monthSummary, milestoneProgress, savingsOnlySeries, recentAvgSurplus,
-  monthsBetween, projectSeries,
+  monthsBetween, projectSeries, netWorthFromParts,
 } from "../store.js";
 import { add, patch, remove, updateSettings } from "../db.js";
 import {
@@ -29,6 +29,14 @@ export const ASSET_TYPES = {
 };
 
 const destroyCharts = () => { charts.forEach((c) => c.destroy()); charts = []; };
+
+// Snapshot lama (manual backfill / pre-fitur CAPEX) cuma punya `netWorth`, ga ada breakdown
+// total* top-level — dipakai buat recompute net worth historis SATU formula (netWorthFromParts,
+// calc.js) di chart Tren Net Worth & Proyeksi, biar ga divergen antar chart.
+const snapshotHasTotals = (s) => typeof s.totalCash === "number" && typeof s.totalAssets === "number";
+const snapshotNetWorth = (s, includeCapex) => snapshotHasTotals(s)
+  ? netWorthFromParts({ cash: s.totalCash, assets: s.totalAssets, capex: s.totalCapex, goalSavings: s.totalGoalSavings, debt: s.totalDebt }, includeCapex)
+  : (Number(s.netWorth) || 0);
 
 export function render(root) {
   destroyCharts();
@@ -80,6 +88,7 @@ function renderTotal(root) {
   const milestone = milestoneProgress();
   const paceLine = milestonePaceLine(milestone);
   const rate = effectiveRate();
+  const hasCapexAssets = state.assets.some((a) => a.type === "capex");
 
   root.innerHTML = `
     <div class="networth-banner">
@@ -108,7 +117,12 @@ function renderTotal(root) {
           <span style="font-weight:800; font-size:13px; color:#93c5fd">${fmtIDR(nw)}</span>
         </div>
       </div>
-      ${capex > 0 && !includeCapex ? `<div class="sub" style="margin-top:10px">🏗️ CAPEX (Barang Susut): ${fmtIDR(capex)} — di luar Net Worth. Aktifkan di Setting kalau mau ikut dihitung.</div>` : ""}
+      ${hasCapexAssets ? `
+      <label style="display:flex; align-items:center; gap:8px; margin-top:12px; font-size:12px; text-transform:none; letter-spacing:0; color:var(--muted2)">
+        <input type="checkbox" id="capex-toggle" style="width:auto" ${includeCapex ? "checked" : ""}/>
+        🏗️ Sertakan CAPEX (${fmtIDR(capex)}) di Net Worth
+      </label>
+      ${!includeCapex ? `<div class="sub" style="margin-top:4px">CAPEX di luar Net Worth — centang di atas kalau mau ikut dihitung.</div>` : ""}` : ""}
     </div>
 
     <div class="card">
@@ -125,6 +139,16 @@ function renderTotal(root) {
   root.querySelectorAll("[data-chart]").forEach((b) => {
     b.onclick = () => { chartTab = b.dataset.chart; render(root.parentElement); };
   });
+
+  const capexToggle = root.querySelector("#capex-toggle");
+  if (capexToggle) {
+    capexToggle.onchange = async (e) => {
+      await updateSettings({ includeCapexInNetWorth: e.target.checked });
+      // re-render otomatis via store.on() setelah settings berubah — ga perlu manual di sini,
+      // tapi toast biar user dapet konfirmasi instan (settings/main patch-nya async).
+      toast(e.target.checked ? "CAPEX ikut dihitung di Net Worth ✓" : "CAPEX di luar Net Worth ✓");
+    };
+  }
 
   renderChart(root, milestone);
 }
@@ -159,40 +183,24 @@ function renderChart(root, milestone) {
     // totalDebt) TERPISAH dari `netWorth` yang udah "jadi" (netWorth dihitung pakai toggle
     // settings.includeCapexInNetWorth SAAT snapshot itu dibuat — kalau user gonta-ganti toggle,
     // satu garis "Net Worth" doang bakal keliatan "lompat" padahal cuma definisi yang beda, bukan
-    // net worth beneran berubah). Dua garis di bawah dihitung ULANG dari total* mentah, jadi
-    // KONSISTEN pakai definisi yang SAMA di semua titik terlepas toggle-nya waktu itu apa.
-    // Snapshot lama yang cuma punya `netWorth` (manual backfill / pre-fitur CAPEX, ga ada
-    // totalCash/totalAssets) fallback ke `netWorth` apa adanya buat dua-duanya — ga ada cukup
-    // data buat dipisah, JANGAN ngarang breakdown yang ga ada.
-    const hasTotals = (s) => typeof s.totalCash === "number" && typeof s.totalAssets === "number";
-    const nwWithCapex = (s) => hasTotals(s)
-      ? s.totalCash + s.totalAssets + (s.totalGoalSavings || 0) - (s.totalDebt || 0)
-      : (s.netWorth || 0);
-    const nwWithoutCapex = (s) => hasTotals(s)
-      ? s.totalCash + (s.totalAssets - (s.totalCapex || 0)) + (s.totalGoalSavings || 0) - (s.totalDebt || 0)
-      : (s.netWorth || 0);
-    const hasCapex = snaps.some((s) => (s.totalCapex || 0) > 0);
-
+    // net worth beneran berubah). Dua garis di bawah SELALU ditampilin (bukan cuma pas ada CAPEX)
+    // biar user gampang bandingin, dihitung ULANG dari total* mentah lewat `snapshotNetWorth()`
+    // (helper modul ini) jadi KONSISTEN pakai definisi yang SAMA di semua titik.
     charts.push(new Chart(canvas, {
       type: "line",
       data: {
         labels: snaps.map((s) => monthLabel(s.month || s.id)),
-        datasets: hasCapex ? [
-          { label: "Net Worth (+ CAPEX)", data: snaps.map(nwWithCapex), borderColor: "#60a5fa",
+        datasets: [
+          { label: "Net Worth (+ CAPEX)", data: snaps.map((s) => snapshotNetWorth(s, true)), borderColor: "#60a5fa",
             backgroundColor: "rgba(96,165,250,.12)", fill: true, tension: .3, pointRadius: 3 },
-          { label: "Net Worth (tanpa CAPEX)", data: snaps.map(nwWithoutCapex), borderColor: "#fbbf24",
+          { label: "Net Worth (tanpa CAPEX)", data: snaps.map((s) => snapshotNetWorth(s, false)), borderColor: "#fbbf24",
             fill: false, tension: .3, pointRadius: 2 },
-          { label: "Target", data: snaps.map(() => target), borderColor: "#4ade80",
-            borderDash: [6, 5], pointRadius: 0, fill: false },
-        ] : [
-          { label: "Net Worth", data: snaps.map((s) => s.netWorth), borderColor: "#60a5fa",
-            backgroundColor: "rgba(96,165,250,.12)", fill: true, tension: .3, pointRadius: 3 },
           { label: "Target", data: snaps.map(() => target), borderColor: "#4ade80",
             borderDash: [6, 5], pointRadius: 0, fill: false },
         ],
       },
       options: {
-        plugins: { legend: { display: hasCapex, labels: { boxWidth: 10, font: { size: 9 } } } },
+        plugins: { legend: { labels: { boxWidth: 10, font: { size: 9 } } } },
         scales: {
           y: { grid: { color: gridColor }, ticks: { callback: (v) => (v / 1e6).toFixed(0) + "JT" } },
           x: { grid: { display: false } },
@@ -243,8 +251,14 @@ function renderProjectionChart(root, canvas, gridColor, milestone) {
   const targetDate = state.settings.targetDate;
   const horizonMonths = targetDate ? Math.max(1, monthsBetween(nowMonth, targetDate)) : 60;
 
+  // Garis "Aktual" historis dihitung ULANG pakai toggle CAPEX yang berlaku SEKARANG (bukan
+  // `s.netWorth` mentah, yang bisa reflect toggle lama kalau user pernah gonta-ganti) — biar
+  // konsisten sama `nw` (titik awal semua garis proyeksi di bawah, dari `netWorthIDR()` yang juga
+  // toggle-aware). Beda dari chart Tren Net Worth yang sengaja nampilin DUA garis; di sini cuma
+  // SATU (ngikut toggle) biar chart 6-garis ini ga makin padat.
+  const includeCapexNow = state.settings.includeCapexInNetWorth === true;
   const firstSnapMonth = state.snapshots[0].month || state.snapshots[0].id;
-  const actualHist = state.snapshots.map((s) => ({ month: s.month || s.id, value: Number(s.netWorth) || 0 }));
+  const actualHist = state.snapshots.map((s) => ({ month: s.month || s.id, value: snapshotNetWorth(s, includeCapexNow) }));
   const savingsHist = savingsOnlySeries(firstSnapMonth, nowMonth);
 
   const nw = netWorthIDR();

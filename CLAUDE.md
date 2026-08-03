@@ -168,20 +168,26 @@ callback (`wealth.js`, balikin literal `"***"`). State toggle di localStorage �
   `assetValueIDR()`/`totalAssetsIDR()`/`netWorthIDR()` (calc.js) sekarang — semua caller lewat
   `store.js` yang otomatis nyuntik `currentMonth()`, JANGAN panggil versi calc.js langsung dari
   view tanpa parameter itu.
-  **Toggle Net Worth** (`settings.includeCapexInNetWorth`, checkbox di Setting → "🏆 Main
-  Milestone & Kurs", default **FALSE/exclude**) — nentuin CAPEX ikut `netWorthIDR()` atau ngga.
-  `totalAssetsIDR()` SENDIRI TETAP SELALU termasuk CAPEX apa adanya (dipakai tab Assets Wealth —
-  itu "semua yang lo punya", bukan konsep net worth); `netWorthIDR()` yang conditional-subtract
-  lewat `totalCapexIDR()` (calc.js) BUKAN filter ulang di tempat lain. Efeknya: breakdown Total
+  **Toggle Net Worth** (`settings.includeCapexInNetWorth`, checkbox di **Wealth → tab Total**,
+  card breakdown — BUKAN di Setting lagi, dipindah biar toggle-nya deket sama angka yang
+  dipengaruhi, cuma muncul kalau user punya ≥1 asset tipe `capex`, default **FALSE/exclude**) —
+  nentuin CAPEX ikut `netWorthIDR()` atau ngga. Formula-nya `netWorthFromParts({cash, assets,
+  capex, goalSavings, debt}, includeCapex)` (calc.js, pure, TIDAK butuh `state` — beda dari
+  fungsi calc.js lain — biar bisa dipake ulang buat recompute net worth HISTORIS dari breakdown
+  snapshot lama, bukan cuma live state) — `netWorthIDR()` sendiri cuma wrapper tipis yang manggil
+  ini pakai live totals. `totalAssetsIDR()` SENDIRI TETAP SELALU termasuk CAPEX apa adanya
+  (dipakai tab Assets Wealth — itu "semua yang lo punya", bukan konsep net worth); exclude-nya
+  CUMA lewat `netWorthFromParts()`, BUKAN filter ulang di tempat lain. Efeknya: breakdown Total
   tab Wealth ("📈 Assets (investasi)") SELALU nampilin nilai EXCLUDE CAPEX (biar rows-nya tetap
   sum persis ke NET WORTH baik toggle ON/OFF) + baris "🏗️ CAPEX" terpisah CUMA muncul di situ
   kalau toggle ON; kalau OFF, nilainya tetep kelihatan tapi sebagai catatan `.sub` di luar
-  tabel breakdown (bukan salah satu row yang di-sum). `report-md.js` section 1 nunjukin nilai
-  CAPEX + status include/exclude-nya secara eksplisit (jangan asumsikan Assets di laporan =
-  Net worth − Cash − Goals + Debt kalau CAPEX ada, dua-duanya sengaja BISA beda). Snapshot bulanan
-  (`upsertSnapshot()`) nyimpen `totalCapex` + per-asset `purchaseDate`/`depreciationPctMonth` di
-  breakdown — field opsional/additive, snapshot lama (pre-fitur) `undefined` → fallback 0, JADI
-  **schemaVersion TIDAK dinaikkan** buat perubahan ini (backup lama tetap valid di-restore).
+  tabel breakdown (bukan salah satu row yang di-sum). `report-md.js` section 1 & 10 nunjukin
+  **DUA angka eksplisit** (+ CAPEX / tanpa CAPEX, dari `netWorthFromParts()` yang sama) — bukan
+  cuma satu angka + catatan toggle kayak sebelumnya — biar AI yang baca laporan bisa bandingin
+  dua skenario itu sendiri. Snapshot bulanan (`upsertSnapshot()`) nyimpen `totalCapex` + per-asset
+  `purchaseDate`/`depreciationPctMonth` di breakdown — field opsional/additive, snapshot lama
+  (pre-fitur) `undefined` → fallback 0, JADI **schemaVersion TIDAK dinaikkan** buat perubahan ini
+  (backup lama tetap valid di-restore).
 - `debts` — outstanding, monthlyInstalment, dueDay, remainingMonths. Mengurangi net worth.
   Transaksi expense bisa opsional bawa `debtId` (dropdown "Potong hutang?" di `openTxSheet()`
   kalau ada ≥1 debt, dan di form `recurring`) — CREATE/EDIT/DELETE transaksi ber-`debtId`
@@ -343,21 +349,27 @@ terpisah "🎯 Goals" di breakdown Total tab Wealth biar rows-nya sum ke net wor
   di-skip biar ga nambah dependency buat fitur yang ditandai opsional; transisi solid→dashed
   sendiri udah cukup jadi penanda visual.
 - **Chart 📈 Tren Net Worth** (tab "Total" di Wealth, `renderChart()` cabang `chartTab === "nw"`)
-  — pecah jadi DUA garis "Net Worth (+ CAPEX)" vs "Net Worth (tanpa CAPEX)" begitu ada snapshot
-  yang `totalCapex > 0`; kalau ga pernah ada CAPEX sama sekali, tetep satu garis "Net Worth"
-  polos kayak dulu (ga nambah clutter buat user yang ga pakai fitur ini). Dua garis itu dihitung
-  ULANG per snapshot dari field total* MENTAH (`totalCash`/`totalAssets`/`totalCapex`/
-  `totalGoalSavings`/`totalDebt`, semua top-level di doc snapshot, lihat bullet `snapshots`) —
-  BUKAN dari `s.netWorth` yang tersimpan, karena `netWorth` itu udah "jadi" pakai toggle
-  `settings.includeCapexInNetWorth` SAAT snapshot itu dibuat. Kalau toggle-nya pernah diganti,
-  satu garis `netWorth` doang bakal keliatan "lompat" padahal cuma definisi yang beda, bukan net
-  worth beneran berubah — makanya dua garis di sini SELALU dihitung pakai definisi yang SAMA di
-  semua titik, terlepas toggle waktu itu apa. Snapshot lama yang cuma punya `netWorth` (manual
-  backfill `{month, netWorth, manual:true}`, atau snapshot dari sebelum fitur CAPEX ada — ga
-  punya `totalCash`/`totalAssets` top-level) fallback ke `netWorth` apa adanya buat dua-duanya
-  (`hasTotals()` check) — ga ada cukup data buat dipisah, jangan ngarang breakdown yang ga ada.
-  Legend cuma dimunculin (`legend.display`) pas lagi 2-garis-mode — 1-garis-mode ga butuh legend
-  (sama kayak sebelumnya, `label` doang "Net Worth").
+  — SELALU dua garis "Net Worth (+ CAPEX)" vs "Net Worth (tanpa CAPEX)" (bukan cuma pas ada
+  CAPEX — sengaja ga di-gate, biar user selalu bisa bandingin) + garis Target, legend selalu
+  tampil. Dua garis itu dihitung ULANG per snapshot lewat `snapshotNetWorth(s, includeCapex)`
+  (helper modul `wealth.js`, wrapping `netWorthFromParts()` calc.js) dari field total* MENTAH
+  (`totalCash`/`totalAssets`/`totalCapex`/`totalGoalSavings`/`totalDebt`, semua top-level di doc
+  snapshot, lihat bullet `snapshots`) — BUKAN dari `s.netWorth` yang tersimpan, karena `netWorth`
+  itu udah "jadi" pakai toggle `settings.includeCapexInNetWorth` SAAT snapshot itu dibuat. Kalau
+  toggle-nya pernah diganti, satu garis `netWorth` doang bakal keliatan "lompat" padahal cuma
+  definisi yang beda, bukan net worth beneran berubah — makanya dua garis di sini SELALU dihitung
+  pakai definisi yang SAMA di semua titik, terlepas toggle waktu itu apa. Snapshot lama yang cuma
+  punya `netWorth` (manual backfill `{month, netWorth, manual:true}`, atau snapshot dari sebelum
+  fitur CAPEX ada — ga punya `totalCash`/`totalAssets` top-level) fallback ke `netWorth` apa
+  adanya buat dua-duanya (`snapshotHasTotals()` check) — ga ada cukup data buat dipisah, jangan
+  ngarang breakdown yang ga ada. Chart 🚀 Proyeksi (`renderProjectionChart()`) BEDA POLA — garis
+  "Aktual" historis di situ CUMA SATU (chart-nya udah padat, 6 garis), ngikutin toggle SEKARANG
+  (`state.settings.includeCapexInNetWorth`, live — bukan toggle yang berlaku waktu snapshot itu
+  dibuat) lewat `snapshotNetWorth()` yang sama, biar konsisten sama titik awal semua garis
+  proyeksi (`nw` dari `netWorthIDR()`, yang juga toggle-aware). Garis "Nabung doang"
+  (`savingsOnlySeries()`, calc.js) TIDAK ikut di-toggle-in — anchor-nya masih `snaps[0].netWorth`
+  mentah, quirk kecil yang sengaja belum dibenerin (di luar scope, dampaknya minor & cuma
+  kerasa kalau toggle pernah diganti DAN ada histori snapshot lama).
 - `tests/calc.test.mjs` — smoke test manual buat `js/calc.js`, jalankan
   `node tests/calc.test.mjs` (bukan bagian runtime app, sengaja GA masuk `PRECACHE` sw.js).
   `js/calc.js` sendiri WAJIB masuk `PRECACHE` (dipakai runtime lewat wrapper `store.js`).
@@ -438,9 +450,17 @@ terpisah "🎯 Goals" di breakdown Total tab Wealth biar rows-nya sum ke net wor
   "Posisi akhir {bulan}", TANPA disclaimer — ini genuinely historis, bukan approximasi; bulan
   lampau TANPA snapshot lengkap (data lama/manual backfill) fallback ke posisi TERKINI + label
   "Posisi per {tanggal export}" + disclaimer eksplisit (jangan pernah mengarang data yang ga
-  ada). Section "Tren Net Worth" nambah baris "Perubahan komposisi" (Cash/Assets/Goal Savings/
-  Debt delta) antara 2 snapshot TERAKHIR kalau datanya ada — ga butuh breakdown baru, field
-  total (`totalCash`/`totalAssets`/dst) di snapshot udah ada dari awal. **Pakai
+  ada). Section 1 (Ringkasan) SELALU nunjukin DUA angka net worth eksplisit — "+ CAPEX" dan
+  "tanpa CAPEX" (`netWorthFromParts()`, calc.js, lihat bullet `assets` tipe `capex`) — plus baris
+  ketiga yang bilang mana yang "dipakai app sekarang" (ngikut toggle di Wealth). Progress 🏆 Main
+  Milestone di section itu pakai net worth yang SESUAI toggle (bukan salah satu variant secara
+  hardcoded), biar konsisten sama yang ditampilin live di Home/Wealth. Section "Tren Net Worth"
+  (10) juga DUA kolom yang sama (bukan satu kolom "Net Worth" + "Delta" kayak dulu) — tujuannya
+  biar AI yang baca laporan ini bisa analisis/bandingin dua skenario itu sendiri tanpa perlu
+  ngitung manual. Baris "Perubahan komposisi" nambah CAPEX sebagai salah satu komponen yang
+  di-delta (selain Cash/Assets/Goal Savings/Debt) antara 2 snapshot TERAKHIR kalau datanya ada
+  — ga butuh breakdown baru, field total (`totalCash`/`totalAssets`/`totalCapex`/dst) di snapshot
+  udah ada dari awal (`totalCapex` sejak fitur CAPEX). **Pakai
   `fmtIDRPlain()`/`fmtMoneyPlain()` (utils.js), BUKAN `fmtIDR()`/`fmtMoney()`** — yang terakhir
   itu wrapper `<span class="blur-num">` buat blur mode DOM, bakal ngerusak output markdown kalau
   kepake di teks/file. Section 9 (Komitmen Rutin, recurring aktif) SENGAJA SELALU live regardless
