@@ -342,6 +342,22 @@ terpisah "🎯 Goals" di breakdown Total tab Wealth biar rows-nya sum ke net wor
   itu butuh `chartjs-plugin-annotation` (dependency baru, belum ada di CDN list app ini), sengaja
   di-skip biar ga nambah dependency buat fitur yang ditandai opsional; transisi solid→dashed
   sendiri udah cukup jadi penanda visual.
+- **Chart 📈 Tren Net Worth** (tab "Total" di Wealth, `renderChart()` cabang `chartTab === "nw"`)
+  — pecah jadi DUA garis "Net Worth (+ CAPEX)" vs "Net Worth (tanpa CAPEX)" begitu ada snapshot
+  yang `totalCapex > 0`; kalau ga pernah ada CAPEX sama sekali, tetep satu garis "Net Worth"
+  polos kayak dulu (ga nambah clutter buat user yang ga pakai fitur ini). Dua garis itu dihitung
+  ULANG per snapshot dari field total* MENTAH (`totalCash`/`totalAssets`/`totalCapex`/
+  `totalGoalSavings`/`totalDebt`, semua top-level di doc snapshot, lihat bullet `snapshots`) —
+  BUKAN dari `s.netWorth` yang tersimpan, karena `netWorth` itu udah "jadi" pakai toggle
+  `settings.includeCapexInNetWorth` SAAT snapshot itu dibuat. Kalau toggle-nya pernah diganti,
+  satu garis `netWorth` doang bakal keliatan "lompat" padahal cuma definisi yang beda, bukan net
+  worth beneran berubah — makanya dua garis di sini SELALU dihitung pakai definisi yang SAMA di
+  semua titik, terlepas toggle waktu itu apa. Snapshot lama yang cuma punya `netWorth` (manual
+  backfill `{month, netWorth, manual:true}`, atau snapshot dari sebelum fitur CAPEX ada — ga
+  punya `totalCash`/`totalAssets` top-level) fallback ke `netWorth` apa adanya buat dua-duanya
+  (`hasTotals()` check) — ga ada cukup data buat dipisah, jangan ngarang breakdown yang ga ada.
+  Legend cuma dimunculin (`legend.display`) pas lagi 2-garis-mode — 1-garis-mode ga butuh legend
+  (sama kayak sebelumnya, `label` doang "Net Worth").
 - `tests/calc.test.mjs` — smoke test manual buat `js/calc.js`, jalankan
   `node tests/calc.test.mjs` (bukan bagian runtime app, sengaja GA masuk `PRECACHE` sw.js).
   `js/calc.js` sendiri WAJIB masuk `PRECACHE` (dipakai runtime lewat wrapper `store.js`).

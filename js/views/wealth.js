@@ -155,11 +155,36 @@ function renderChart(root, milestone) {
       root.querySelector("#chart-wrap").innerHTML = `<div class="empty">Snapshot bulanan akan terisi otomatis tiap app dibuka.</div>`;
       return;
     }
+    // Snapshot nyimpen total* MENTAH (totalCash/totalAssets/totalCapex/totalGoalSavings/
+    // totalDebt) TERPISAH dari `netWorth` yang udah "jadi" (netWorth dihitung pakai toggle
+    // settings.includeCapexInNetWorth SAAT snapshot itu dibuat — kalau user gonta-ganti toggle,
+    // satu garis "Net Worth" doang bakal keliatan "lompat" padahal cuma definisi yang beda, bukan
+    // net worth beneran berubah). Dua garis di bawah dihitung ULANG dari total* mentah, jadi
+    // KONSISTEN pakai definisi yang SAMA di semua titik terlepas toggle-nya waktu itu apa.
+    // Snapshot lama yang cuma punya `netWorth` (manual backfill / pre-fitur CAPEX, ga ada
+    // totalCash/totalAssets) fallback ke `netWorth` apa adanya buat dua-duanya — ga ada cukup
+    // data buat dipisah, JANGAN ngarang breakdown yang ga ada.
+    const hasTotals = (s) => typeof s.totalCash === "number" && typeof s.totalAssets === "number";
+    const nwWithCapex = (s) => hasTotals(s)
+      ? s.totalCash + s.totalAssets + (s.totalGoalSavings || 0) - (s.totalDebt || 0)
+      : (s.netWorth || 0);
+    const nwWithoutCapex = (s) => hasTotals(s)
+      ? s.totalCash + (s.totalAssets - (s.totalCapex || 0)) + (s.totalGoalSavings || 0) - (s.totalDebt || 0)
+      : (s.netWorth || 0);
+    const hasCapex = snaps.some((s) => (s.totalCapex || 0) > 0);
+
     charts.push(new Chart(canvas, {
       type: "line",
       data: {
         labels: snaps.map((s) => monthLabel(s.month || s.id)),
-        datasets: [
+        datasets: hasCapex ? [
+          { label: "Net Worth (+ CAPEX)", data: snaps.map(nwWithCapex), borderColor: "#60a5fa",
+            backgroundColor: "rgba(96,165,250,.12)", fill: true, tension: .3, pointRadius: 3 },
+          { label: "Net Worth (tanpa CAPEX)", data: snaps.map(nwWithoutCapex), borderColor: "#fbbf24",
+            fill: false, tension: .3, pointRadius: 2 },
+          { label: "Target", data: snaps.map(() => target), borderColor: "#4ade80",
+            borderDash: [6, 5], pointRadius: 0, fill: false },
+        ] : [
           { label: "Net Worth", data: snaps.map((s) => s.netWorth), borderColor: "#60a5fa",
             backgroundColor: "rgba(96,165,250,.12)", fill: true, tension: .3, pointRadius: 3 },
           { label: "Target", data: snaps.map(() => target), borderColor: "#4ade80",
@@ -167,7 +192,7 @@ function renderChart(root, milestone) {
         ],
       },
       options: {
-        plugins: { legend: { display: false } },
+        plugins: { legend: { display: hasCapex, labels: { boxWidth: 10, font: { size: 9 } } } },
         scales: {
           y: { grid: { color: gridColor }, ticks: { callback: (v) => (v / 1e6).toFixed(0) + "JT" } },
           x: { grid: { display: false } },
