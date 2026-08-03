@@ -314,40 +314,37 @@ terpisah "🎯 Goals" di breakdown Total tab Wealth biar rows-nya sum ke net wor
 ## Known Quirks
 
 - **Dashboard Proyeksi** (tab "🚀 Proyeksi" di Wealth → Total, `js/views/wealth.js`
-  `renderProjectionChart()`) — line chart Aktual vs Nabung-doang vs 2 skenario return
-  terkonfigurasi (`settings.projectionRateA`/`projectionRateB`), menuju 🏆 Main Milestone.
-  Primitif kalkulasinya murni & di-test (`calc.js`): `savingsOnlySeries(state, fromMonth,
-  toMonth)` (kumulatif net worth kalau cuma nabung surplus bulanan, di-anchor ke snapshot
-  pertama) dan `projectSeries({startValue, startMonth, months, monthlyContribution,
-  annualRate})` (compound bulanan generik, `annualRate:0` otomatis jadi proyeksi linear —
-  dipakai ulang buat skenario "nabung doang ke depan", TANPA fungsi terpisah). Orkestrasi
-  (nentuin startValue/horizon/snapshot mana) sengaja di view layer, bukan calc.js — itu soal
-  "gimana nampilinnya", bukan kalkulasi finansial murni.
-  **Keputusan desain penting:** SEMUA garis proyeksi (nabung-doang-ke-depan, Return A, Return B)
-  mulai dari net worth AKTUAL LIVE bulan ini (`netWorthIDR()`), BUKAN dari titik akhir garis
-  "Nabung doang" historis — dua pertanyaan yang beda ("kalau MULAI SEKARANG stop dapet return"
-  vs "kalau dari AWAL ga pernah dapet return", yang kedua udah dijawab lewat gap Aktual-vs-Nabung
-  di zona historis). Akibatnya boleh ada "lompatan" visual kecil pas garis abu solid (historis)
-  ketemu garis abu dashed (proyeksi) di titik bulan ini — bukan bug, itu representasi selisih
-  antara dua konsep tadi. Horizon proyeksi = `settings.targetDate` kalau keisi (di-clamp minimal
-  1 bulan biar ga degenerate kalau targetDate udah lewat), fallback 60 bulan (5 tahun) kalau
-  kosong. `monthlyContribution` proyeksi pakai `recentAvgSurplus()` (fungsi yang sama dipakai
-  `milestoneProgress()` buat pace, sekarang di-export biar reusable) — kalau belum ada data
-  surplus sama sekali, fallback 0 (proyeksi jadi murni compound growth tanpa kontribusi baru,
-  bukan crash/ngarang angka). Chart pakai `null` buat titik di luar rentang tiap dataset (biar
-  Chart.js bikin gap, bukan garis nyambung ke titik ga relevan) — SEMUA dataset share SATU axis
-  bulan gabungan (historis + horizon proyeksi). Garis Target di-skip total kalau
-  `milestoneProgress().hidden` (ga ada target di-set) — beda dari chart Tren Net Worth existing
-  yang masih gambar garis Target di y=0 kalau hidden (quirk lama, ga ikut dibenerin di sini,
-  di luar scope). Y-axis chart ini SENGAJA dibikin ikut blur mode (`isBlurred()` dari utils.js,
-  ganti tick jadi "•••") — ini PERTAMA KALINYA ada chart di app yang blur, chart lain (Tren Net
-  Worth, Income vs Expense) BELUM ikut blur mode sama sekali (canvas Chart.js ga kena CSS
-  `.blur-num`/`filter:blur()` yang dipakai teks DOM) — kalau nambah chart baru ke depannya dan
-  mau ikut blur, pola tick callback di sini bisa dicontek, TAPI jangan asumsikan chart LAMA udah
-  otomatis ke-cover. Ga ada anotasi garis vertikal "bulan ini" (disebut opsional di spec) — bikin
-  itu butuh `chartjs-plugin-annotation` (dependency baru, belum ada di CDN list app ini), sengaja
-  di-skip biar ga nambah dependency buat fitur yang ditandai opsional; transisi solid→dashed
-  sendiri udah cukup jadi penanda visual.
+  `renderProjectionChart()`) — line chart Aktual (historis, solid) vs Proyeksi (nabung) vs 2
+  skenario return terkonfigurasi (`settings.projectionRateA`/`projectionRateB`), menuju 🏆 Main
+  Milestone. Primitif kalkulasinya murni & di-test (`calc.js`): `projectSeries({startValue,
+  startMonth, months, monthlyContribution, annualRate})` (compound bulanan generik,
+  `annualRate:0` otomatis jadi proyeksi linear — dipakai ulang buat skenario "nabung doang ke
+  depan", TANPA fungsi terpisah). Orkestrasi (nentuin startValue/horizon/snapshot mana) sengaja
+  di view layer, bukan calc.js — itu soal "gimana nampilinnya", bukan kalkulasi finansial murni.
+  **SENGAJA GA ADA garis historis "Nabung doang" terpisah** (sempat ada — `savingsOnlySeries()`
+  di calc.js — dihapus lagi): garis itu (kumulatif nabung dari titik snapshot pertama) tampil
+  berdampingan sama "Proyeksi (nabung)" (forward dari net worth SEKARANG) kelihatan
+  kontradiktif/ganjil — dua garis mirip nama tapi beda anchor & makna, plus ada "lompatan" visual
+  pas ketemu di titik bulan ini. Sekarang cuma SATU konsep "nabung doang" yang dipertahankan:
+  yang forward-looking, mulai dari net worth AKTUAL LIVE bulan ini (`netWorthIDR()`). Horizon
+  proyeksi = `settings.targetDate` kalau keisi (di-clamp minimal 1 bulan biar ga degenerate kalau
+  targetDate udah lewat), fallback 60 bulan (5 tahun) kalau kosong. `monthlyContribution`
+  proyeksi pakai `recentAvgSurplus()` (fungsi yang sama dipakai `milestoneProgress()` buat pace,
+  di-export biar reusable) — kalau belum ada data surplus sama sekali, fallback 0 (proyeksi jadi
+  murni compound growth tanpa kontribusi baru, bukan crash/ngarang angka). Chart pakai `null`
+  buat titik di luar rentang tiap dataset (biar Chart.js bikin gap, bukan garis nyambung ke titik
+  ga relevan) — SEMUA dataset share SATU axis bulan gabungan (historis + horizon proyeksi). Garis
+  Target di-skip total kalau `milestoneProgress().hidden` (ga ada target di-set) — beda dari
+  chart Tren Net Worth existing yang masih gambar garis Target di y=0 kalau hidden (quirk lama,
+  ga ikut dibenerin di sini, di luar scope). Y-axis chart ini SENGAJA dibikin ikut blur mode
+  (`isBlurred()` dari utils.js, ganti tick jadi `"***"`, lihat bullet blur mode di atas) — ini
+  PERTAMA KALINYA ada chart di app yang blur, chart lain (Tren Net Worth, Income vs Expense)
+  BELUM ikut blur mode sama sekali (canvas Chart.js ga kena CSS `.blur-num` yang dipakai teks
+  DOM) — kalau nambah chart baru ke depannya dan mau ikut blur, pola tick callback di sini bisa
+  dicontek, TAPI jangan asumsikan chart LAMA udah otomatis ke-cover. Ga ada anotasi garis
+  vertikal "bulan ini" (disebut opsional di spec) — bikin itu butuh `chartjs-plugin-annotation`
+  (dependency baru, belum ada di CDN list app ini), sengaja di-skip biar ga nambah dependency
+  buat fitur yang ditandai opsional; transisi solid→dashed sendiri udah cukup jadi penanda visual.
 - **Chart 📈 Tren Net Worth** (tab "Total" di Wealth, `renderChart()` cabang `chartTab === "nw"`)
   — SELALU dua garis "Net Worth (+ CAPEX)" vs "Net Worth (tanpa CAPEX)" (bukan cuma pas ada
   CAPEX — sengaja ga di-gate, biar user selalu bisa bandingin) + garis Target, legend selalu
@@ -365,16 +362,12 @@ terpisah "🎯 Goals" di breakdown Total tab Wealth biar rows-nya sum ke net wor
   adanya buat SEMUA variant `includeCapex` — ga ada cukup data buat dipisah, jangan ngarang
   breakdown yang ga ada (bisa dibenerin per-snapshot lewat card "🏗️ Backfill CAPEX ke Snapshot
   Lama" di Setting kalau breakdown-nya masih ada, lihat bullet itu di bawah). Chart 🚀 Proyeksi
-  (`renderProjectionChart()`) BEDA POLA dikit — garis "Aktual" DAN "Nabung doang" historis di
-  situ CUMA SATU per konsep (chart-nya udah padat, 6 garis), ngikutin toggle SEKARANG
-  (`state.settings.includeCapexInNetWorth`, live — bukan toggle yang berlaku waktu snapshot itu
-  dibuat) lewat `snapshotNetWorth()` yang sama, biar konsisten sama titik awal semua garis
-  proyeksi (`nw` dari `netWorthIDR()`, yang juga toggle-aware). Garis "Nabung doang" secara
-  spesifik: `savingsOnlySeries(state, fromMonth, toMonth, includeCapex)` (calc.js) SEKARANG
-  nerima parameter `includeCapex` (default `false`, samain default toggle) dan pakai
-  `snapshotNetWorth()` buat anchor-nya (BUKAN `snaps[0].netWorth` mentah lagi kayak sebelumnya)
-  — jadi anchor-nya konsisten sama garis Aktual, ga ada lagi gap antara dua garis itu kalau
-  toggle-nya pernah diganti.
+  (`renderProjectionChart()`) BEDA POLA — garis "Aktual" historis di situ CUMA SATU (chart-nya
+  udah padat, 5 garis — lihat bullet Dashboard Proyeksi soal kenapa GA ADA garis historis
+  "Nabung doang" terpisah di situ), ngikutin toggle SEKARANG (`state.settings.includeCapexInNetWorth`,
+  live — bukan toggle yang berlaku waktu snapshot itu dibuat) lewat `snapshotNetWorth()` yang
+  sama, biar konsisten sama titik awal semua garis proyeksi (`nw` dari `netWorthIDR()`, yang
+  juga toggle-aware).
 - **Backfill CAPEX ke Snapshot Lama** (Setting, card "🏗️ Backfill CAPEX ke Snapshot Lama" —
   CUMA muncul kalau `previewCapexBackfill()` nemu sesuatu buat di-backfill, `js/db.js`
   `previewCapexBackfill()`/`backfillCapexToSnapshots()`) — snapshot yang dibuat SEBELUM fitur

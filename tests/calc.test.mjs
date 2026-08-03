@@ -329,43 +329,6 @@ function makeState() {
   assertEqual(sum.expense, 4_000, "rangeSummary: expense dalam rentang");
 }
 
-// ================= TASK-1: savingsOnlySeries =================
-{
-  const s = makeState();
-  s.snapshots = [
-    { id: "2026-01", month: "2026-01", netWorth: 5_000_000 },
-    { id: "2026-02", month: "2026-02", netWorth: 5_800_000 }, // Aktual (dgn return) - diabaikan, cuma dipakai buat cari anchor bulan pertama
-  ];
-  s.transactions = [
-    { type: "income", amount: 2_000_000, accountId: "acc_idr", month: "2026-02", date: "2026-02-05" },
-    { type: "expense", amount: 1_200_000, accountId: "acc_idr", month: "2026-02", date: "2026-02-10" }, // surplus 800.000
-    { type: "income", amount: 1_500_000, accountId: "acc_idr", month: "2026-03", date: "2026-03-05" },
-    { type: "expense", amount: 1_000_000, accountId: "acc_idr", month: "2026-03", date: "2026-03-10" }, // surplus 500.000
-  ];
-  const series = calc.savingsOnlySeries(s, "2026-01", "2026-03");
-  assertEqual(series.length, 3, "savingsOnlySeries: satu titik per bulan, dari snapshot pertama sampai toMonth");
-  assertEqual(series[0].month, "2026-01", "savingsOnlySeries: titik pertama = bulan snapshot pertama dalam range");
-  assertEqual(series[0].value, 5_000_000, "savingsOnlySeries: titik pertama = netWorth snapshot itu (anchor), BUKAN dari 0");
-  assertEqual(series[1].value, 5_000_000 + 800_000, "savingsOnlySeries: titik kedua = sebelumnya + surplus bulan itu (bukan dari snapshot 5.800.000)");
-  assertEqual(series[2].value, 5_000_000 + 800_000 + 500_000, "savingsOnlySeries: titik ketiga = kumulatif surplus, ga kepengaruh return asli");
-}
-{
-  const s = makeState();
-  assertEqual(calc.savingsOnlySeries(s, "2026-01", "2026-03").length, 0, "savingsOnlySeries: ga ada snapshot dalam range -> array kosong (bukan crash)");
-}
-{
-  // Anchor toggle-aware: snapshot pertama PUNYA breakdown total* (totalAssets 8jt, di dalamnya
-  // CAPEX 2jt) -> anchor beda tergantung includeCapex, BUKAN netWorth mentah yang tersimpan.
-  const s = makeState();
-  s.snapshots = [
-    { id: "2026-01", month: "2026-01", netWorth: 9_000_000, totalCash: 1_000_000, totalAssets: 8_000_000, totalCapex: 2_000_000, totalGoalSavings: 0, totalDebt: 0 },
-  ];
-  const withCapex = calc.savingsOnlySeries(s, "2026-01", "2026-01", true);
-  const withoutCapex = calc.savingsOnlySeries(s, "2026-01", "2026-01", false);
-  assertEqual(withCapex[0].value, 1_000_000 + 8_000_000, "savingsOnlySeries: includeCapex true -> anchor pakai assets penuh (netWorthFromParts)");
-  assertEqual(withoutCapex[0].value, 1_000_000 + (8_000_000 - 2_000_000), "savingsOnlySeries: includeCapex false -> anchor exclude CAPEX, BUKAN netWorth mentah 9jt yang tersimpan");
-}
-
 // ================= snapshotNetWorth =================
 {
   // Snapshot lengkap (punya totalCash/totalAssets) -> recompute lewat netWorthFromParts, dua
