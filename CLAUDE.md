@@ -89,11 +89,46 @@ callback (`wealth.js`, balikin literal `"***"`). State toggle di localStorage �
 
 ## Data Model (Firestore `users/{uid}/`)
 
-- `accounts` — kantong uang (bank/ewallet/cash/rdn/broker), currency IDR/USD, initialBalance.
-  **Saldo TIDAK disimpan** — dihitung dari jurnal: initialBalance ± transaksi (lihat `accountBalances()`).
-  Reconcile ("⚖️ Sesuaikan Saldo" di sheet edit akun, `accounts.js`) TIDAK overwrite saldo —
-  bikin 1 transaksi adjustment (expense/income, kategori `cat_adjust_out`/`cat_adjust_in`)
-  sebesar selisih aktual vs tercatat, biar tetap auditable di History.
+- `accounts` — kantong uang (bank/ewallet/cash/rdn/broker/**credit**), currency IDR/USD,
+  initialBalance. **Saldo TIDAK disimpan** — dihitung dari jurnal: initialBalance ± transaksi
+  (lihat `accountBalances()`). Reconcile ("⚖️ Sesuaikan Saldo" di sheet edit akun, `accounts.js`)
+  TIDAK overwrite saldo — bikin 1 transaksi adjustment (expense/income, kategori
+  `cat_adjust_out`/`cat_adjust_in`) sebesar selisih aktual vs tercatat, biar tetap auditable di
+  History. Berlaku juga buat akun tipe `credit`, ga perlu kode khusus (generic).
+  **Tipe `credit`** (kartu kredit) — field tambahan `creditLimit` (angka, 0/kosong = tanpa
+  limit). **Utang CC = saldo negatif akun-nya, DERIVED, BUKAN debt entity terpisah** — konsisten
+  sama prinsip "saldo ga pernah disimpan" di atas. Belanja pakai CC = expense BIASA (accountId =
+  akun credit) — TIDAK ada field/mekanisme baru di `accountBalances()`, expense generic udah
+  nurunin balance dan karena CC mulai dari 0 balance negatif OTOMATIS = utang. **Net worth
+  rumusnya TIDAK berubah sama sekali** — `totalCashIDR()` udah include akun credit apa adanya
+  (saldo negatifnya ngurangin cash), CC sengaja lewat CASH PATH, **BUKAN debt path**
+  (`totalDebtIDR()` TETAP cuma jumlahin collection `debts`, JANGAN ditambahin lagi biar ga
+  double-count). Helper murni (`calc.js`, semua di-test): `isCreditAccount(acct)`,
+  `creditUsed(acct, balances)` (`balance < 0 ? -balance : 0`), `creditRemaining(acct, balances)`
+  (`limit − used`, **`null`** kalau limit 0/kosong — bukan `0`, biar UI bisa bedain "unlimited"
+  dari "abis/over"), `totalCreditDebtIDR(state)` (agregat SEMUA akun credit, IDR — dipakai
+  CUMA buat tampilan breakdown, BUKAN buat rumus net worth). UI (`accounts.js`) TIDAK pernah
+  nampilin saldo CC sebagai angka signed polos (`-Rp 50.000` bisa disangka "ada uang") — selalu
+  "Terpakai / Limit / Sisa" + progress bar (pola sama budget: `pct≥100 p-red, pct≥90 p-yellow,
+  else p-green`). Shortcut **"💳 Bayar Tagihan"** (`openPayCreditSheet()`, accounts.js) = transfer
+  BIASA (accountId = akun cash sumber, toAccountId = akun CC) lewat jalur transfer generic yang
+  udah ada (SAMA persis kayak transfer akun-ke-akun manual) — BUKAN jalur khusus kayak topup
+  goal/beli asset, jadi `type:"transfer"` otomatis TIDAK masuk `monthSummary().expense`. Nominal
+  default = `creditUsed` sekarang, boleh overpay (saldo CC jadi positif) — non-blocking warning,
+  bukan diblokir. Warning **over-limit** (limit > 0 DAN creditUsed sesudah expense > limit)
+  di-cek di `openTxSheet()` (tx-sheet.js) SETELAH transaksi tersimpan (toast, bukan `confirm()`
+  yang blocking — transaksi TETAP kesimpen). Breakdown Total tab Wealth misahin baris "💧 Liquid"
+  (cash NON-kartu doang) dari baris terpisah "🪪 Kartu Kredit (terpakai)" (merah) — dua-duanya
+  tetap sum PERSIS ke `totalCashIDR()` yang lama (`liquidNonCredit − totalCreditDebt = cash`),
+  pola SAMA kayak CAPEX misahin `investAssets` dari baris CAPEX. **Beda CC vs `debts`
+  (collection):** CC = revolving/akun, utang derived dari saldo, TANPA `debtId`; `debts` =
+  cicilan TETAP (monthlyInstalment/dueDay/remainingMonths), attached ke transaksi via `debtId`.
+  Dua konsep TERPISAH sengaja — CC TIDAK muncul di tab Debt (Wealth) atau `totalDebtIDR()`.
+  **Keputusan v1: TIDAK ada info silang CC di tab Debt** (spec awal ngasih opsi ini) — breakdown
+  Total tab Wealth (baris "🪪 Kartu Kredit") udah cukup buat visibility, nambah bagian read-only
+  terpisah di tab Debt dianggap nambah kompleksitas tanpa manfaat jelas buat v1; bisa
+  dipertimbangkan lagi kalau kebutuhan riil muncul. Kalau nanti mau nambah installment/cicilan
+  0% buat CC, itu tetap konsep terpisah dari `debtId` yang udah ada — JANGAN dicampur.
 - `categories` — {name, icon, type: expense|income, isPreset}. Preset awal via `seedIfNeeded()`
   (sekali doang, first-run); preset baru buat user lama via `ensurePresetCategories()` (tiap
   sesi, idempotent) — lihat Known Quirks. Ga bisa dihapus kalau masih dipakai transaksi
@@ -251,7 +286,7 @@ callback (`wealth.js`, balikin literal `"***"`). State toggle di localStorage �
   `netWorth` — `totalCapex` field baru sejak fitur CAPEX, snapshot lama ga punya ini, lihat
   bullet `assets` tipe `capex` & "Backfill CAPEX ke Snapshot Lama" di Known Quirks), nyimpen
   `breakdown` PER ITEM (angka mentah, bukan string terformat): `accounts` ({name, currency, type,
-  balance, balanceIDR}), `assets` ({symbol, type, currency, quantity, avgBuyPrice, price,
+  balance, balanceIDR, PLUS `creditLimit` — `null` kecuali tipe `credit`}), `assets` ({symbol, type, currency, quantity, avgBuyPrice, price,
   priceDate, valueIDR, costIDR, PLUS `purchaseDate`/`depreciationPctMonth` — `null` kecuali tipe
   `capex`}), `debts` ({name, outstanding, monthlyInstalment, remainingMonths, dueDay}), `goals`
   ({name, targetAmount, saved, targetDate}), `rate` (kurs USD saat itu) — dipakai `report-md.js`
@@ -481,7 +516,12 @@ terpisah "🎯 Goals" di breakdown Total tab Wealth biar rows-nya sum ke net wor
   ngitung manual. Baris "Perubahan komposisi" nambah CAPEX sebagai salah satu komponen yang
   di-delta (selain Cash/Assets/Goal Savings/Debt) antara 2 snapshot TERAKHIR kalau datanya ada
   — ga butuh breakdown baru, field total (`totalCash`/`totalAssets`/`totalCapex`/dst) di snapshot
-  udah ada dari awal (`totalCapex` sejak fitur CAPEX). **Pakai
+  udah ada dari awal (`totalCapex` sejak fitur CAPEX). Section 5 (Akun) — akun tipe `credit`
+  ditampilin sebagai ringkasan "Terpakai / Limit / Sisa" di kolom Saldo (BUKAN saldo signed
+  polos), kolom Ekuivalen IDR tetap angka negatif apa adanya. Section 1 nambah baris "🪪 Kartu
+  Kredit terpakai" (dari `position.accounts`, cocok dipakai buat live MAUPUN snapshot-based
+  position — dua-duanya udah punya field `type`/`balanceIDR`) kalau ada CC dipakai, eksplisit
+  disebut "sudah termasuk di Cash" biar ga disangka double-hitung. **Pakai
   `fmtIDRPlain()`/`fmtMoneyPlain()` (utils.js), BUKAN `fmtIDR()`/`fmtMoney()`** — yang terakhir
   itu wrapper `<span class="blur-num">` buat blur mode DOM, bakal ngerusak output markdown kalau
   kepake di teks/file. Section 9 (Komitmen Rutin, recurring aktif) SENGAJA SELALU live regardless
@@ -550,6 +590,12 @@ terpisah "🎯 Goals" di breakdown Total tab Wealth biar rows-nya sum ke net wor
   sengaja (posisi lama + transaksi baru bercampur). Tombol "Buka" manggil `openAssetSheet()`
   (di-export dari `wealth.js` khusus buat ini). Transaksi ber-`assetId` yang `assetQty`/
   `assetPrice`/`assetDir`-nya kosong/invalid juga di-flag di level transaksi (bukan asset).
+  Finding level ACCOUNT (kind: "account") — khusus akun tipe `credit`: over-limit (`creditUsed >
+  creditLimit`, limit > 0) atau saldo POSITIF (kemungkinan kelebihan bayar/salah reconcile).
+  Import `accountBalances`/`isCreditAccount`/`creditUsed` langsung dari `calc.js` (bukan cuma
+  `utils.js` kayak sebelumnya) — pertama kalinya `integrity.js` gantungan ke `calc.js`, biar
+  ga duplikasi logic saldo yang udah ada di sana. Tombol "Buka" manggil `openAcctSheet()`
+  (di-export dari `accounts.js` khusus buat ini, sebelumnya lokal-only).
 - **Efek samping transaksi ber-`debtId`/`assetId` DIPUSATKAN sebagai hook di `remove()` generik**
   (kenapa dipusatkan sebagai hook, bukan ditulis manual di tiap sheet: lihat `DECISIONS.md`)
   (db.js): `applyDebtEffect()` (efek debt, dipanggil juga dari `add()`/`patch()` lewat

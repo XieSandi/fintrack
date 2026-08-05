@@ -1,9 +1,9 @@
 // Bottom sheet tambah / edit transaksi — quick add flow.
-import { state, activeAccounts } from "./store.js";
+import { state, activeAccounts, accountBalances, isCreditAccount, creditUsed } from "./store.js";
 import { add, patch, remove } from "./db.js";
 import {
   openSheet, closeSheet, sheetHead, toast, escapeHtml,
-  parseAmount, attachThousands, todayStr, monthOf, confirmDialog, fmtNum,
+  parseAmount, attachThousands, todayStr, monthOf, confirmDialog, fmtNum, fmtMoneyPlain,
 } from "./utils.js";
 
 const LAST_KEY = "fintrack_last_input"; // {accountId, categoryId}
@@ -139,13 +139,42 @@ export function openTxSheet(existing = null) {
       debtId: type === "expense" ? (el.querySelector("#tx-debt")?.value || null) : null,
     };
 
+    // Warning over-limit kartu kredit: NON-BLOCKING (tetap disimpan kalau lanjut) — dicek
+    // cuma buat expense (belanja pakai CC), bukan transfer/income. "sisa" di pesan = limit yang
+    // masih ada SEBELUM transaksi ini (biar user ngerti seberapa jauh dia ngelewatinnya).
+    let overLimitMsg = null;
+    if (type === "expense") {
+      const acct = state.accounts.find((x) => x.id === accountId);
+      const limit = acct && isCreditAccount(acct) ? Number(acct.creditLimit) || 0 : 0;
+      if (limit > 0) {
+        const bal = accountBalances();
+        let currentBal = bal[accountId] || 0;
+        // Lagi edit transaksi expense ber-akun SAMA -> balikin dulu efek amount LAMA-nya,
+        // biar "after" yang dihitung representasi state SETELAH edit ini (ga dobel ke-apply).
+        if (existing && existing.type === "expense" && existing.accountId === accountId) {
+          currentBal += Number(existing.amount) || 0;
+        }
+        const usedBefore = currentBal < 0 ? -currentBal : 0;
+        const afterBal = currentBal - amount;
+        const usedAfter = afterBal < 0 ? -afterBal : 0;
+        if (usedAfter > limit) {
+          overLimitMsg = `Transaksi ini melewati limit kartu (sisa ${fmtMoneyPlain(Math.max(0, limit - usedBefore), acct.currency)})`;
+        }
+      }
+    }
+
     // Simpan preferensi terakhir untuk quick-add berikutnya
     localStorage.setItem(LAST_KEY, JSON.stringify({ accountId, categoryId }));
 
     closeSheet();
     try {
-      if (existing) { await patch("transactions", existing.id, data); toast("Transaksi diupdate ✓"); }
-      else { await add("transactions", data); toast("Tersimpan ✓"); }
+      if (existing) {
+        await patch("transactions", existing.id, data);
+        toast(overLimitMsg ? `Diupdate ✓ ⚠️ ${overLimitMsg}` : "Transaksi diupdate ✓", overLimitMsg ? 4500 : 2200);
+      } else {
+        await add("transactions", data);
+        toast(overLimitMsg ? `Tersimpan ✓ ⚠️ ${overLimitMsg}` : "Tersimpan ✓", overLimitMsg ? 4500 : 2200);
+      }
     } catch (e) { console.error(e); toast("Gagal menyimpan"); }
   };
 

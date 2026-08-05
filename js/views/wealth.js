@@ -3,6 +3,7 @@ import {
   totalAssetsIDR, totalCapexIDR, totalDebtIDR, totalGoalSavingsIDR, assetValueIDR, assetCostIDR,
   capexLocalValue, effectiveRate, monthSummary, milestoneProgress, recentAvgSurplus,
   monthsBetween, projectSeries, snapshotNetWorth,
+  isCreditAccount, creditUsed, creditRemaining, totalCreditDebtIDR,
 } from "../store.js";
 import { add, patch, remove, updateSettings } from "../db.js";
 import {
@@ -81,6 +82,14 @@ function renderTotal(root) {
   const paceLine = milestonePaceLine(milestone);
   const rate = effectiveRate();
   const hasCapexAssets = state.assets.some((a) => a.type === "capex");
+  // CC lewat cash path (totalCashIDR() SUDAH termasuk saldo negatifnya apa adanya, net worth
+  // TIDAK diubah) — tapi baris "Liquid" di breakdown SENGAJA misahin cash non-kartu dari
+  // pemakaian kartu (biar ga kelihatan kayak "punya uang" padahal itu limit), pola SAMA kayak
+  // CAPEX misahin investAssets dari capex di atas. Liquid(non-kartu) − Kartu = cash, invariant
+  // sum tetap kejaga.
+  const hasCreditAccounts = state.accounts.some((a) => isCreditAccount(a) && !a.isArchived);
+  const totalCreditDebt = totalCreditDebtIDR();
+  const liquidNonCredit = cash + totalCreditDebt;
 
   root.innerHTML = `
     <div class="networth-banner">
@@ -99,10 +108,11 @@ function renderTotal(root) {
 
     <div class="card">
       <div class="table-like">
-        ${totalRow("💧 Liquid (cash semua akun)", cash, "#93c5fd")}
+        ${totalRow(hasCreditAccounts ? "💧 Liquid (cash non-kartu)" : "💧 Liquid (cash semua akun)", hasCreditAccounts ? liquidNonCredit : cash, "#93c5fd")}
         ${totalRow("📈 Assets (investasi)", investAssets, "var(--green)")}
         ${capex > 0 && includeCapex ? totalRow("🏗️ CAPEX (Barang Susut)", capex, "#fbbf24") : ""}
         ${goalSavings > 0 ? totalRow("🎯 Short Term Goals (topup tersimpan)", goalSavings, "#c084fc") : ""}
+        ${hasCreditAccounts ? totalRow("🪪 Kartu Kredit (terpakai)", -totalCreditDebt, "var(--red)") : ""}
         ${totalRow("💳 Debt", -debt, "var(--red)")}
         <div style="border-top:1px solid var(--border); margin-top:8px; padding-top:10px; display:flex; justify-content:space-between">
           <span style="font-weight:800; font-size:13px">NET WORTH</span>
@@ -740,24 +750,32 @@ function openAssetTradeSheet(asset, dir, existingTx, opts = {}) {
 }
 
 // ================= LIQUID =================
+// Akun kartu kredit dikelompokkan TERPISAH dari akun cash (bukan tercampur di list/subtotal
+// yang sama) — pola sama kayak breakdown Total tab, biar ga kelihatan kayak "cash" padahal itu
+// limit/utang kartu.
 function renderLiquid(root) {
   const accounts = activeAccounts();
+  const cashAccounts = accounts.filter((a) => !isCreditAccount(a));
+  const creditAccounts = accounts.filter(isCreditAccount);
   const bal = accountBalances();
   const rate = effectiveRate();
   const total = totalCashIDR();
+  const totalCreditDebt = totalCreditDebtIDR();
+  const liquidNonCredit = total + totalCreditDebt;
 
   root.innerHTML = `
     <div class="card">
-      <div class="sub" style="margin-bottom:6px">Total liquid: <b style="color:#93c5fd">${fmtIDR(total)}</b></div>
+      <div class="sub" style="margin-bottom:6px">Total liquid: <b style="color:#93c5fd">${fmtIDR(total)}</b>${creditAccounts.length > 0 ? ` (cash ${fmtIDR(liquidNonCredit)} − kartu terpakai ${fmtIDR(totalCreditDebt)})` : ""}</div>
       <div id="liq-list">
         ${accounts.length === 0 ? `<div class="empty">Belum ada akun. Buat di Setting → Akun.</div>` : ""}
       </div>
+      ${creditAccounts.length > 0 ? `<div class="group-head" style="margin-top:14px"><span>🪪 Kartu Kredit</span></div><div id="liq-credit-list"></div>` : ""}
       <div class="sub" style="margin-top:10px">Saldo dihitung otomatis dari saldo awal + semua transaksi. Kelola akun di <a href="#/accounts" style="color:var(--blue)">Setting → Akun</a>.</div>
     </div>
   `;
 
   const list = root.querySelector("#liq-list");
-  accounts
+  cashAccounts
     .slice()
     .sort((a, b) => {
       const bv = (x) => (x.currency === "USD" ? (bal[x.id] || 0) * rate : bal[x.id] || 0);
@@ -781,6 +799,29 @@ function renderLiquid(root) {
         </div>`;
       list.appendChild(div);
     });
+
+  if (creditAccounts.length > 0) {
+    const creditList = root.querySelector("#liq-credit-list");
+    creditAccounts.forEach((a) => {
+      const used = creditUsed(a, bal);
+      const limit = Number(a.creditLimit) || 0;
+      const remaining = creditRemaining(a, bal);
+      const div = document.createElement("div");
+      div.className = "asset-item";
+      div.style.cursor = "default";
+      div.innerHTML = `
+        <span style="width:10px;height:10px;border-radius:50%;background:${a.color || "#60a5fa"};flex-shrink:0"></span>
+        <div>
+          <div class="asset-sym" style="font-size:13px">${escapeHtml(a.name)}</div>
+          <div class="asset-meta">${limit > 0 ? `limit ${fmtMoney(limit, a.currency)}` : "tanpa limit"}</div>
+        </div>
+        <div class="asset-right">
+          <div class="asset-val" style="color:var(--red)">${fmtMoney(used, a.currency)}</div>
+          <div class="stale-note">${limit > 0 ? `sisa ${fmtMoney(Math.max(0, remaining), a.currency)}` : "terpakai"}</div>
+        </div>`;
+      creditList.appendChild(div);
+    });
+  }
 }
 
 // ================= DEBT =================

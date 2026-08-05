@@ -4,6 +4,7 @@
 // Firestore console langsung) — guard normal di app (accounts.js, goals.js, dll) udah nyegah
 // ini lewat UI biasa.
 import { monthOf } from "./utils.js";
+import { accountBalances, isCreditAccount, creditUsed } from "./calc.js";
 
 const ONE_YEAR_MS = 365 * 24 * 3600 * 1000;
 
@@ -67,6 +68,23 @@ export function scanIntegrity(state) {
       ref: a,
       problems: [`tercatat ${fmt(recorded)} ${unit}, jejak transaksi ${fmt(netQty)} ${unit}, selisih ${fmt(Math.abs(diff))} ${unit} — perlu dicek`],
     });
+  }
+
+  // Kartu kredit: over-limit / saldo plus tak terduga. Read-only INFO, BUKAN error — over-limit
+  // udah di-toast pas transaksi disimpan (tx-sheet.js), ini jalur lain buat ngecek belakangan
+  // (mis. abis reconcile, hapus transaksi lama, atau limit diturunin manual).
+  const bal = accountBalances(state);
+  for (const a of state.accounts) {
+    if (!isCreditAccount(a) || a.isArchived) continue;
+    const used = creditUsed(a, bal);
+    const limit = Number(a.creditLimit) || 0;
+    const problems = [];
+    if (limit > 0 && used > limit) {
+      problems.push(`over limit — terpakai ${used.toLocaleString("id-ID")} dari limit ${limit.toLocaleString("id-ID")}`);
+    }
+    const balance = bal[a.id] || 0;
+    if (balance > 0) problems.push("saldo kartu plus — mungkin kelebihan bayar / salah reconcile");
+    if (problems.length > 0) issues.push({ kind: "account", ref: a, problems });
   }
 
   return issues;

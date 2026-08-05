@@ -26,9 +26,15 @@ kode — cukup betulkan CLAUDE.md biar akurat + catat "sudah benar" di ringkasan
 
 ---
 
-Ga ada task aktif per 2026-07-31 — TASK-1 s/d TASK-4 semua udah beres (lihat git history /
-CLAUDE.md bullet "Dashboard Proyeksi", section Known Quirks buat pembersihan API key IDX,
-kalimat Export Laporan yang dirapikan, dan bullet baru soal keterbatasan snapshot on-open).
+Ga ada task aktif per 2026-08-04 — TASK 1 (Akun tipe Kartu Kredit) udah beres: type `credit` +
+`creditLimit` di accounts, helper murni di calc.js (`isCreditAccount`/`creditUsed`/
+`creditRemaining`/`totalCreditDebtIDR`, semua di-test), tampilan Terpakai/Limit/Sisa (bukan
+saldo signed) di accounts.js + breakdown Total & tab Liquid Wealth, shortcut "💳 Bayar Tagihan"
+(transfer generic pre-filled), warning over-limit non-blocking di tx-sheet.js, section Akun +
+baris ringkasan CC di report-md.js, `creditLimit` ikut ke-snapshot, dan 2 check baru (over-limit
+/ saldo plus) di Cek Integritas Data. Info silang CC di tab Debt SENGAJA di-skip (keputusan &
+alasannya ada di CLAUDE.md bullet `accounts` tipe `credit`). CC net worth-nya lewat cash path
+(`totalCashIDR()`), BUKAN debt path — `totalDebtIDR()` ga disentuh sama sekali.
 
 ## Roadmap (belum jadi task aktif — kandidat, butuh keputusan/kebutuhan nyata dulu)
 

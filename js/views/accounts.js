@@ -1,11 +1,11 @@
-import { state, accountBalances } from "../store.js";
+import { state, accountBalances, activeAccounts, isCreditAccount, creditUsed, creditRemaining } from "../store.js";
 import { add, patch, remove, upsertSnapshot } from "../db.js";
 import {
   fmtNum, fmtMoney, blurNum, escapeHtml, toast, openSheet, closeSheet, sheetHead, confirmDialog,
   attachThousands, parseAmount, todayStr, monthOf,
 } from "../utils.js";
 
-export const ACCT_TYPES = { bank: "Bank", ewallet: "E-Wallet", cash: "Cash", rdn: "RDN Sekuritas", broker: "Broker (Bibit/Pluang)" };
+export const ACCT_TYPES = { bank: "Bank", ewallet: "E-Wallet", cash: "Cash", rdn: "RDN Sekuritas", broker: "Broker (Bibit/Pluang)", credit: "Kartu Kredit" };
 const COLORS = ["#60a5fa", "#4ade80", "#facc15", "#f87171", "#c084fc", "#fb923c", "#2dd4bf"];
 
 export function render(root) {
@@ -14,14 +14,19 @@ export function render(root) {
     <div class="card">
       <div class="card-title">Akun / Kantong Uang</div>
       <div id="acct-list">
-        ${accounts.length === 0 ? `<div class="empty">Belum ada akun.<br/>Akun = tempat uang lo (bank, e-wallet, cash, RDN, broker).</div>` : ""}
+        ${accounts.length === 0 ? `<div class="empty">Belum ada akun.<br/>Akun = tempat uang lo (bank, e-wallet, cash, RDN, broker, kartu kredit).</div>` : ""}
       </div>
     </div>
     <button id="btn-add-acct" class="btn btn-primary btn-block">＋ Tambah Akun</button>
   `;
 
   const list = root.querySelector("#acct-list");
+  const bal = accountBalances();
   accounts.forEach((a) => {
+    if (isCreditAccount(a)) {
+      list.appendChild(creditAcctRow(a, bal));
+      return;
+    }
     const div = document.createElement("div");
     div.className = "list-item";
     div.innerHTML = `
@@ -38,8 +43,40 @@ export function render(root) {
   root.querySelector("#btn-add-acct").onclick = () => openAcctSheet(null);
 }
 
-function openAcctSheet(existing) {
-  const a = existing || { name: "", type: "bank", currency: "IDR", initialBalance: "", color: COLORS[state.accounts.length % COLORS.length], isArchived: false };
+// Kartu kredit TIDAK ditampilin sebagai saldo positif/negatif biasa (bisa disangka "punya uang"
+// padahal itu limit/utang) — selalu "Terpakai / Limit / Sisa" + progress bar, pola sama budget
+// (`pct >= 100 ? p-red : pct >= 90 ? p-yellow : p-green`, lihat budget.js). Tombol eksplisit
+// (Bayar Tagihan / Edit) dipola sama goal-item (goals.js), bukan whole-row click ke edit.
+function creditAcctRow(a, bal) {
+  const used = creditUsed(a, bal);
+  const limit = Number(a.creditLimit) || 0;
+  const remaining = creditRemaining(a, bal); // null = tanpa limit
+  const pct = limit > 0 ? Math.min(100, (used / limit) * 100) : 0;
+  const cls = pct >= 100 ? "p-red" : pct >= 90 ? "p-yellow" : "p-green";
+  const div = document.createElement("div");
+  div.className = "budget-item";
+  div.innerHTML = `
+    <div class="budget-top">
+      <span class="budget-name" style="color:${a.color || "#60a5fa"}">💳 ${escapeHtml(a.name)} ${a.isArchived ? '<span class="badge badge-yellow">arsip</span>' : ""}</span>
+      <span class="budget-nums">${limit > 0 ? `${pct.toFixed(0)}%` : ""}</span>
+    </div>
+    ${limit > 0 ? `<div class="progress"><div class="${cls}" style="width:${pct}%"></div></div>` : ""}
+    <div class="sub" style="margin-top:4px">
+      Terpakai ${fmtMoney(used, a.currency)}${limit > 0
+        ? ` / Limit ${fmtMoney(limit, a.currency)} · sisa ${fmtMoney(Math.max(0, remaining), a.currency)}`
+        : " (tanpa limit)"}
+    </div>
+    <div style="margin-top:8px; display:flex; gap:8px;">
+      <button class="btn btn-sm" data-pay style="flex:1">💳 Bayar Tagihan</button>
+      <button class="btn btn-sm" data-edit style="flex:1">✎ Edit</button>
+    </div>`;
+  div.querySelector("[data-pay]").onclick = () => openPayCreditSheet(a);
+  div.querySelector("[data-edit]").onclick = () => openAcctSheet(a);
+  return div;
+}
+
+export function openAcctSheet(existing) {
+  const a = existing || { name: "", type: "bank", currency: "IDR", initialBalance: "", creditLimit: "", color: COLORS[state.accounts.length % COLORS.length], isArchived: false };
   const el = openSheet(`
     ${sheetHead(existing ? "Edit Akun" : "Tambah Akun")}
     <label>Nama</label>
@@ -55,8 +92,14 @@ function openAcctSheet(existing) {
         </select>
       </div>
     </div>
-    <label>Saldo awal</label>
+    <label id="ac-init-label">Saldo awal</label>
     <input id="ac-init" inputmode="decimal" value="${a.initialBalance !== "" ? a.initialBalance : ""}" placeholder="Saldo saat mulai pakai app" />
+    <div class="row hidden" id="ac-credit-wrap">
+      <div><label>Limit Kartu (Rp)</label>
+        <input id="ac-limit" inputmode="numeric" placeholder="0 = tanpa limit" value="${a.creditLimit ? fmtNum(a.creditLimit) : ""}" />
+      </div>
+    </div>
+    <div class="sub hidden" id="ac-credit-hint">💳 Saldo awal 0 = belum ada tagihan berjalan. Isi negatif (mis. -500000) kalau udah ada tagihan saat mulai pakai app.</div>
     <label>Warna</label>
     <div style="display:flex; gap:8px; margin-top:4px">
       ${COLORS.map((c) => `<span class="color-dot" data-color="${c}" style="width:26px;height:26px;border-radius:50%;background:${c};cursor:pointer;border:2px solid ${c === a.color ? "#fff" : "transparent"}"></span>`).join("")}
@@ -69,6 +112,17 @@ function openAcctSheet(existing) {
     </div>
   `);
 
+  const typeSel = el.querySelector("#ac-type");
+  const syncType = () => {
+    const isCredit = typeSel.value === "credit";
+    el.querySelector("#ac-credit-wrap").classList.toggle("hidden", !isCredit);
+    el.querySelector("#ac-credit-hint").classList.toggle("hidden", !isCredit);
+    el.querySelector("#ac-init-label").textContent = isCredit ? "Saldo awal (utang berjalan, biasanya 0)" : "Saldo awal";
+  };
+  typeSel.onchange = syncType;
+  syncType();
+  attachThousands(el.querySelector("#ac-limit"));
+
   let color = a.color;
   el.querySelectorAll(".color-dot").forEach((dot) => {
     dot.onclick = () => {
@@ -80,11 +134,13 @@ function openAcctSheet(existing) {
   el.querySelector("[data-close]").onclick = closeSheet;
 
   el.querySelector("#ac-save").onclick = async () => {
+    const isCredit = typeSel.value === "credit";
     const data = {
       name: el.querySelector("#ac-name").value.trim(),
-      type: el.querySelector("#ac-type").value,
+      type: typeSel.value,
       currency: el.querySelector("#ac-cur").value,
       initialBalance: parseFloat(String(el.querySelector("#ac-init").value).replace(/\./g, "").replace(",", ".")) || 0,
+      creditLimit: isCredit ? (parseAmount(el.querySelector("#ac-limit").value) || 0) : 0,
       color,
       isArchived: existing ? el.querySelector("#ac-arch").checked : false,
     };
@@ -179,5 +235,59 @@ function openReconcileSheet(account) {
     });
     await upsertSnapshot();
     toast(`Saldo disesuaikan ✓ (${diff < 0 ? "−" : "+"}${fmtMoney(Math.abs(diff), account.currency).replace(/<[^>]+>/g, "")})`);
+  };
+}
+
+// ================= Bayar Tagihan CC (shortcut) =================
+// Transfer BIASA (accountId = sumber/cash, toAccountId = kartu) — pola SAMA persis kayak transfer
+// akun-ke-akun generik (bukan jalur khusus kayak topup goal/beli asset), cuma sheet-nya pre-filled
+// biar cepet. type:"transfer" otomatis TIDAK masuk monthSummary().expense (lihat calc.js).
+function openPayCreditSheet(ccAccount) {
+  const sources = activeAccounts().filter((a) => a.id !== ccAccount.id && !isCreditAccount(a));
+  if (sources.length === 0) {
+    toast("Belum ada akun cash buat sumber bayar — buat dulu akun bank/e-wallet/cash");
+    return;
+  }
+  const bal = accountBalances();
+  const used = creditUsed(ccAccount, bal);
+
+  const el = openSheet(`
+    ${sheetHead(`Bayar Tagihan: ${escapeHtml(ccAccount.name)}`)}
+    <input id="pc-amount" class="amount-input" inputmode="numeric" placeholder="0"
+      value="${used > 0 ? fmtNum(used) : ""}" autocomplete="off" />
+    <div class="sub" style="margin-top:4px">Tagihan terpakai sekarang: <b>${fmtMoney(used, ccAccount.currency)}</b></div>
+    <label>Dari Akun</label>
+    <select id="pc-account">
+      ${sources.map((a) => `<option value="${a.id}">${escapeHtml(a.name)} (${a.currency})</option>`).join("")}
+    </select>
+    <label>Tanggal</label>
+    <input id="pc-date" type="date" value="${todayStr()}" />
+    <div style="margin-top:18px; display:flex; gap:8px;">
+      <button id="pc-save" class="btn btn-primary" style="flex:1">Simpan</button>
+    </div>
+  `);
+
+  const amountInput = el.querySelector("#pc-amount");
+  attachThousands(amountInput);
+  setTimeout(() => amountInput.focus(), 250);
+  el.querySelector("[data-close]").onclick = closeSheet;
+
+  el.querySelector("#pc-save").onclick = async () => {
+    const amount = parseAmount(amountInput.value);
+    const accountId = el.querySelector("#pc-account").value;
+    const date = el.querySelector("#pc-date").value;
+    if (!amount || amount <= 0) return toast("Isi nominal bayarnya dulu");
+    if (!date) return toast("Tanggal belum diisi");
+
+    // Overpay TETAP boleh (saldo kartu jadi plus) — warning non-blocking, bukan blokir keras.
+    const overpay = amount > used + 0.5;
+
+    closeSheet();
+    await add("transactions", {
+      type: "transfer", amount, date, month: monthOf(date),
+      accountId, toAccountId: ccAccount.id,
+      categoryId: null, note: `Bayar Tagihan: ${ccAccount.name}`,
+    });
+    toast(overpay ? "Tersimpan ✓ — bayar lebih dari tagihan, saldo kartu jadi plus" : "Tagihan dibayar ✓");
   };
 }
