@@ -5,7 +5,8 @@ import {
 } from "./firebase.js";
 import {
   state, netWorthIDR, totalCashIDR, totalAssetsIDR, totalCapexIDR, totalDebtIDR, totalGoalSavingsIDR,
-  accountBalances, assetValueIDR, assetCostIDR, capexLocalValue, effectiveRate, goalSavedIDR, activeAccounts,
+  accountBalances, assetValueIDR, assetCostIDR, capexLocalValue, effectiveRate, goalSavedIDR,
+  goalLinkedAssetsValueIDR, activeAccounts,
 } from "./store.js";
 import { currentMonth } from "./utils.js";
 
@@ -199,6 +200,10 @@ export async function upsertSnapshot() {
       name: g.name,
       targetAmount: Math.round(Number(g.targetAmount) || 0),
       saved: Math.round(goalSavedIDR(g.id)),
+      // Field additive/opsional — nilai asset ter-link DIPISAH dari `saved` (bukan
+      // di-pre-combine) biar report-md.js bisa nunjukin breakdown-nya, konsisten sama pola
+      // total* mentah di snapshot lain (CAPEX, kartu kredit). Snapshot lama fallback ke 0.
+      linkedValue: Math.round(goalLinkedAssetsValueIDR(g.id)),
       targetDate: g.targetDate || null,
     })),
     rate,

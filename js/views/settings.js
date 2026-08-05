@@ -11,6 +11,7 @@ import { scanIntegrity } from "../integrity.js";
 import { openTxDetail } from "./home.js";
 import { openAssetSheet } from "./wealth.js";
 import { openAcctSheet } from "./accounts.js";
+import { openGoalSheet } from "./goals.js";
 
 export function render(root) {
   const lastBackup = state.settings.lastBackupAt;
@@ -305,6 +306,8 @@ function openIntegritySheet() {
       ? `Asset ${issue.ref.symbol || issue.ref.name || "?"}`
       : issue.kind === "account"
       ? `Akun ${issue.ref.name || "?"}`
+      : issue.kind === "goal"
+      ? `Goal ${issue.ref.name || "?"}`
       : `Budget ${issue.ref.month || "?"}`;
     row.innerHTML = `
       <div style="flex:1">
@@ -317,6 +320,7 @@ function openIntegritySheet() {
       if (issue.kind === "transaction") openTxDetail(issue.ref);
       else if (issue.kind === "asset") openAssetSheet(issue.ref);
       else if (issue.kind === "account") openAcctSheet(issue.ref);
+      else if (issue.kind === "goal") openGoalSheet(issue.ref);
       else location.hash = "#/budget";
     };
     list.appendChild(row);

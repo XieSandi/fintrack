@@ -572,6 +572,8 @@ export function openAssetSheet(existing, contentRoot) {
     el.querySelector("#a-delete").onclick = async () => {
       const used = state.transactions.some((t) => t.assetId === existing.id);
       if (used) return toast("Asset ini punya riwayat pembelian/penjualan — beresin transaksinya di History dulu, baru hapus asset-nya");
+      const linkedGoals = state.goals.filter((g) => (g.linkedAssetIds || []).includes(existing.id));
+      if (linkedGoals.length > 0) return toast(`Asset ini di-link ke goal "${linkedGoals[0].name}" — lepas link-nya dulu di Edit Goal, baru hapus asset-nya`);
       if (!confirmDialog("Hapus asset ini?")) return;
       closeSheet();
       await remove("assets", existing.id);

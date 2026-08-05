@@ -175,6 +175,31 @@ export function goalSavedIDR(state, goalId) {
 }
 export const totalGoalSavingsIDR = (state) => state.goals.reduce((s, g) => s + goalSavedIDR(state, g.id), 0);
 
+// ============== Goal ↔ Asset linking ==============
+// Short Term Goal SEKARANG bisa di-link ke ≥1 asset (`goals.linkedAssetIds`, array of assetId,
+// di-set dari sheet edit goal) — nilai asset yang di-link IKUT ditampilin sebagai bagian
+// progress goal (`goalProgressIDR()` di bawah), TAPI SENGAJA TIDAK ikut `totalGoalSavingsIDR()`
+// (dipakai `netWorthIDR()`) — asset yang di-link TETAP asset biasa, udah kehitung penuh di
+// `totalAssetsIDR()`, nambahin lagi ke goalSavings bakal DOUBLE-COUNT net worth. `goalSavedIDR()`
+// (topup/withdraw cash, di atas) TETAP satu-satunya sumber `totalGoalSavingsIDR()` — pemisahan
+// ini SENGAJA, lihat CLAUDE.md bullet `goals` buat penjelasan lengkap.
+export function goalLinkedAssetsValueIDR(state, goalId, nowMonth) {
+  const goal = state.goals.find((g) => g.id === goalId);
+  const linkedIds = goal?.linkedAssetIds || [];
+  if (linkedIds.length === 0) return 0;
+  return state.assets
+    .filter((a) => linkedIds.includes(a.id))
+    .reduce((sum, a) => sum + assetValueIDR(state, a, nowMonth), 0);
+}
+
+// Progress TAMPILAN satu goal = topup standalone (goalSavedIDR) + nilai asset ter-link
+// (goalLinkedAssetsValueIDR) — dipakai buat progress bar/persentase di UI (goals.js/home.js),
+// BUKAN buat net worth (lihat bullet di atas). `nowMonth` diteruskan ke assetValueIDR (CAPEX
+// butuh ini, tipe lain abaikan).
+export function goalProgressIDR(state, goalId, nowMonth) {
+  return goalSavedIDR(state, goalId) + goalLinkedAssetsValueIDR(state, goalId, nowMonth);
+}
+
 // Formula net worth dari breakdown MENTAH ({cash, assets, capex, goalSavings, debt}) + flag
 // includeCapex — TIDAK butuh `state` (murni angka yang udah di-breakdown, bukan live state) biar
 // bisa dipakai ulang buat recompute net worth HISTORIS (per snapshot lama, wealth.js chart Tren

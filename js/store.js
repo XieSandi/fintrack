@@ -99,6 +99,8 @@ export const totalCapexIDR = () => calc.totalCapexIDR(state, currentMonth());
 export const totalDebtIDR = () => calc.totalDebtIDR(state);
 export const goalSavedIDR = (goalId) => calc.goalSavedIDR(state, goalId);
 export const totalGoalSavingsIDR = () => calc.totalGoalSavingsIDR(state);
+export const goalLinkedAssetsValueIDR = (goalId) => calc.goalLinkedAssetsValueIDR(state, goalId, currentMonth());
+export const goalProgressIDR = (goalId) => calc.goalProgressIDR(state, goalId, currentMonth());
 export const netWorthIDR = () => calc.netWorthIDR(state, currentMonth());
 export const netWorthFromParts = (parts, includeCapex) => calc.netWorthFromParts(parts, includeCapex);
 export const snapshotNetWorth = (s, includeCapex) => calc.snapshotNetWorth(s, includeCapex);

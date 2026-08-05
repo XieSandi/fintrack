@@ -4,7 +4,7 @@
 import {
   state, activeAccounts, accountBalances, totalCashIDR, totalAssetsIDR, totalCapexIDR, totalDebtIDR,
   totalGoalSavingsIDR, netWorthIDR, netWorthFromParts, snapshotNetWorth, assetValueIDR, assetCostIDR, capexLocalValue, goalSavedIDR,
-  effectiveRate, monthSummary, spentByCategory, budgetsOfMonth, catById, acctById, milestoneProgress,
+  goalLinkedAssetsValueIDR, effectiveRate, monthSummary, spentByCategory, budgetsOfMonth, catById, acctById, milestoneProgress,
 } from "./store.js";
 import {
   fmtIDRPlain, fmtMoneyPlain, fmtNum, monthLabel, addMonths, todayStr, currentMonth, milestonePaceLine,
@@ -119,7 +119,8 @@ function buildPosition(month, isCurrentMonth) {
     })),
     goals: state.goals.map((g) => ({
       name: g.name, targetAmount: Number(g.targetAmount) || 0,
-      saved: goalSavedIDR(g.id), targetDate: g.targetDate || null,
+      saved: goalSavedIDR(g.id), linkedValue: goalLinkedAssetsValueIDR(g.id),
+      targetDate: g.targetDate || null,
     })),
   };
 }
@@ -309,15 +310,24 @@ export function buildMonthlyReport(month) {
   lines.push("");
 
   // ===== 8. Short Term Goals =====
+  // "Terkumpul" = topup standalone + nilai asset ter-link (`linkedValue`) — progress TAMPILAN
+  // doang. Asset ter-link TETAP kehitung normal di section 6 (Investasi)/net worth, kolom
+  // Breakdown di sini CUMA informasi, JANGAN disangka nambah net worth (lihat section 1/CLAUDE.md
+  // bullet `goals` — goal savings yang masuk net worth cuma dari topup, bukan linkedValue).
   lines.push(`## 8. Short Term Goals (${position.label})`);
   const goalRows = position.goals.map((g) => {
     const t = g.targetAmount;
-    const saved = g.saved;
-    const p = t > 0 ? Math.max(0, Math.min(100, (saved / t) * 100)) : 0;
-    const remaining = Math.max(0, t - saved);
-    return [g.name, fmtIDRPlain(t), fmtIDRPlain(saved), `${p.toFixed(0)}%`, g.targetDate ? monthLabel(g.targetDate) : NA, fmtIDRPlain(remaining)];
+    const linkedValue = g.linkedValue || 0;
+    const progress = g.saved + linkedValue;
+    const p = t > 0 ? Math.max(0, Math.min(100, (progress / t) * 100)) : 0;
+    const remaining = Math.max(0, t - progress);
+    return [
+      g.name, fmtIDRPlain(t), fmtIDRPlain(progress),
+      linkedValue > 0 ? `topup ${fmtIDRPlain(g.saved)} + asset ${fmtIDRPlain(linkedValue)}` : NA,
+      `${p.toFixed(0)}%`, g.targetDate ? monthLabel(g.targetDate) : NA, fmtIDRPlain(remaining),
+    ];
   });
-  lines.push(mdTable(["Goal", "Target", "Terkumpul", "%", "Target Date", "Sisa Perlu Ditabung"], goalRows));
+  lines.push(mdTable(["Goal", "Target", "Terkumpul", "Breakdown", "%", "Target Date", "Sisa Perlu Ditabung"], goalRows));
   lines.push("");
 
   // ===== 9. Komitmen Rutin ===== (selalu live — recurring itu komitmen SEKARANG, bukan posisi historis)

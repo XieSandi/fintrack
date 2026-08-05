@@ -1,4 +1,4 @@
-import { state, activeAccounts, goalSavedIDR, effectiveRate } from "../store.js";
+import { state, activeAccounts, goalSavedIDR, goalLinkedAssetsValueIDR, goalProgressIDR, assetValueIDR, effectiveRate } from "../store.js";
 import { add, patch, remove } from "../db.js";
 import {
   fmtIDR, fmtNum, fmtMoney, escapeHtml, toast, openSheet, closeSheet, sheetHead,
@@ -7,13 +7,32 @@ import {
 
 const COLORS = ["#60a5fa", "#4ade80", "#facc15", "#f87171", "#c084fc", "#fb923c", "#2dd4bf"];
 
+// Stats tampilan SATU goal — SATU tempat, dipakai bareng goals.js (list) DAN home.js (preview)
+// biar dua UI ga divergen (pola sama copyBudgetFromLastMonth()). `progress` (dipakai buat
+// progress bar/persentase/angka utama) = topup standalone + nilai asset ter-link
+// (`goalProgressIDR()`) — TAPI status "Selesai 🎉" TETAP murni dari `saved` (topup/withdraw
+// lifecycle, `goalSavedIDR()`), BUKAN `progress`, karena asset ter-link ga punya konsep
+// "withdraw" — goal yang masih punya asset ter-link gede tapi topup-nya abis harusnya TETAP
+// bisa di-topup lagi, bukan ke-anggap "selesai" gara-gara nilai asset.
+export function goalDisplayStats(g) {
+  const target = Number(g.targetAmount) || 0;
+  const saved = goalSavedIDR(g.id);
+  const linkedValue = goalLinkedAssetsValueIDR(g.id);
+  const progress = saved + linkedValue;
+  const hasHistory = state.transactions.some((t) => t.toGoalId === g.id || t.fromGoalId === g.id);
+  const isDone = saved <= 0 && hasHistory;
+  const pct = target > 0 ? Math.max(0, Math.min(100, (progress / target) * 100)) : 0;
+  const cls = pct >= 100 ? "p-green" : pct >= 50 ? "p-yellow" : "p-red";
+  return { target, saved, linkedValue, progress, hasHistory, isDone, pct, cls };
+}
+
 export function render(root) {
   const goals = state.goals.slice().sort((a, b) => (a.targetAmount || 0) - (b.targetAmount || 0));
 
   root.innerHTML = `
     <div class="card">
       <div class="card-title">🎯 Short Term Goals</div>
-      <div class="sub" style="margin-bottom:4px">Target jangka pendek yang bisa lebih dari satu — beda dari Main Milestone (satu angka besar di Setting). Sistem topup: transfer saldo dari akun ke goal buat nabung. Uang yang udah ke-topup tetep dihitung sebagai bagian net worth lo (masuk kategori assets).</div>
+      <div class="sub" style="margin-bottom:4px">Target jangka pendek yang bisa lebih dari satu — beda dari Main Milestone (satu angka besar di Setting). Sistem topup: transfer saldo dari akun ke goal buat nabung. Uang yang udah ke-topup tetep dihitung sebagai bagian net worth lo (masuk kategori assets). Bisa juga di-link ke asset yang udah ada (nilainya ikut ditampilin di progress, TANPA nambah net worth dua kali).</div>
       <div id="goal-list"></div>
       ${goals.length === 0 ? `<div class="empty">Belum ada goals.<br/>Tap tombol di bawah buat bikin target pertama.</div>` : ""}
     </div>
@@ -22,12 +41,7 @@ export function render(root) {
 
   const list = root.querySelector("#goal-list");
   goals.forEach((g) => {
-    const target = Number(g.targetAmount) || 0;
-    const saved = goalSavedIDR(g.id);
-    const hasHistory = state.transactions.some((t) => t.toGoalId === g.id || t.fromGoalId === g.id);
-    const isDone = saved <= 0 && hasHistory;
-    const pct = target > 0 ? Math.max(0, Math.min(100, (saved / target) * 100)) : 0;
-    const cls = pct >= 100 ? "p-green" : pct >= 50 ? "p-yellow" : "p-red";
+    const { target, saved, linkedValue, progress, isDone, pct, cls } = goalDisplayStats(g);
     const div = document.createElement("div");
     div.className = "budget-item";
     div.innerHTML = `
@@ -37,8 +51,9 @@ export function render(root) {
       </div>
       <div class="progress"><div class="${cls}" style="width:${pct}%"></div></div>
       <div class="sub" style="display:flex; justify-content:space-between; align-items:center">
-        <span>${fmtIDR(saved)} / ${fmtIDR(target)}${g.targetDate ? ` · target ${monthLabel(g.targetDate)}` : ""}</span>
+        <span>${fmtIDR(progress)} / ${fmtIDR(target)}${g.targetDate ? ` · target ${monthLabel(g.targetDate)}` : ""}</span>
       </div>
+      ${linkedValue > 0 ? `<div class="sub">termasuk ${fmtIDR(linkedValue)} dari ${(g.linkedAssetIds || []).length} asset ter-link</div>` : ""}
       <div style="margin-top:8px; display:flex; gap:8px;">
         <button class="btn btn-sm" data-topup style="flex:1">💰 Topup</button>
         ${saved > 0 ? `<button class="btn btn-sm" data-withdraw style="flex:1">💸 Cairkan</button>` : ""}
@@ -53,8 +68,9 @@ export function render(root) {
   root.querySelector("#btn-add-goal").onclick = () => openGoalSheet(null);
 }
 
-function openGoalSheet(existing) {
-  const g = existing || { name: "", targetAmount: "", targetDate: "", color: COLORS[state.goals.length % COLORS.length] };
+export function openGoalSheet(existing) {
+  const g = existing || { name: "", targetAmount: "", targetDate: "", color: COLORS[state.goals.length % COLORS.length], linkedAssetIds: [] };
+  const linkedIds = new Set(g.linkedAssetIds || []);
   const el = openSheet(`
     ${sheetHead(existing ? "Edit Goal" : "Tambah Goal")}
     <label>Nama Goal</label>
@@ -67,6 +83,17 @@ function openGoalSheet(existing) {
     <div style="display:flex; gap:8px; margin-top:4px">
       ${COLORS.map((c) => `<span class="color-dot" data-color="${c}" style="width:26px;height:26px;border-radius:50%;background:${c};cursor:pointer;border:2px solid ${c === g.color ? "#fff" : "transparent"}"></span>`).join("")}
     </div>
+    ${state.assets.length > 0 ? `
+    <label style="margin-top:14px">Asset ter-link (opsional)</label>
+    <div class="sub" style="margin-bottom:6px">Nilai asset yang dipilih ikut ditampilin sebagai progress goal ini — asset-nya TETAP kehitung normal di Assets/Net Worth (BUKAN ditambah dua kali), cuma direferensiin di sini buat tracking. Boleh pilih lebih dari satu, dan satu asset boleh di-link ke lebih dari satu goal.</div>
+    <div id="g-asset-list" style="display:flex; flex-direction:column; gap:8px; max-height:220px; overflow-y:auto">
+      ${state.assets.map((a) => `
+        <label style="display:flex; align-items:center; gap:8px; font-size:13px; text-transform:none; letter-spacing:0; font-weight:400; color:var(--text)">
+          <input type="checkbox" data-asset-link value="${a.id}" style="width:auto" ${linkedIds.has(a.id) ? "checked" : ""}/>
+          <span style="flex:1">${escapeHtml(a.symbol || a.name)}</span>
+          <span class="sub">${fmtIDR(assetValueIDR(a))}</span>
+        </label>`).join("")}
+    </div>` : ""}
     <div style="margin-top:18px; display:flex; gap:8px;">
       ${existing ? `<button id="g-delete" class="btn btn-danger">Hapus</button>` : ""}
       <button id="g-save" class="btn btn-primary" style="flex:1">Simpan</button>
@@ -90,6 +117,7 @@ function openGoalSheet(existing) {
       targetAmount: parseAmount(el.querySelector("#g-target").value),
       targetDate: el.querySelector("#g-date").value || null,
       color,
+      linkedAssetIds: Array.from(el.querySelectorAll("[data-asset-link]:checked")).map((cb) => cb.value),
     };
     if (!data.name) return toast("Isi nama goal");
     if (!data.targetAmount) return toast("Isi target nominal");
