@@ -163,14 +163,15 @@ export function buildMonthlyReport(month) {
   lines.push(`- **Net worth (tanpa CAPEX): ${fmtIDRPlain(nwWithoutCapex)}**`);
   lines.push(`- Dipakai app sekarang (toggle CAPEX di Wealth → Total): **${includeCapexNow ? "+ CAPEX" : "tanpa CAPEX"}** → ${fmtIDRPlain(nwForToggle)}${nwDelta !== null ? ` (Δ ${signed(nwDelta)} vs ${monthLabel(prevMonthKey)})` : ""}`);
   lines.push(`- Cash: ${fmtIDRPlain(position.cash)} · Assets (termasuk CAPEX): ${fmtIDRPlain(position.assetsTotal)}${position.capexTotal > 0 ? ` (di dalamnya CAPEX: ${fmtIDRPlain(position.capexTotal)})` : ""} · Goal savings: ${fmtIDRPlain(position.goalSavingsTotal)} · Debt: −${fmtIDRPlain(position.debtTotal)}`);
-  // Utang kartu kredit BUKAN debt entity (lihat section `debts` di atas) — udah "included" di
-  // angka Cash (saldo negatif akun credit ngurangin cash apa adanya, lewat cash path bukan debt
-  // path). Baris ini cuma informasi tambahan, dipisah dari Debt cicilan di atas biar ga ketuker.
+  // Utang kartu kredit lewat DEBT PATH sekarang (v2, 2026-08 — lihat DECISIONS.md; beda dari v1
+  // yang lewat cash path) — udah "included" di angka Debt di atas, TIDAK lagi di Cash. Baris ini
+  // cuma informasi tambahan, misahin dari cicilan (collection `debts`) biar ga ketuker — detail
+  // per kartu ada di section 7.
   const totalCreditDebt = position.accounts
     .filter((a) => a.type === "credit")
     .reduce((s, a) => s + Math.max(0, -(a.balanceIDR || 0)), 0);
   if (totalCreditDebt > 0) {
-    lines.push(`- 🪪 Kartu Kredit terpakai: ${fmtIDRPlain(totalCreditDebt)} (sudah termasuk di Cash di atas — lewat cash path, BUKAN debt path, beda dari Debt cicilan)`);
+    lines.push(`- 🪪 Kartu Kredit terpakai: ${fmtIDRPlain(totalCreditDebt)} (sudah termasuk di Debt di atas — lewat debt path, beda dari cicilan/Debt collection, lihat section 7)`);
   }
   const target = Number(state.settings.targetNetWorth) || 0;
   if (target > 0) {
@@ -277,6 +278,9 @@ export function buildMonthlyReport(month) {
   lines.push("");
 
   // ===== 7. Hutang =====
+  // Cicilan (collection `debts`) di tabel utama. Kartu kredit (revolving, lewat debt path
+  // sekarang — lihat DECISIONS.md) SENGAJA di subsection terpisah di bawahnya, bukan dicampur ke
+  // tabel yang sama — field-nya beda konsep (Terpakai/Limit, bukan Cicilan/bln atau Jatuh Tempo).
   lines.push(`## 7. Hutang (${position.label})`);
   const debtRows = position.debts.map((d) => [
     d.name, fmtIDRPlain(d.outstanding), fmtIDRPlain(d.monthlyInstalment),
@@ -287,7 +291,20 @@ export function buildMonthlyReport(month) {
     const totalOutstanding = position.debts.reduce((s, d) => s + d.outstanding, 0);
     const totalInstalment = position.debts.reduce((s, d) => s + d.monthlyInstalment, 0);
     const dti = sum.income > 0 ? (totalInstalment / sum.income) * 100 : null;
-    lines.push(`**Total** — Outstanding: ${fmtIDRPlain(totalOutstanding)} · Cicilan/bln: ${fmtIDRPlain(totalInstalment)} · DTI (vs income ${monthLabel(month)}): ${dti !== null ? dti.toFixed(1) + "%" : NA}`);
+    lines.push(`**Total cicilan** — Outstanding: ${fmtIDRPlain(totalOutstanding)} · Cicilan/bln: ${fmtIDRPlain(totalInstalment)} · DTI (vs income ${monthLabel(month)}): ${dti !== null ? dti.toFixed(1) + "%" : NA}`);
+  }
+  const creditAccts = position.accounts.filter((a) => a.type === "credit");
+  if (creditAccts.length > 0) {
+    const creditRows = creditAccts.map((a) => {
+      const used = a.balance < 0 ? -a.balance : 0;
+      const limit = Number(a.creditLimit) || 0;
+      return [a.name, fmtMoneyPlain(used, a.currency), limit > 0 ? fmtMoneyPlain(limit, a.currency) : "tanpa limit"];
+    });
+    const totalCreditUsed = creditAccts.reduce((s, a) => s + Math.max(0, -(a.balanceIDR || 0)), 0);
+    lines.push("");
+    lines.push(`**🪪 Kartu Kredit** (revolving, TIDAK ada di collection \`debts\` — tetap ikut Debt total):`);
+    lines.push(mdTable(["Kartu", "Terpakai", "Limit"], creditRows));
+    lines.push(`**Total kartu kredit terpakai:** ${fmtIDRPlain(totalCreditUsed)}`);
   }
   lines.push("");
 
