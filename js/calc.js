@@ -44,24 +44,13 @@ export function accountBalances(state) {
   return bal;
 }
 
-// Total cash dalam IDR (akun USD dikonversi)
-export function totalCashIDR(state) {
-  const bal = accountBalances(state);
-  const rate = effectiveRate(state);
-  return activeAccounts(state).reduce((sum, a) => {
-    const b = bal[a.id] || 0;
-    return sum + (a.currency === "USD" ? b * rate : b);
-  }, 0);
-}
-
 // ============== Akun tipe `credit` (kartu kredit) ==============
-// Utang CC BUKAN debt entity terpisah — murni saldo negatif akun tipe `credit`, derived,
-// konsisten sama prinsip "saldo ga pernah disimpan" yang udah jadi fondasi app dari awal.
-// Belanja pakai CC = expense biasa (accountId = akun credit), ga ada field/mekanisme baru di
-// accountBalances() — expense generic udah nurunin balance, dan karena CC mulai dari 0/saldo
-// awal, balance negatif OTOMATIS = utang. `totalCashIDR()` di atas SUDAH include efek ini apa
-// adanya (ga ada perubahan di situ) — net worth TIDAK diubah rumusnya sama sekali, CC sengaja
-// lewat cash path, BUKAN debt path (lihat DECISIONS.md kalau butuh alasan lengkapnya).
+// Kartu kredit TETAP akun biasa (transaksi expense/transfer jalan generic lewat accountId-nya,
+// accountBalances() TIDAK ada mekanisme khusus) — cuma KALKULASI/PRESENTASI-nya yang beda dari
+// akun cash lain: utang CC (saldo negatif) dihitung lewat DEBT PATH (`totalDebtIDR()` di bawah),
+// BUKAN cash path lagi (v1 dulu lewat cash path, dipindah — lihat DECISIONS.md kalau butuh
+// alasan lengkap perubahannya). Definisi di sini sengaja diletakkan SEBELUM totalCashIDR()
+// karena fungsi itu sekarang butuh `isCreditAccount()`.
 export const isCreditAccount = (acct) => acct.type === "credit";
 
 // `balances` = output accountBalances(state) — dioper biar caller ga perlu hitung ulang tiap
@@ -79,15 +68,31 @@ export const creditRemaining = (acct, balances) => {
   return limit - creditUsed(acct, balances);
 };
 
-// Total utang CC semua akun credit, dalam IDR — DIPAKAI BUAT TAMPILAN breakdown doang (misah
-// "Liquid" dari "Kartu Kredit" di card Total Wealth), BUKAN buat ngubah rumus net worth (yang
-// itu tetap murni totalCashIDR() + ... seperti sebelumnya, CC-nya udah "included" di situ).
+// Total utang CC semua akun credit, dalam IDR — dipakai LANGSUNG di formula `totalDebtIDR()`
+// (CC lewat debt path sekarang) DAN buat breakdown tampilan (misah baris "🪪 Kartu Kredit" dari
+// "💳 Debt" cicilan di Wealth/report, dua-duanya tetap sum ke `totalDebtIDR()` yang sama).
 export function totalCreditDebtIDR(state) {
   const bal = accountBalances(state);
   const rate = effectiveRate(state);
   return activeAccounts(state)
     .filter(isCreditAccount)
     .reduce((sum, a) => sum + creditUsed(a, bal) * (a.currency === "USD" ? rate : 1), 0);
+}
+
+// Total cash dalam IDR (akun USD dikonversi). Akun tipe `credit` DIKECUALIKAN kalau balance-nya
+// NEGATIF (utang — masuk `totalDebtIDR()` sekarang, bukan sini) — TAPI kalau kebetulan saldo CC
+// POSITIF (overpay, edge case yang udah di-flag `integrity.js` sebagai kemungkinan salah), bagian
+// positif itu TETAP keitung cash, biar nilainya ga "ilang" dari net worth (`totalCreditDebtIDR()`
+// di atas cuma ngitung bagian NEGATIF/utang, jadi ga ada double-count maupun kehilangan value
+// buat kombinasi sign manapun — lihat test "credit: saldo CC positif" di calc.test.mjs).
+export function totalCashIDR(state) {
+  const bal = accountBalances(state);
+  const rate = effectiveRate(state);
+  return activeAccounts(state).reduce((sum, a) => {
+    let b = bal[a.id] || 0;
+    if (isCreditAccount(a) && b < 0) b = 0;
+    return sum + (a.currency === "USD" ? b * rate : b);
+  }, 0);
 }
 
 // Nilai asset (harga manual). Saham IDX: qty dalam LOT → ×100 lembar. CAPEX (lihat blok di
@@ -143,7 +148,15 @@ export const totalAssetsIDR = (state, nowMonth) =>
 // settings.includeCapexInNetWorth) TANPA filter ulang assetValueIDR di dua tempat beda.
 export const totalCapexIDR = (state, nowMonth) =>
   state.assets.filter((a) => a.type === "capex").reduce((s, a) => s + assetValueIDR(state, a, nowMonth), 0);
-export const totalDebtIDR = (state) => state.debts.reduce((s, d) => s + (Number(d.totalOutstanding) || 0), 0);
+
+// Utang cicilan (collection `debts`) + utang kartu kredit (`totalCreditDebtIDR()`, saldo negatif
+// akun tipe `credit`) — CC lewat DEBT PATH sekarang (bukan cash path lagi, lihat bullet
+// `isCreditAccount` di atas & DECISIONS.md). Dua sumber ini TETAP konsep terpisah (cicilan TETAP
+// vs kartu revolving) — cuma DIJUMLAHKAN di sini biar netWorthIDR() otomatis bener; breakdown
+// tampilan (Wealth/report) misahin lagi jadi 2 baris via `totalCreditDebtIDR()` + (totalDebtIDR −
+// totalCreditDebtIDR) buat cicilan doang.
+export const totalDebtIDR = (state) =>
+  state.debts.reduce((s, d) => s + (Number(d.totalOutstanding) || 0), 0) + totalCreditDebtIDR(state);
 
 // Saldo goal = total topup (toGoalId) − total pencairan (fromGoalId).
 // Dihitung IDR pakai currency akun lawan-nya, biar konsisten sama totalCashIDR().

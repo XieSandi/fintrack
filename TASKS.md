@@ -26,15 +26,23 @@ kode — cukup betulkan CLAUDE.md biar akurat + catat "sudah benar" di ringkasan
 
 ---
 
-Ga ada task aktif per 2026-08-04 — TASK 1 (Akun tipe Kartu Kredit) udah beres: type `credit` +
-`creditLimit` di accounts, helper murni di calc.js (`isCreditAccount`/`creditUsed`/
-`creditRemaining`/`totalCreditDebtIDR`, semua di-test), tampilan Terpakai/Limit/Sisa (bukan
-saldo signed) di accounts.js + breakdown Total & tab Liquid Wealth, shortcut "💳 Bayar Tagihan"
-(transfer generic pre-filled), warning over-limit non-blocking di tx-sheet.js, section Akun +
-baris ringkasan CC di report-md.js, `creditLimit` ikut ke-snapshot, dan 2 check baru (over-limit
-/ saldo plus) di Cek Integritas Data. Info silang CC di tab Debt SENGAJA di-skip (keputusan &
-alasannya ada di CLAUDE.md bullet `accounts` tipe `credit`). CC net worth-nya lewat cash path
-(`totalCashIDR()`), BUKAN debt path — `totalDebtIDR()` ga disentuh sama sekali.
+Task 1
+add feature to connect short time goals with assets
+
+concept :
+1. short time Goals has 2 type of balance. Standalone topup balance based like existing feature, and balance that connected with assets
+2. UI to connect will placed in edit of the short time goals. i select assets that connected into it (multiple)
+3. The assest that connected into goals will not calculate twice, only standalone topedup balance that calculate separately
+
+~~Task 2~~ — udah dikerjain: kartu kredit pindah dari cash path ke debt path.
+`totalCashIDR()` sekarang EXCLUDE utang CC, `totalDebtIDR()` sekarang INCLUDE-nya
+(`= Σdebts.totalOutstanding + totalCreditDebtIDR()`) — net worth VALUE-nya sendiri ga berubah
+(cuma direkategorisasi), model data & mekanisme transaksi CC TETAP akun biasa (ga dipindah ke
+collection `debts`). Tab Liquid (Wealth) ga nampilin akun credit lagi; tab Debt (Wealth)
+sekarang nampilin akun credit di section terpisah dari cicilan; breakdown Total tab Wealth
+misahin baris "💳 Debt (cicilan)" dari "🪪 Kartu Kredit"; report-md.js section 1 & 7 diupdate
+match. Detail lengkap & alasan pivot dari v1: `DECISIONS.md` bullet "Kartu kredit: dari cash
+path (v1) ke debt path (v2)". Aturan sekarang: CLAUDE.md bullet `accounts` tipe `credit`.
 
 ## Roadmap (belum jadi task aktif — kandidat, butuh keputusan/kebutuhan nyata dulu)
 

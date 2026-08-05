@@ -245,3 +245,68 @@ begitu satu-satunya caller-nya ilang), bukan cuma di-nonaktifkan di UI.
 **State operasional sekarang & aturan yang WAJIB dipatuhi:** lihat CLAUDE.md bullet `assets`
 tipe `capex` (Data Model), "Chart 📈 Tren Net Worth", "Dashboard Proyeksi", dan "Backfill CAPEX
 ke Snapshot Lama" di Known Quirks.
+
+---
+
+## Kartu kredit: dari cash path (v1) ke debt path (v2) (2026-08)
+
+**v1 (spec awal owner):** kartu kredit dimodelkan sebagai akun biasa (`type: "credit"`), utang-
+nya derived dari saldo negatif — TAPI keputusan eksplisit waktu itu adalah CC lewat **cash
+path**: `totalCashIDR()` include saldo negatifnya apa adanya (net worth turun lewat cash
+berkurang), `totalDebtIDR()` TETAP murni collection `debts`, CC ga pernah nyentuh angka itu sama
+sekali. Alasannya waktu itu (dari spec asli): CC secara mekanis emang lebih mirip akun (transaksi
+generic, saldo jurnal) daripada `debts` (cicilan tetap dengan `monthlyInstalment`/`dueDay`), jadi
+kalkulasinya ngikutin "bentuk"-nya. Tab Debt (Wealth) sengaja TIDAK nampilin CC sama sekali di
+v1 — breakdown Total tab Wealth (baris "🪪 Kartu Kredit" terpisah dari "💧 Liquid") dianggap udah
+cukup buat visibility.
+
+**v2 (owner minta diubah, task terpisah tak lama setelah v1 selesai):** owner eksplisit minta
+CC "dipindahkan" ke debt — 3 poin: (1) kalkulasinya jadi debt, (2) dipisah dari akun liquid biar
+ga tercampur, (3) TAPI tetap treat sebagai akun (bisa transaksi normal) — cuma presentasi/
+kalkulasinya yang beda. Poin (3) ini penting: v2 BUKAN migrasi CC ke collection `debts` (itu
+bakal jadi perubahan model data besar, breaking, dan ngilangin kemudahan "belanja pakai CC =
+expense biasa" yang justru jadi keunggulan v1) — v2 cuma mindahin CC dari SISI KALKULASI
+`totalCashIDR()`/`totalDebtIDR()`, model data (`accounts` doc, `type: "credit"`, transaksi lewat
+`accountId`) TIDAK disentuh sama sekali.
+
+**Kenapa owner minta ini diubah** (dari konteks task, bukan dijelasin eksplisit panjang lebar,
+tapi bisa disimpulkan dari framing-nya): kemungkinan besar soal MENTAL MODEL — utang kartu
+kredit, meskipun mekanismenya "akun", secara EKONOMI ya tetep utang (uang yang harus dibayar
+balik, bukan uang yang "dimiliki" kayak saldo bank beneran). Nampilinnya di "Liquid" (bareng
+saldo bank/e-wallet asli) — walaupun angkanya udah dikurangin dengan bener secara matematis —
+bisa bikin salah baca cepat ("liquid gue segini") padahal sebagian dari pengurangan itu
+sebenernya representasi UTANG, bukan cash yang beneran berkurang. Mindahin ke kategori "Debt"
+bikin framing-nya lebih jujur: "berapa uang cash gue" (Liquid, sekarang bersih dari CC) vs
+"berapa total utang gue" (Debt, sekarang termasuk CC) jadi dua pertanyaan yang jawabannya
+langsung kebaca tanpa perlu mikir ulang soal darimana angka itu asalnya.
+
+**Implementasi teknis:** formula `totalCashIDR()` & `totalDebtIDR()` (calc.js) yang diubah,
+BUKAN `netWorthIDR()` — net worth VALUE-nya identik antara v1 dan v2 (cuma direkategorisasi),
+karena CC's balance negatif SEBELUMNYA nyumbang ke `cash` (ngurangin net worth lewat situ),
+SEKARANG nyumbang ke `debt` (ngurangin net worth lewat situ juga) — total pengurangannya sama.
+Satu detail yang butuh perhatian ekstra: edge case saldo CC POSITIF (overpay, jarang tapi bisa
+terjadi, `integrity.js` udah nge-flag ini sebagai kemungkinan salah reconcile). Kalau
+`totalCashIDR()` FULL exclude semua akun credit (regardless of sign) dan `totalDebtIDR()` cuma
+nambahin bagian negatif (`creditUsed`, by definition ga pernah negatif), maka saldo POSITIF itu
+ga akan kehitung di MANAPUN — net worth diam-diam kehilangan value. Ini persis kelas bug yang
+CLAUDE.md udah pernah warning soal ("Jangan lupa subtract debt lagi kalau ada yang refactor
+bagian ini, pernah kelewat sebelumnya" — soal toggle Home Total Balance). Fix-nya:
+`totalCashIDR()` cuma exclude bagian NEGATIF akun credit (nge-nolin `b` kalau `b < 0` DAN
+`isCreditAccount`), bagian POSITIF (kalau ada) tetep keitung normal — jadi kombinasi
+`totalCashIDR()` + `totalCreditDebtIDR()` (yang cuma ngitung bagian negatif) SELALU nutup semua
+kemungkinan sign tanpa double-count ATAU kehilangan value, di-verifikasi eksplisit lewat test
+case di `calc.test.mjs`.
+
+**Yang ikut berubah di UI/report:** tab Liquid (Wealth) sekarang ga nampilin akun credit SAMA
+SEKALI (v1 masih nampilin, dikelompokkan terpisah); tab Debt (Wealth) sekarang nampilin akun
+credit di section sendiri (v1 sama sekali ga ada — itu keputusan eksplisit v1 yang sekarang
+dibalik); breakdown Total tab Wealth misahin baris "💳 Debt (cicilan)" dari "🪪 Kartu Kredit"
+(v1 baris "💳 Debt" itu murni cicilan aja secara implisit karena CC ga pernah nyumbang ke situ,
+sekarang butuh subtraction eksplisit `debtsOnly = totalDebtIDR() − totalCreditDebtIDR()` biar
+ga double-count kalau ditampilin sebagai baris terpisah); `report-md.js` section 1 & 7 diupdate
+buat match (section 1: baris ringkasan CC sekarang bilang "sudah termasuk di Debt" bukan "sudah
+termasuk di Cash"; section 7 nambah subsection kartu kredit).
+
+**State operasional sekarang & aturan yang WAJIB dipatuhi:** lihat CLAUDE.md bullet `accounts`
+tipe `credit` (Data Model) — itu udah di-update penuh buat v2, JANGAN rujuk versi lama manapun
+dari dokumen/percakapan sebelumnya yang masih bilang CC lewat cash path.
