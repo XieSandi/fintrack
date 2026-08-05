@@ -99,7 +99,11 @@ function buildPosition(month, isCurrentMonth) {
     rate,
     accounts: activeAccounts().map((a) => {
       const b = bal[a.id] || 0;
-      return { name: a.name, currency: a.currency, type: a.type, balance: b, balanceIDR: a.currency === "USD" ? b * rate : b };
+      return {
+        name: a.name, currency: a.currency, type: a.type, balance: b,
+        balanceIDR: a.currency === "USD" ? b * rate : b,
+        creditLimit: a.type === "credit" ? (Number(a.creditLimit) || 0) : null,
+      };
     }),
     assets: state.assets.map((a) => ({
       symbol: a.symbol || a.name, type: a.type, currency: a.currency,
@@ -159,6 +163,15 @@ export function buildMonthlyReport(month) {
   lines.push(`- **Net worth (tanpa CAPEX): ${fmtIDRPlain(nwWithoutCapex)}**`);
   lines.push(`- Dipakai app sekarang (toggle CAPEX di Wealth → Total): **${includeCapexNow ? "+ CAPEX" : "tanpa CAPEX"}** → ${fmtIDRPlain(nwForToggle)}${nwDelta !== null ? ` (Δ ${signed(nwDelta)} vs ${monthLabel(prevMonthKey)})` : ""}`);
   lines.push(`- Cash: ${fmtIDRPlain(position.cash)} · Assets (termasuk CAPEX): ${fmtIDRPlain(position.assetsTotal)}${position.capexTotal > 0 ? ` (di dalamnya CAPEX: ${fmtIDRPlain(position.capexTotal)})` : ""} · Goal savings: ${fmtIDRPlain(position.goalSavingsTotal)} · Debt: −${fmtIDRPlain(position.debtTotal)}`);
+  // Utang kartu kredit BUKAN debt entity (lihat section `debts` di atas) — udah "included" di
+  // angka Cash (saldo negatif akun credit ngurangin cash apa adanya, lewat cash path bukan debt
+  // path). Baris ini cuma informasi tambahan, dipisah dari Debt cicilan di atas biar ga ketuker.
+  const totalCreditDebt = position.accounts
+    .filter((a) => a.type === "credit")
+    .reduce((s, a) => s + Math.max(0, -(a.balanceIDR || 0)), 0);
+  if (totalCreditDebt > 0) {
+    lines.push(`- 🪪 Kartu Kredit terpakai: ${fmtIDRPlain(totalCreditDebt)} (sudah termasuk di Cash di atas — lewat cash path, BUKAN debt path, beda dari Debt cicilan)`);
+  }
   const target = Number(state.settings.targetNetWorth) || 0;
   if (target > 0) {
     const milestonePct = Math.max(0, (nwForToggle / target) * 100);
@@ -218,10 +231,20 @@ export function buildMonthlyReport(month) {
   lines.push("");
 
   // ===== 5. Akun =====
+  // Akun kartu kredit SENGAJA ga ditampilin sebagai "Saldo" positif/negatif biasa (bisa
+  // kesalahbaca kayak "punya uang") — kolom Saldo diisi ringkasan Terpakai/Limit/Sisa,
+  // Ekuivalen IDR tetap angka negatif apa adanya (representasi utang, bukan "saldo penuh").
   lines.push(`## 5. Akun (${position.label})`);
-  const acctRows = position.accounts.map((a) => [
-    a.name, ACCT_TYPES[a.type] || a.type || "?", a.currency, fmtMoneyPlain(a.balance, a.currency), fmtIDRPlain(a.balanceIDR),
-  ]);
+  const acctRows = position.accounts.map((a) => {
+    if (a.type === "credit") {
+      const used = a.balance < 0 ? -a.balance : 0;
+      const limit = Number(a.creditLimit) || 0;
+      const remaining = limit > 0 ? Math.max(0, limit - used) : null;
+      const saldoLabel = `Terpakai ${fmtMoneyPlain(used, a.currency)}${limit > 0 ? ` / Limit ${fmtMoneyPlain(limit, a.currency)} / Sisa ${fmtMoneyPlain(remaining, a.currency)}` : " (tanpa limit)"}`;
+      return [a.name, ACCT_TYPES[a.type] || "Kartu Kredit", a.currency, saldoLabel, fmtIDRPlain(a.balanceIDR)];
+    }
+    return [a.name, ACCT_TYPES[a.type] || a.type || "?", a.currency, fmtMoneyPlain(a.balance, a.currency), fmtIDRPlain(a.balanceIDR)];
+  });
   lines.push(mdTable(["Akun", "Tipe", "Currency", "Saldo", "Ekuivalen IDR"], acctRows));
   lines.push("");
 

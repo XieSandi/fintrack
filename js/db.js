@@ -169,6 +169,9 @@ export async function upsertSnapshot() {
         name: a.name, currency: a.currency, type: a.type,
         balance: Math.round(balance * 100) / 100,
         balanceIDR: Math.round(a.currency === "USD" ? balance * rate : balance),
+        // Field additive/opsional (cuma relevan buat type "credit") -- snapshot lama fallback
+        // aman (undefined), schemaVersion TIDAK naik.
+        creditLimit: a.type === "credit" ? (Number(a.creditLimit) || 0) : null,
       };
     }),
     assets: state.assets.map((a) => ({

@@ -407,5 +407,64 @@ function makeState() {
   assertEqual(calc.netWorthFromParts(parts, false), 1_000_000 + (5_000_000 - 2_000_000) + 300_000 - 200_000, "netWorthFromParts: includeCapex false -> assets dikurangi capex");
 }
 
+// ================= TASK-1: Akun tipe credit (kartu kredit) =================
+{
+  // Spec acceptance: net worth dengan 1 akun BCA +2jt dan 1 CC -500rb = +1,5jt (fixture terisolasi)
+  const s = {
+    accounts: [
+      { id: "bca", currency: "IDR", initialBalance: 2_000_000, isArchived: false, type: "bank" },
+      { id: "cc", currency: "IDR", initialBalance: -500_000, isArchived: false, type: "credit", creditLimit: 3_000_000 },
+    ],
+    categories: [], transactions: [], budgets: [], assets: [], debts: [], goals: [], recurring: [], snapshots: [],
+    settings: {}, usdIdr: null,
+  };
+  assertEqual(calc.netWorthIDR(s), 1_500_000, "credit: net worth BCA+2jt & CC-500rb = +1,5jt (CC lewat cash path)");
+  assertEqual(calc.totalDebtIDR(s), 0, "credit: totalDebtIDR() TETAP 0 -- CC BUKAN debt entity, ga di-double-count");
+}
+{
+  // Belanja CC 50rb: balance CC -50rb, creditUsed=50rb, creditRemaining=limit-used, net worth turun 50rb
+  const before = makeState();
+  before.accounts.push({ id: "cc", currency: "IDR", initialBalance: 0, isArchived: false, type: "credit", creditLimit: 200_000 });
+  const nwBefore = calc.netWorthIDR(before);
+
+  const after = makeState();
+  after.accounts.push({ id: "cc", currency: "IDR", initialBalance: 0, isArchived: false, type: "credit", creditLimit: 200_000 });
+  after.transactions = [
+    { type: "expense", amount: 50_000, accountId: "cc", month: "2026-01", date: "2026-01-05" },
+  ];
+  const bal = calc.accountBalances(after);
+  const ccAcct = after.accounts.find((a) => a.id === "cc");
+  assertEqual(bal.cc, -50_000, "credit: belanja 50rb pakai CC -> balance -50rb");
+  assertEqual(calc.isCreditAccount(ccAcct), true, "credit: isCreditAccount true buat type credit");
+  assertEqual(calc.creditUsed(ccAcct, bal), 50_000, "credit: creditUsed = -balance kalau negatif");
+  assertEqual(calc.creditRemaining(ccAcct, bal), 200_000 - 50_000, "credit: creditRemaining = limit - used");
+  assertEqual(calc.netWorthIDR(after), nwBefore - 50_000, "credit: net worth turun 50rb lewat cash path (bukan debt path)");
+}
+{
+  // Bayar tagihan (transfer BCA->CC 50rb): balance CC balik 0, akun sumber turun 50rb, net worth TIDAK berubah
+  const s = makeState();
+  s.accounts.push({ id: "cc", currency: "IDR", initialBalance: -50_000, isArchived: false, type: "credit", creditLimit: 200_000 });
+  const nwBefore = calc.netWorthIDR(s);
+  s.transactions = [
+    { type: "transfer", amount: 50_000, accountId: "acc_idr", toAccountId: "cc", month: "2026-01", date: "2026-01-10" },
+  ];
+  const bal = calc.accountBalances(s);
+  assertEqual(bal.cc, 0, "credit: bayar tagihan penuh -> balance CC balik 0");
+  assertEqual(bal.acc_idr, 1_000_000 - 50_000, "credit: bayar tagihan -> akun sumber turun 50rb");
+  assertEqual(calc.netWorthIDR(s), nwBefore, "credit: bayar tagihan CC = transfer biasa, net worth TIDAK berubah (bukan expense)");
+}
+{
+  // totalCreditDebtIDR: agregat SEMUA akun credit (USD dikonversi kurs) — buat tampilan breakdown doang
+  const s = makeState();
+  s.accounts.push({ id: "cc1", currency: "IDR", initialBalance: -300_000, isArchived: false, type: "credit", creditLimit: 1_000_000 });
+  s.accounts.push({ id: "cc2", currency: "USD", initialBalance: -20, isArchived: false, type: "credit", creditLimit: 500 });
+  assertEqual(calc.totalCreditDebtIDR(s), 300_000 + 20 * 15000, "totalCreditDebtIDR: sum creditUsed semua akun credit, USD dikonversi kurs");
+}
+{
+  // creditRemaining null kalau limit 0/kosong (unlimited) -- BUKAN 0, biar UI bisa bedain dari over-limit
+  const cc = { id: "cc", currency: "IDR", type: "credit", creditLimit: 0 };
+  assertEqual(calc.creditRemaining(cc, { cc: -100_000 }), null, "creditRemaining: limit 0 -> null (unlimited), bukan 0");
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

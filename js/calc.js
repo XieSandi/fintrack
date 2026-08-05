@@ -54,6 +54,42 @@ export function totalCashIDR(state) {
   }, 0);
 }
 
+// ============== Akun tipe `credit` (kartu kredit) ==============
+// Utang CC BUKAN debt entity terpisah — murni saldo negatif akun tipe `credit`, derived,
+// konsisten sama prinsip "saldo ga pernah disimpan" yang udah jadi fondasi app dari awal.
+// Belanja pakai CC = expense biasa (accountId = akun credit), ga ada field/mekanisme baru di
+// accountBalances() — expense generic udah nurunin balance, dan karena CC mulai dari 0/saldo
+// awal, balance negatif OTOMATIS = utang. `totalCashIDR()` di atas SUDAH include efek ini apa
+// adanya (ga ada perubahan di situ) — net worth TIDAK diubah rumusnya sama sekali, CC sengaja
+// lewat cash path, BUKAN debt path (lihat DECISIONS.md kalau butuh alasan lengkapnya).
+export const isCreditAccount = (acct) => acct.type === "credit";
+
+// `balances` = output accountBalances(state) — dioper biar caller ga perlu hitung ulang tiap
+// panggil (dipakai bareng buat banyak akun di satu render).
+export const creditUsed = (acct, balances) => {
+  const b = balances[acct.id] || 0;
+  return b < 0 ? -b : 0;
+};
+
+// null = ga ada limit (creditLimit 0/kosong) — BUKAN 0, biar UI bisa bedain "unlimited" dari
+// "udah pas-pasan"/"over limit" (0 atau negatif).
+export const creditRemaining = (acct, balances) => {
+  const limit = Number(acct.creditLimit) || 0;
+  if (limit <= 0) return null;
+  return limit - creditUsed(acct, balances);
+};
+
+// Total utang CC semua akun credit, dalam IDR — DIPAKAI BUAT TAMPILAN breakdown doang (misah
+// "Liquid" dari "Kartu Kredit" di card Total Wealth), BUKAN buat ngubah rumus net worth (yang
+// itu tetap murni totalCashIDR() + ... seperti sebelumnya, CC-nya udah "included" di situ).
+export function totalCreditDebtIDR(state) {
+  const bal = accountBalances(state);
+  const rate = effectiveRate(state);
+  return activeAccounts(state)
+    .filter(isCreditAccount)
+    .reduce((sum, a) => sum + creditUsed(a, bal) * (a.currency === "USD" ? rate : 1), 0);
+}
+
 // Nilai asset (harga manual). Saham IDX: qty dalam LOT → ×100 lembar. CAPEX (lihat blok di
 // bawah) dispatch ke capexValueIDR — nilainya auto-dihitung dari penyusutan, bukan harga manual.
 // `nowMonth` cuma dipakai buat CAPEX (tipe lain abaikan parameter ini) — WAJIB dikirim eksplisit
