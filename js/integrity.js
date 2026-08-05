@@ -87,5 +87,17 @@ export function scanIntegrity(state) {
     if (problems.length > 0) issues.push({ kind: "account", ref: a, problems });
   }
 
+  // Goal <-> Asset link: linkedAssetIds yang nunjuk ke asset yang udah ga ada (dihapus lewat
+  // luar app). Read-only info — asset yang ilang otomatis ga kehitung lagi di
+  // goalLinkedAssetsValueIDR() (filter by existing id, lihat calc.js), TAPI id-nya sendiri ga
+  // di-auto-cleanup dari array, jadi ini exists biar user sadar ada referensi nyangkut.
+  for (const g of state.goals) {
+    const linkedIds = g.linkedAssetIds || [];
+    const missing = linkedIds.filter((id) => !state.assets.find((a) => a.id === id));
+    if (missing.length > 0) {
+      issues.push({ kind: "goal", ref: g, problems: [`link ke ${missing.length} asset yang udah ga ada`] });
+    }
+  }
+
   return issues;
 }

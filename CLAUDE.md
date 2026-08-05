@@ -248,13 +248,38 @@ callback (`wealth.js`, balikin literal `"***"`). State toggle di localStorage �
   otomatis kena efeknya tanpa perlu tau, JANGAN reimplement mutasi debt manual di sheet.
   `totalOutstanding` ≤ 0 → badge "Lunas 🎉" (tab Debt Wealth), bukan auto-delete. Debt yang
   punya transaksi ber-`debtId` ga bisa dihapus langsung — pola sama proteksi hapus akun/goal.
-- `goals` — Short Term Goals. {name, targetAmount, targetDate? ("YYYY-MM"), color}. Bisa lebih
-  dari satu (dikelola di `#/goals`, menu di Setting). **Sistem topup + pencairan**, bukan target
-  pasif: saldo goal = topup − pencairan asli (`goalSavedIDR()`), bukan net worth. Goal saldo 0
-  SETELAH pernah ada topup/pencairan → badge "Selesai 🎉" (bukan auto-delete, tetep bisa
-  di-topup lagi). Goal yang punya riwayat topup ATAU pencairan ga bisa dihapus langsung (harus
-  beresin transaksinya dulu di History) — pola sama kayak proteksi hapus akun. Beda konsep dari
-  Main Milestone (`settings.targetNetWorth`) — lihat catatan di atas.
+- `goals` — Short Term Goals. {name, targetAmount, targetDate? ("YYYY-MM"), color,
+  linkedAssetIds?}. Bisa lebih dari satu (dikelola di `#/goals`, menu di Setting). **Sistem
+  topup + pencairan**, bukan target pasif: saldo goal = topup − pencairan asli
+  (`goalSavedIDR()`), bukan net worth. Goal saldo 0 SETELAH pernah ada topup/pencairan → badge
+  "Selesai 🎉" (bukan auto-delete, tetep bisa di-topup lagi). Goal yang punya riwayat topup ATAU
+  pencairan ga bisa dihapus langsung (harus beresin transaksinya dulu di History) — pola sama
+  kayak proteksi hapus akun. Beda konsep dari Main Milestone (`settings.targetNetWorth`) — lihat
+  catatan di atas.
+  **Link ke Asset** (`linkedAssetIds`, array of assetId, opsional) — goal bisa di-link ke ≥1
+  asset yang UDAH ADA (multiple), di-set dari checkbox list di sheet Edit Goal (`goals.js`,
+  BUKAN dari sisi asset). Nilai asset ter-link ikut ditampilin sebagai bagian **progress goal**
+  (`goalProgressIDR()` = `goalSavedIDR()` topup standalone + `goalLinkedAssetsValueIDR()` sum
+  nilai asset ter-link, calc.js) — TAPI **SENGAJA TIDAK** ikut `totalGoalSavingsIDR()` (yang
+  dipakai `netWorthIDR()`): asset ter-link TETAP asset biasa, udah kehitung penuh di
+  `totalAssetsIDR()`, nambahin lagi ke goal savings bakal DOUBLE-COUNT net worth.
+  `totalGoalSavingsIDR()` TETAP murni `goalSavedIDR()` — JANGAN diubah buat include
+  linkedAssetIds, itu satu-satunya sumber "goal savings" yang boleh nyumbang ke net worth.
+  Status **"Selesai 🎉"** TETAP murni dari `saved` (topup/withdraw lifecycle) — BUKAN dari
+  `progress` gabungan — karena asset ter-link ga punya konsep "dicairkan", goal dengan asset
+  ter-link gede tapi topup abis harusnya tetap bisa di-topup lagi, bukan ke-anggap selesai.
+  Tombol **"💸 Cairkan"** juga TETAP pakai `saved > 0` (bukan `progress`) — pencairan cuma narik
+  dari pool cash topup, bukan "menjual" asset ter-link (itu tetap lewat `openAssetSellSheet()`
+  terpisah kalau mau dilikuidasi). Stats tampilan (`saved`/`linkedValue`/`progress`/`isDone`/
+  `pct`/`cls`) DIPUSATKAN di `goalDisplayStats(g)` (goals.js, di-export) — dipakai BARENG sama
+  `home.js` (preview Goals) biar dua UI ga divergen, pola sama `copyBudgetFromLastMonth()`. Satu
+  asset BOLEH di-link ke lebih dari satu goal sekaligus (masing-masing goal nampilin nilai
+  PENUH-nya, bukan dibagi) — sengaja simpel, ga ada mekanisme alokasi/split. Asset yang lagi
+  di-link ke goal manapun **ga bisa dihapus langsung** (guard di `openAssetSheet()`, wealth.js —
+  pola sama proteksi hapus akun/goal/debt yang lain) — harus dilepas link-nya dulu di Edit Goal.
+  Snapshot (`upsertSnapshot()`) nyimpen `linkedValue` per goal TERPISAH dari `saved` (field
+  opsional/additive, snapshot lama fallback 0) — biar `report-md.js` bisa nunjukin breakdown-nya,
+  bukan angka yang udah di-pre-combine.
 - `recurring` — {name, type, amount, accountId, toAccountId?, toGoalId?, assetId?, categoryId?,
   debtId?, dayOfMonth (1–31), active, lastPostedMonth? ("YYYY-MM")}. Template transfer bisa
   nabung rutin ke **Short Term Goal** (`toGoalId`, menggantikan `toAccountId` — toggle
@@ -346,6 +371,10 @@ Net worth = totalCashIDR + totalAssetsIDR (− totalCapexIDR kalau toggle exclud
 Goal savings dihitung terpisah dari `totalAssetsIDR()` (bukan di-fold ke situ) biar tab Assets di
 Wealth (isinya cuma investasi) ga ikut kebawa angka goal — tapi tetep ditambah sebagai baris
 terpisah "🎯 Goals" di breakdown Total tab Wealth biar rows-nya sum ke net worth.
+`totalGoalSavingsIDR` di formula ini TETAP murni `goalSavedIDR()` (topup standalone) — nilai
+asset yang di-link ke goal (`goals.linkedAssetIds`, lihat bullet `goals`) SENGAJA TIDAK nyumbang
+ke sini (udah kehitung penuh lewat `totalAssetsIDR()`), cuma muncul di `goalProgressIDR()` buat
+tampilan progress goal.
 
 ## ATURAN WAJIB saat mengubah kode
 
@@ -536,7 +565,14 @@ terpisah "🎯 Goals" di breakdown Total tab Wealth biar rows-nya sum ke net wor
   polos), kolom Ekuivalen IDR tetap angka negatif apa adanya. Section 1 nambah baris "🪪 Kartu
   Kredit terpakai" (dari `position.accounts`, cocok dipakai buat live MAUPUN snapshot-based
   position — dua-duanya udah punya field `type`/`balanceIDR`) kalau ada CC dipakai, eksplisit
-  disebut "sudah termasuk di Cash" biar ga disangka double-hitung. **Pakai
+  disebut "sudah termasuk di Debt di atas" (CC lewat debt path — v2, lihat bullet `accounts`
+  tipe `credit` & `DECISIONS.md`) biar ga disangka double-hitung. Section 7 (Hutang) nambah
+  subsection "🪪 Kartu Kredit" terpisah dari tabel cicilan (`debts` collection) — field beda
+  konsep (Terpakai/Limit, bukan Cicilan/JatuhTempo), TAPI tetap masuk Debt total yang sama.
+  Section 8 (Short Term Goals) — "Terkumpul" sekarang = topup + nilai asset ter-link
+  (`goalProgressIDR()`, lihat bullet `goals`), kolom "Breakdown" misahin dua-duanya biar jelas —
+  asset ter-link TETAP dihitung normal di section 6 (Investasi)/net worth, kolom ini murni
+  informasi, BUKAN nambah net worth lagi. **Pakai
   `fmtIDRPlain()`/`fmtMoneyPlain()` (utils.js), BUKAN `fmtIDR()`/`fmtMoney()`** — yang terakhir
   itu wrapper `<span class="blur-num">` buat blur mode DOM, bakal ngerusak output markdown kalau
   kepake di teks/file. Section 9 (Komitmen Rutin, recurring aktif) SENGAJA SELALU live regardless
@@ -610,7 +646,12 @@ terpisah "🎯 Goals" di breakdown Total tab Wealth biar rows-nya sum ke net wor
   Import `accountBalances`/`isCreditAccount`/`creditUsed` langsung dari `calc.js` (bukan cuma
   `utils.js` kayak sebelumnya) — pertama kalinya `integrity.js` gantungan ke `calc.js`, biar
   ga duplikasi logic saldo yang udah ada di sana. Tombol "Buka" manggil `openAcctSheet()`
-  (di-export dari `accounts.js` khusus buat ini, sebelumnya lokal-only).
+  (di-export dari `accounts.js` khusus buat ini, sebelumnya lokal-only). Finding level GOAL
+  (kind: "goal") — `linkedAssetIds` yang nunjuk ke asset yang udah ga ada (dihapus lewat luar
+  app); nilai asset yang ilang otomatis ga kehitung lagi di `goalLinkedAssetsValueIDR()` (filter
+  by existing id), tapi id-nya sendiri ga di-auto-cleanup dari array, jadi finding ini exists
+  biar user sadar. Tombol "Buka" manggil `openGoalSheet()` (di-export dari `goals.js` khusus
+  buat ini, sebelumnya lokal-only).
 - **Efek samping transaksi ber-`debtId`/`assetId` DIPUSATKAN sebagai hook di `remove()` generik**
   (kenapa dipusatkan sebagai hook, bukan ditulis manual di tiap sheet: lihat `DECISIONS.md`)
   (db.js): `applyDebtEffect()` (efek debt, dipanggil juga dari `add()`/`patch()` lewat

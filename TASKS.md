@@ -26,13 +26,15 @@ kode — cukup betulkan CLAUDE.md biar akurat + catat "sudah benar" di ringkasan
 
 ---
 
-Task 1
-add feature to connect short time goals with assets
-
-concept :
-1. short time Goals has 2 type of balance. Standalone topup balance based like existing feature, and balance that connected with assets
-2. UI to connect will placed in edit of the short time goals. i select assets that connected into it (multiple)
-3. The assest that connected into goals will not calculate twice, only standalone topedup balance that calculate separately
+~~Task 1~~ — udah dikerjain: goal bisa di-link ke ≥1 asset (`goals.linkedAssetIds`, checkbox
+di sheet Edit Goal). Progress goal (`goalProgressIDR()` = topup standalone + nilai asset
+ter-link) dipakai buat progress bar/persentase — TAPI `totalGoalSavingsIDR()` (dipakai
+`netWorthIDR()`) TETAP murni topup (`goalSavedIDR()`), asset ter-link SENGAJA TIDAK ikut situ
+biar ga double-count net worth (asset-nya udah kehitung penuh di `totalAssetsIDR()`). Status
+"Selesai 🎉" & tombol "Cairkan" tetap murni dari topup standalone (`saved`), bukan progress
+gabungan. Stats tampilan dipusatkan di `goalDisplayStats()` (goals.js, dipakai bareng home.js).
+Asset yang di-link ga bisa dihapus langsung (harus lepas link dulu). Integrity check baru buat
+`linkedAssetIds` yang dangling. Detail lengkap: CLAUDE.md bullet `goals` (Data Model).
 
 ~~Task 2~~ — udah dikerjain: kartu kredit pindah dari cash path ke debt path.
 `totalCashIDR()` sekarang EXCLUDE utang CC, `totalDebtIDR()` sekarang INCLUDE-nya

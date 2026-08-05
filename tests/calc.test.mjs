@@ -494,5 +494,52 @@ function makeState() {
   assertEqual(calc.totalCashIDR(s), calc.totalCashIDR(makeState()) + 100_000, "credit: saldo CC positif TETAP keitung di totalCashIDR (ga ilang dari net worth)");
 }
 
+// ================= Goal ↔ Asset linking =================
+{
+  // goalLinkedAssetsValueIDR: sum nilai asset yang ID-nya ada di goals.linkedAssetIds, abaikan
+  // asset lain yang ga di-link, abaikan dangling id (asset udah kehapus).
+  const s = makeState();
+  s.goals = [{ id: "g1", targetAmount: 10_000_000, linkedAssetIds: ["a1", "a2", "a-deleted"] }];
+  s.assets = [
+    { id: "a1", type: "stock_id", quantity: 10, manualPrice: 6000, currency: "IDR" }, // 10*100*6000=6.000.000
+    { id: "a2", type: "gold", quantity: 5, manualPrice: 1_000_000, currency: "IDR" }, // 5.000.000
+    { id: "a3", type: "gold", quantity: 1, manualPrice: 1_000_000, currency: "IDR" }, // NGA di-link, ga ikut
+  ];
+  assertEqual(calc.goalLinkedAssetsValueIDR(s, "g1", "2026-01"), 6_000_000 + 5_000_000, "goalLinkedAssetsValueIDR: sum asset yang di-link, abaikan yang ga di-link & dangling id");
+}
+{
+  // goalProgressIDR = goalSavedIDR (topup standalone) + goalLinkedAssetsValueIDR
+  const s = makeState();
+  s.goals = [{ id: "g1", targetAmount: 10_000_000, linkedAssetIds: ["a1"] }];
+  s.assets = [{ id: "a1", type: "gold", quantity: 2, manualPrice: 1_000_000, currency: "IDR" }]; // 2.000.000
+  s.transactions = [
+    { type: "transfer", amount: 500_000, accountId: "acc_idr", toGoalId: "g1", month: "2026-01", date: "2026-01-05" },
+  ];
+  assertEqual(calc.goalSavedIDR(s, "g1"), 500_000, "goalProgressIDR: goalSavedIDR sendiri tetap cuma topup standalone");
+  assertEqual(calc.goalProgressIDR(s, "g1", "2026-01"), 500_000 + 2_000_000, "goalProgressIDR: topup + nilai asset ter-link");
+}
+{
+  // KRITIS: asset yang di-link ke goal TIDAK boleh double-count net worth. totalGoalSavingsIDR()
+  // & netWorthIDR() HARUS identik terlepas ada linkedAssetIds atau ngga (asset-nya udah kehitung
+  // penuh di totalAssetsIDR(), goalProgressIDR cuma buat tampilan, ga nyentuh net worth).
+  const withoutLink = makeState();
+  withoutLink.goals = [{ id: "g1", targetAmount: 10_000_000 }];
+  withoutLink.assets = [{ id: "a1", type: "gold", quantity: 2, manualPrice: 1_000_000, currency: "IDR" }];
+
+  const withLink = makeState();
+  withLink.goals = [{ id: "g1", targetAmount: 10_000_000, linkedAssetIds: ["a1"] }];
+  withLink.assets = [{ id: "a1", type: "gold", quantity: 2, manualPrice: 1_000_000, currency: "IDR" }];
+
+  assertEqual(calc.totalGoalSavingsIDR(withLink), calc.totalGoalSavingsIDR(withoutLink), "goal-asset link: totalGoalSavingsIDR() TIDAK berubah gara-gara linkedAssetIds (no double-count)");
+  assertEqual(calc.netWorthIDR(withLink), calc.netWorthIDR(withoutLink), "goal-asset link: netWorthIDR() TIDAK berubah gara-gara linkedAssetIds (no double-count)");
+}
+{
+  // Goal tanpa linkedAssetIds sama sekali (field ga ada) -> goalLinkedAssetsValueIDR 0, ga crash
+  const s = makeState();
+  s.goals = [{ id: "g1", targetAmount: 10_000_000 }];
+  assertEqual(calc.goalLinkedAssetsValueIDR(s, "g1", "2026-01"), 0, "goalLinkedAssetsValueIDR: goal tanpa field linkedAssetIds -> 0, bukan crash");
+  assertEqual(calc.goalProgressIDR(s, "g1", "2026-01"), calc.goalSavedIDR(s, "g1"), "goalProgressIDR: tanpa link -> sama persis kayak goalSavedIDR");
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

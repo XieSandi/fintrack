@@ -1,6 +1,6 @@
 import {
   state, activeAccounts, accountBalances, totalCashIDR,
-  goalSavedIDR, netWorthIDR, rangeSummary, catById, acctById, effectiveRate, budgetsOfMonth,
+  netWorthIDR, rangeSummary, catById, acctById, effectiveRate, budgetsOfMonth,
   spentByCategory, milestoneProgress,
 } from "../store.js";
 import {
@@ -8,7 +8,7 @@ import {
   isBlurred, setBlurred, openSheet, closeSheet, sheetHead, toast, milestonePaceLine,
 } from "../utils.js";
 import { openTxSheet } from "../tx-sheet.js";
-import { openTopupSheet, openWithdrawSheet } from "./goals.js";
+import { openTopupSheet, openWithdrawSheet, goalDisplayStats } from "./goals.js";
 import { openAssetBuySheet, openAssetSellSheet } from "./wealth.js";
 
 // Filter periode Home — persist selama sesi (module-level, bukan di store global)
@@ -167,18 +167,15 @@ export function render(root) {
     </div>`;
   } else {
     goals.forEach((g) => {
-      const target = Number(g.targetAmount) || 0;
-      const saved = goalSavedIDR(g.id);
-      const hasHistory = state.transactions.some((t) => t.toGoalId === g.id || t.fromGoalId === g.id);
-      const isDone = saved <= 0 && hasHistory;
-      const pct = target > 0 ? Math.max(0, Math.min(100, (saved / target) * 100)) : 0;
-      const cls = pct >= 100 ? "p-green" : pct >= 50 ? "p-yellow" : "p-red";
+      // goalDisplayStats() (goals.js) SATU sumber stats goal — progress-nya udah termasuk nilai
+      // asset ter-link, isDone TETAP murni topup/withdraw lifecycle (lihat komentar di sana).
+      const { target, progress, isDone, pct, cls } = goalDisplayStats(g);
       const div = document.createElement("div");
       div.className = "budget-mini";
       div.innerHTML = `
         <div class="bm-name">🎯 ${escapeHtml(g.name)}</div>
         <div class="progress"><div class="${cls}" style="width:${pct}%"></div></div>
-        <div class="bm-nums">${isDone ? "Selesai 🎉" : `${fmtIDR(saved)} / ${fmtIDR(target)} <span style="color:${pct >= 100 ? "var(--green)" : "var(--muted)"}">· ${pct.toFixed(0)}%</span>`}</div>`;
+        <div class="bm-nums">${isDone ? "Selesai 🎉" : `${fmtIDR(progress)} / ${fmtIDR(target)} <span style="color:${pct >= 100 ? "var(--green)" : "var(--muted)"}">· ${pct.toFixed(0)}%</span>`}</div>`;
       div.onclick = () => { location.hash = "#/goals"; };
       goalSlider.appendChild(div);
     });
