@@ -162,3 +162,86 @@ per entity di akhir — bukan ratusan hook-triggered patch berturut-turut ke dok
 **State operasional sekarang & aturan yang WAJIB dipatuhi (termasuk kalau nambah jalur tulis
 transaksi massal baru ke depannya):** lihat CLAUDE.md bullet "Efek samping transaksi
 ber-`debtId`/`assetId`" di Known Quirks.
+
+---
+
+## Fitur CAPEX: toggle default OFF, dua chart beda pola, dan garis "Nabung doang" yang dihapus lagi (2026-08)
+
+**Konteks:** owner punya barang fisik yang nilainya susut predictable tiap bulan (laptop,
+elektronik, kendaraan) — sebelum fitur ini, barang kayak gitu kepaksa dicatat sebagai asset tipe
+`other`/`deposito`/dll dengan harga manual yang ga pernah di-update, jadi net worth jadi
+overstate (barangnya tetep keitung di harga beli awal padahal nilai riilnya udah turun) ATAU
+user harus rajin update manual tiap bulan (ga realistis). Solusinya: tipe asset baru `capex`
+yang nilainya AUTO-DIHITUNG pakai declining balance (`harga beli × (1−pct)^bulan`), plus
+keputusan konsep yang lebih besar: apakah barang kayak gitu HARUS dihitung sebagai "net worth"
+sama sekali (beda filosofi personal finance ada yang bilang net worth cuma investable assets,
+ada yang bilang semua yang dipunya).
+
+**Kenapa toggle include/exclude, bukan salah satu dipaksa:** daripada app yang mutusin sepihak,
+dikasih toggle (`settings.includeCapexInNetWorth`) biar owner sendiri yang milih. **Default-nya
+sengaja FALSE (exclude)** — alasan utamanya BUKAN soal filosofi personal finance mana yang
+"bener", tapi soal SAFETY: pas fitur ini pertama kali di-deploy, owner punya user existing
+(dirinya sendiri) dengan net worth yang UDAH kehitung tanpa konsep CAPEX sama sekali. Kalau
+default-nya TRUE (include) dan user langsung convert satu asset lama jadi tipe `capex`, angka
+net worth di Home/Wealth bisa TIBA-TIBA berubah (turun, karena sekarang kena declining balance)
+tanpa user sadar itu efek toggle, bukan transaksi/harga pasar beneran. Default FALSE bikin net
+worth STABIL begitu fitur baru nongol — user harus SENGAJA nyalain toggle-nya buat ngerasain
+efeknya, bukan efek samping yang ga disadari.
+
+**Kenapa toggle-nya dipindah dari Setting ke Wealth (card breakdown Total tab):** awalnya
+ditaruh di Setting (pola yang sama kayak setting lain — target milestone, kurs, dll). User
+minta dipindah karena checkbox itu jauh dari angka yang dipengaruhinya — mesti pindah halaman
+buat toggle terus balik lagi ke Wealth buat liat efeknya. Sekarang toggle-nya nempel LANGSUNG
+di card breakdown Wealth → Total, deket baris "🏗️ CAPEX" & "NET WORTH" yang berubah pas
+di-toggle — feedback loop-nya instan (checkbox → `updateSettings()` → Firestore round-trip →
+`store.on()` re-render → angka di card yang SAMA berubah), ga perlu pindah halaman sama sekali.
+
+**Kenapa chart 📈 Tren Net Worth (historis) SELALU nampilin DUA garis, tapi chart 🚀 Proyeksi
+cuma SATU yang ngikut toggle:** dua chart ini punya tujuan beda. Tren Net Worth itu buat
+BANDINGIN — "seberapa beda net worth gue kalau CAPEX dihitung vs ngga" — jadi dua garis
+eksplisit itu justru POIN-nya, sengaja ga di-gate di belakang kondisi apapun (bukan cuma
+muncul pas ada CAPEX) biar user selalu bisa liat perbandingannya kapan aja. Proyeksi itu chart
+yang beda tujuan — udah ada 5 garis (Aktual, Proyeksi nabung, Proyeksi A%, Proyeksi B%,
+Target), nambah 1-2 garis lagi (with/without CAPEX × forward projection) bakal bikin chart-nya
+ga kebaca. Jadi Proyeksi cukup ngikutin SATU definisi yang konsisten sama toggle SEKARANG —
+prioritasnya "chart ini kebaca & internally consistent", bukan "chart ini nunjukin semua
+kombinasi yang mungkin".
+
+**Kenapa report .md (`report-md.js`) juga nunjukin DUA angka eksplisit, bukan cuma satu +
+catatan toggle:** awalnya section 1 cuma nunjukin SATU angka net worth (ngikut toggle) plus
+kalimat catatan "CAPEX Rp X — ikut/ga ikut dihitung". User eksplisit minta laporan ini
+"separate data with capex and without capex so the agent will be able to analyze the 2 datas"
+— maksudnya: kalau laporan ini dipaste ke AI lain buat dianalisis, AI itu ga perlu balik nanya
+"toggle-nya gimana?" atau nebak-nebak dari catatan teks — dua angka eksplisit (`Net worth (+
+CAPEX)` dan `Net worth (tanpa CAPEX)`) langsung siap dibandingin. Baris ketiga ("Dipakai app
+sekarang...") tetap ada buat nunjukin mana yang match tampilan live di Home/Wealth, tapi bukan
+satu-satunya angka yang dikasih.
+
+**Gap data historis & fitur backfill:** snapshot yang dibuat SEBELUM fitur CAPEX ada ga punya
+field `totalCapex` sama sekali (field-nya baru ada mulai commit ini) — padahal barang yang
+SEKARANG diklasifikasikan `capex` bisa aja udah ada di portfolio waktu itu juga (cuma dicatat
+sebagai tipe lain). User nyadar ini ("previous data are already included assets data, so the
+export data has gap") dan minta dibenerin. Daripada mengarang angka historis yang ga pernah
+ada, dibikin fitur backfill BEST-EFFORT (`previewCapexBackfill()`/`backfillCapexToSnapshots()`,
+db.js): cocokin symbol/name asset CAPEX SEKARANG ke breakdown snapshot lama, pakai `valueIDR`
+yang UDAH KESIMPEN di situ (bukan diestimasi ulang) sebagai `totalCapex` bulan itu. User-facing
+lewat card di Setting yang preview dulu sebelum eksekusi (pola sama `bulkDelete()`/
+`previewBulkDelete()`) — dan otomatis ilang begitu ga ada lagi yang perlu di-backfill.
+
+**Kenapa garis historis "Nabung doang" (terpisah dari "Proyeksi (nabung)") sempat ditambahin
+LALU dihapus lagi:** dalam proses bikin chart Proyeksi konsisten sama toggle CAPEX, sempat
+ditambahin parameter `includeCapex` ke `savingsOnlySeries()` (anchor-nya jadi toggle-aware,
+bukan `snaps[0].netWorth` mentah lagi) — perbaikan yang genuinely benar buat masalah
+konsistensi toggle. TAPI user kasih feedback lanjutan: garis "Nabung doang" (historis, dari
+titik snapshot pertama) yang tampil berdampingan sama "Proyeksi (nabung)" (forward, dari net
+worth SEKARANG) itu KELIHATAN kontradiktif — dua garis abu-abu mirip nama, beda anchor & beda
+makna, ketemu di titik "bulan ini" dengan "lompatan" visual kecil (yang sebenernya bukan bug,
+tapi tetep kelihatan aneh buat orang yang liat chart-nya). User simpelin: hapus aja garis
+historisnya, pertahankan cuma versi forward-looking. Ini nunjukin toggle-consistency FIX yang
+"secara teknis benar" tetep bisa jadi keputusan yang salah kalau hasilnya bikin UI lebih
+membingungkan — `savingsOnlySeries()` akhirnya dihapus total dari `calc.js` (jadi dead code
+begitu satu-satunya caller-nya ilang), bukan cuma di-nonaktifkan di UI.
+
+**State operasional sekarang & aturan yang WAJIB dipatuhi:** lihat CLAUDE.md bullet `assets`
+tipe `capex` (Data Model), "Chart 📈 Tren Net Worth", "Dashboard Proyeksi", dan "Backfill CAPEX
+ke Snapshot Lama" di Known Quirks.

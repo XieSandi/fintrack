@@ -170,8 +170,9 @@ callback (`wealth.js`, balikin literal `"***"`). State toggle di localStorage �
   view tanpa parameter itu.
   **Toggle Net Worth** (`settings.includeCapexInNetWorth`, checkbox di **Wealth → tab Total**,
   card breakdown — BUKAN di Setting lagi, dipindah biar toggle-nya deket sama angka yang
-  dipengaruhi, cuma muncul kalau user punya ≥1 asset tipe `capex`, default **FALSE/exclude**) —
-  nentuin CAPEX ikut `netWorthIDR()` atau ngga. Formula-nya `netWorthFromParts({cash, assets,
+  dipengaruhi, cuma muncul kalau user punya ≥1 asset tipe `capex`, default **FALSE/exclude**;
+  kenapa default-nya begini & kenapa chart Tren Net Worth vs Proyeksi beda pola soal ini: lihat
+  `DECISIONS.md`) — nentuin CAPEX ikut `netWorthIDR()` atau ngga. Formula-nya `netWorthFromParts({cash, assets,
   capex, goalSavings, debt}, includeCapex)` (calc.js, pure, TIDAK butuh `state` — beda dari
   fungsi calc.js lain — biar bisa dipake ulang buat recompute net worth HISTORIS dari breakdown
   snapshot lama, bukan cuma live state) — `netWorthIDR()` sendiri cuma wrapper tipis yang manggil
@@ -246,17 +247,19 @@ callback (`wealth.js`, balikin literal `"***"`). State toggle di localStorage �
   buat template yang `lastPostedMonth`-nya masuk periode yang baru dihapus — biar sheet Awal
   Bulan nawarin lagi, bukan nganggep udah pernah post buat bulan yang datanya udah lenyap.
 - `snapshots/{YYYY-MM}` — net worth bulanan, di-upsert otomatis saat app dibuka (`upsertSnapshot`,
-  db.js). Selain total (`totalCash`/`totalAssets`/`totalGoalSavings`/`totalDebt`/`netWorth`),
-  nyimpen `breakdown` PER ITEM (angka mentah, bukan string terformat): `accounts` ({name,
-  currency, type, balance, balanceIDR}), `assets` ({symbol, type, currency, quantity,
-  avgBuyPrice, price, priceDate, valueIDR, costIDR}), `debts` ({name, outstanding,
-  monthlyInstalment, remainingMonths, dueDay}), `goals` ({name, targetAmount, saved,
-  targetDate}), `rate` (kurs USD saat itu) — dipakai `report-md.js` buat laporan bulan lampau
-  yang beneran historis (lihat Known Quirks). Bisa juga di-backfill manual buat bulan pra-app
-  lewat card "Snapshot Historis" di Setting (`{month, netWorth, manual:true}`, SENGAJA minimal
-  — TANPA `breakdown` sama sekali, bukan error, cuma ga ada data buat direkonstruksi; chart Tren
-  Net Worth cuma butuh `netWorth` + `month`/id, tetep jalan). Cuma boleh untuk bulan < bulan
-  berjalan (bulan berjalan wilayah `upsertSnapshot`).
+  db.js). Selain total (`totalCash`/`totalAssets`/`totalCapex`/`totalGoalSavings`/`totalDebt`/
+  `netWorth` — `totalCapex` field baru sejak fitur CAPEX, snapshot lama ga punya ini, lihat
+  bullet `assets` tipe `capex` & "Backfill CAPEX ke Snapshot Lama" di Known Quirks), nyimpen
+  `breakdown` PER ITEM (angka mentah, bukan string terformat): `accounts` ({name, currency, type,
+  balance, balanceIDR}), `assets` ({symbol, type, currency, quantity, avgBuyPrice, price,
+  priceDate, valueIDR, costIDR, PLUS `purchaseDate`/`depreciationPctMonth` — `null` kecuali tipe
+  `capex`}), `debts` ({name, outstanding, monthlyInstalment, remainingMonths, dueDay}), `goals`
+  ({name, targetAmount, saved, targetDate}), `rate` (kurs USD saat itu) — dipakai `report-md.js`
+  buat laporan bulan lampau yang beneran historis (lihat Known Quirks). Bisa juga di-backfill
+  manual buat bulan pra-app lewat card "Snapshot Historis" di Setting (`{month, netWorth,
+  manual:true}`, SENGAJA minimal — TANPA `breakdown` sama sekali, bukan error, cuma ga ada data
+  buat direkonstruksi; chart Tren Net Worth cuma butuh `netWorth` + `month`/id, tetep jalan).
+  Cuma boleh untuk bulan < bulan berjalan (bulan berjalan wilayah `upsertSnapshot`).
 - `settings/main` — targetNetWorth (= **Main Milestone**, dipakai card Total Balance Home DAN
   banner Wealth — SATU sumber, jangan bikin duplikat field), usdIdrManual,
   apiKeys:{finnhub}, lastBackupAt (saham IDX ga butuh key lagi, lihat bullet `js/prices.js`
@@ -322,11 +325,10 @@ terpisah "🎯 Goals" di breakdown Total tab Wealth biar rows-nya sum ke net wor
   depan", TANPA fungsi terpisah). Orkestrasi (nentuin startValue/horizon/snapshot mana) sengaja
   di view layer, bukan calc.js — itu soal "gimana nampilinnya", bukan kalkulasi finansial murni.
   **SENGAJA GA ADA garis historis "Nabung doang" terpisah** (sempat ada — `savingsOnlySeries()`
-  di calc.js — dihapus lagi): garis itu (kumulatif nabung dari titik snapshot pertama) tampil
-  berdampingan sama "Proyeksi (nabung)" (forward dari net worth SEKARANG) kelihatan
-  kontradiktif/ganjil — dua garis mirip nama tapi beda anchor & makna, plus ada "lompatan" visual
-  pas ketemu di titik bulan ini. Sekarang cuma SATU konsep "nabung doang" yang dipertahankan:
-  yang forward-looking, mulai dari net worth AKTUAL LIVE bulan ini (`netWorthIDR()`). Horizon
+  di calc.js — dihapus lagi karena kontradiktif/ganjil berdampingan sama "Proyeksi (nabung)",
+  riwayat lengkapnya: lihat `DECISIONS.md`). Sekarang cuma SATU konsep "nabung doang" yang
+  dipertahankan: yang forward-looking, mulai dari net worth AKTUAL LIVE bulan ini
+  (`netWorthIDR()`). Horizon
   proyeksi = `settings.targetDate` kalau keisi (di-clamp minimal 1 bulan biar ga degenerate kalau
   targetDate udah lewat), fallback 60 bulan (5 tahun) kalau kosong. `monthlyContribution`
   proyeksi pakai `recentAvgSurplus()` (fungsi yang sama dipakai `milestoneProgress()` buat pace,
