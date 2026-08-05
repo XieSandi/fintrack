@@ -10,17 +10,22 @@ const COLORS = ["#60a5fa", "#4ade80", "#facc15", "#f87171", "#c084fc", "#fb923c"
 // Stats tampilan SATU goal — SATU tempat, dipakai bareng goals.js (list) DAN home.js (preview)
 // biar dua UI ga divergen (pola sama copyBudgetFromLastMonth()). `progress` (dipakai buat
 // progress bar/persentase/angka utama) = topup standalone + nilai asset ter-link
-// (`goalProgressIDR()`) — TAPI status "Selesai 🎉" TETAP murni dari `saved` (topup/withdraw
-// lifecycle, `goalSavedIDR()`), BUKAN `progress`, karena asset ter-link ga punya konsep
-// "withdraw" — goal yang masih punya asset ter-link gede tapi topup-nya abis harusnya TETAP
-// bisa di-topup lagi, bukan ke-anggap "selesai" gara-gara nilai asset.
+// (`goalProgressIDR()`).
+// Status "Selesai 🎉": awalnya (pre-linking) cukup `saved <= 0 && hasHistory` — "pot topup-nya
+// abis" = episode selesai, valid karena dulu topup satu-satunya sumber value goal. SEKARANG,
+// kalau goal punya asset ter-link, `saved` doang BUKAN sinyal yang cukup — bug yang pernah
+// kejadian: user topup lalu CAIRKAN (withdraw) topup-nya (saved balik ke 0), padahal
+// linkedValue-nya masih gede & goal itu jauh dari target — badge "Selesai" salah muncul padahal
+// progress gabungan-nya ga sampe 100%. Fix: WAJIB `linkedValue <= 0` juga, BUKAN cuma `saved`,
+// biar goal yang masih punya nilai asset ter-link ga pernah ke-anggap "selesai" gara-gara pot
+// topup-nya doang yang kosong.
 export function goalDisplayStats(g) {
   const target = Number(g.targetAmount) || 0;
   const saved = goalSavedIDR(g.id);
   const linkedValue = goalLinkedAssetsValueIDR(g.id);
   const progress = saved + linkedValue;
   const hasHistory = state.transactions.some((t) => t.toGoalId === g.id || t.fromGoalId === g.id);
-  const isDone = saved <= 0 && hasHistory;
+  const isDone = saved <= 0 && linkedValue <= 0 && hasHistory;
   const pct = target > 0 ? Math.max(0, Math.min(100, (progress / target) * 100)) : 0;
   const cls = pct >= 100 ? "p-green" : pct >= 50 ? "p-yellow" : "p-red";
   return { target, saved, linkedValue, progress, hasHistory, isDone, pct, cls };
