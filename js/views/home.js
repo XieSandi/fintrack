@@ -168,14 +168,14 @@ export function render(root) {
   } else {
     goals.forEach((g) => {
       // goalDisplayStats() (goals.js) SATU sumber stats goal — progress-nya udah termasuk nilai
-      // asset ter-link, isDone TETAP murni topup/withdraw lifecycle (lihat komentar di sana).
-      const { target, progress, isDone, pct, cls } = goalDisplayStats(g);
+      // asset ter-link. Ga ada status "Selesai" lagi (dihapus, lihat komentar di goals.js).
+      const { target, progress, pct, cls } = goalDisplayStats(g);
       const div = document.createElement("div");
       div.className = "budget-mini";
       div.innerHTML = `
         <div class="bm-name">🎯 ${escapeHtml(g.name)}</div>
         <div class="progress"><div class="${cls}" style="width:${pct}%"></div></div>
-        <div class="bm-nums">${isDone ? "Selesai 🎉" : `${fmtIDR(progress)} / ${fmtIDR(target)} <span style="color:${pct >= 100 ? "var(--green)" : "var(--muted)"}">· ${pct.toFixed(0)}%</span>`}</div>`;
+        <div class="bm-nums">${fmtIDR(progress)} / ${fmtIDR(target)} <span style="color:${pct >= 100 ? "var(--green)" : "var(--muted)"}">· ${pct.toFixed(0)}%</span></div>`;
       div.onclick = () => { location.hash = "#/goals"; };
       goalSlider.appendChild(div);
     });
