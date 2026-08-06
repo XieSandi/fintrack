@@ -251,11 +251,12 @@ callback (`wealth.js`, balikin literal `"***"`). State toggle di localStorage �
 - `goals` — Short Term Goals. {name, targetAmount, targetDate? ("YYYY-MM"), color,
   linkedAssetIds?}. Bisa lebih dari satu (dikelola di `#/goals`, menu di Setting). **Sistem
   topup + pencairan**, bukan target pasif: saldo goal = topup − pencairan asli
-  (`goalSavedIDR()`), bukan net worth. Goal saldo 0 SETELAH pernah ada topup/pencairan → badge
-  "Selesai 🎉" (bukan auto-delete, tetep bisa di-topup lagi). Goal yang punya riwayat topup ATAU
-  pencairan ga bisa dihapus langsung (harus beresin transaksinya dulu di History) — pola sama
-  kayak proteksi hapus akun. Beda konsep dari Main Milestone (`settings.targetNetWorth`) — lihat
-  catatan di atas.
+  (`goalSavedIDR()`), bukan net worth. Goal yang punya riwayat topup ATAU pencairan ga bisa
+  dihapus langsung (harus beresin transaksinya dulu di History) — pola sama kayak proteksi hapus
+  akun. Beda konsep dari Main Milestone (`settings.targetNetWorth`) — lihat catatan di atas.
+  **GA ADA status "Selesai 🎉" lagi** (sempat ada, dihapus lagi — riwayat lengkap: lihat
+  `DECISIONS.md`) — progress ditampilin persentase polos aja (`pct`), ga ada klaim "goal ini
+  udah kelar" yang bisa salah.
   **Link ke Asset** (`linkedAssetIds`, array of assetId, opsional) — goal bisa di-link ke ≥1
   asset yang UDAH ADA (multiple), di-set dari checkbox list di sheet Edit Goal (`goals.js`,
   BUKAN dari sisi asset). Nilai asset ter-link ikut ditampilin sebagai bagian **progress goal**
@@ -265,16 +266,11 @@ callback (`wealth.js`, balikin literal `"***"`). State toggle di localStorage �
   `totalAssetsIDR()`, nambahin lagi ke goal savings bakal DOUBLE-COUNT net worth.
   `totalGoalSavingsIDR()` TETAP murni `goalSavedIDR()` — JANGAN diubah buat include
   linkedAssetIds, itu satu-satunya sumber "goal savings" yang boleh nyumbang ke net worth.
-  Status **"Selesai 🎉"** = `saved <= 0 && linkedValue <= 0 && hasHistory` (BUKAN cuma `saved`,
-  BUKAN `progress` gabungan) — **bug yang pernah kejadian & udah dibenerin:** kalau cuma cek
-  `saved <= 0`, goal yang punya asset ter-link gede tapi topup-nya SEMPET dicairkan (saved balik
-  ke 0) bakal ke-flag "Selesai" padahal progress gabungannya (termasuk linkedValue) jauh dari
-  target — makanya `linkedValue <= 0` WAJIB ikut dicek juga, bukan `saved` doang. Tombol
-  **"💸 Cairkan"** TETAP pakai `saved > 0` (bukan `progress`) — pencairan cuma narik dari pool
+  Tombol **"💸 Cairkan"** pakai `saved > 0` (bukan `progress`) — pencairan cuma narik dari pool
   cash topup, bukan "menjual" asset ter-link (itu tetap lewat `openAssetSellSheet()`
-  terpisah kalau mau dilikuidasi). Stats tampilan (`saved`/`linkedValue`/`progress`/`isDone`/
-  `pct`/`cls`) DIPUSATKAN di `goalDisplayStats(g)` (goals.js, di-export) — dipakai BARENG sama
-  `home.js` (preview Goals) biar dua UI ga divergen, pola sama `copyBudgetFromLastMonth()`. Satu
+  terpisah kalau mau dilikuidasi). Stats tampilan (`saved`/`linkedValue`/`progress`/`pct`/`cls`)
+  DIPUSATKAN di `goalDisplayStats(g)` (goals.js, di-export) — dipakai BARENG sama `home.js`
+  (preview Goals) biar dua UI ga divergen, pola sama `copyBudgetFromLastMonth()`. Satu
   asset BOLEH di-link ke lebih dari satu goal sekaligus (masing-masing goal nampilin nilai
   PENUH-nya, bukan dibagi) — sengaja simpel, ga ada mekanisme alokasi/split. Asset yang lagi
   di-link ke goal manapun **ga bisa dihapus langsung** (guard di `openAssetSheet()`, wealth.js —

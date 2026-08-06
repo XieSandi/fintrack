@@ -310,3 +310,48 @@ termasuk di Cash"; section 7 nambah subsection kartu kredit).
 **State operasional sekarang & aturan yang WAJIB dipatuhi:** lihat CLAUDE.md bullet `accounts`
 tipe `credit` (Data Model) — itu udah di-update penuh buat v2, JANGAN rujuk versi lama manapun
 dari dokumen/percakapan sebelumnya yang masih bilang CC lewat cash path.
+
+---
+
+## Status "Selesai 🎉" goal: ditambahin, dicoba dibenerin, akhirnya dihapus total (2026-08)
+
+**Konteks:** dari awal (sebelum fitur goal↔asset linking ada), goal punya badge "Selesai 🎉"
+kalau `saved <= 0` (pot topup abis) SETELAH pernah ada riwayat topup/pencairan — sinyal yang
+valid waktu itu karena topup adalah SATU-SATUNYA sumber value sebuah goal, jadi "pot-nya kosong"
+= "episode nabung ini beres" (dipakai buat, misal, dana darurat yang abis kepake, bukan berarti
+goal-nya harus dihapus, tinggal di-topup lagi kalau perlu).
+
+**Masalah muncul setelah fitur goal↔asset linking ditambahin** (progress goal sekarang bisa
+juga dari nilai asset yang di-link, bukan cuma topup) — `saved <= 0` UDAH GA CUKUP jadi sinyal
+"selesai": user bisa topup dikit, cairkan lagi (saved balik 0), sementara linkedValue-nya masih
+gede dan goal itu jauh dari target — badge "Selesai" salah nongol.
+
+**Percobaan fix pertama:** tambahin syarat `linkedValue <= 0` juga (`isDone = saved <= 0 &&
+linkedValue <= 0 && hasHistory`) — secara matematis bener buat kasus yang udah diidentifikasi.
+TAPI user report bug-nya MASIH kejadian juga setelah fix ini (root cause pasti kemungkinan
+belum sepenuhnya ke-cover — misal `linkedValue` yang naik-turun ngikutin harga pasar bikin state
+"selesai" itu sendiri jadi ga stabil/gampang salah lagi di kondisi lain yang belum kepikiran,
+atau ada kombinasi kasus lain yang belum tercover).
+
+**Keputusan akhir:** daripada terus nambal kasus edge yang berpotensi terus muncul (karena
+`linkedValue` itu inherently DINAMIS — nilai pasar yang naik-turun setiap saat, beda dari
+`saved` yang murni transaksional/statis sampai ada transaksi baru — bikin "goal ini selesai"
+jadi klaim yang riskan buat terus dijaga akurat), badge "Selesai 🎉" DIHAPUS TOTAL dari kedua
+tempat yang nampilinnya (`goals.js` list, `home.js` preview). Progress goal sekarang SELALU
+ditampilin sebagai persentase polos (`pct`, dibulatkan) — ga ada klaim biner "selesai/belum"
+yang bisa salah, cuma angka progress yang langsung bisa diverifikasi user sendiri dari
+saved+linkedValue vs target. `hasHistory` (helper yang cuma dipakai buat `isDone`) ikut dihapus
+karena jadi dead code.
+
+**Pelajaran:** status "selesai"/badge biner itu kelihatan sepele tapi computed value-nya HARUS
+stabil & ga trivial buat balik ke false lagi (mis. transaksional doang, bukan nilai pasar) —
+begitu satu komponen kalkulasinya bisa NAIK TURUN kapan aja (harga asset), klaim "final
+state" kayak "selesai" jadi rapuh dan gampang salah di kombinasi kasus yang ga kepikiran waktu
+nulis kondisinya pertama kali. Kalau nanti mau nambahin balik konsep "goal tercapai", pikirin
+ulang dari nol dengan expected state yang JELAS (misal murni `pct >= 100`, bukan campuran
+`saved`+`linkedValue` dengan aneka syarat "jangan sampai <= 0"), dan pertimbangkan apakah displaynya
+perlu badge biner sama sekali atau persentase polos udah cukup (kayak sekarang).
+
+**State operasional sekarang & aturan yang WAJIB dipatuhi:** lihat CLAUDE.md bullet `goals`
+(Data Model) — GA ADA status "Selesai" lagi, JANGAN tambahin balik tanpa mikir ulang soal
+kerapuhan yang dijelasin di atas.
