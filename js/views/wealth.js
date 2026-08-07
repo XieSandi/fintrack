@@ -9,7 +9,7 @@ import { add, patch, remove, updateSettings } from "../db.js";
 import {
   fmtIDR, fmtMoney, fmtNum, fmtIDRPlain, escapeHtml, toast, openSheet, closeSheet, sheetHead,
   parseAmount, attachThousands, lastNMonths, monthLabel, todayStr, confirmDialog, monthOf,
-  fmtShort, milestonePaceLine, currentMonth, addMonths, isBlurred,
+  fmtShort, milestonePaceLine, currentMonth, addMonths, isBlurred, blurNum,
 } from "../utils.js";
 import { refreshPrices, refreshableAssets } from "../prices.js";
 import { openAcctSheet } from "./accounts.js";
@@ -42,10 +42,10 @@ export function render(root) {
 
   root.innerHTML = `
     <div class="sumtabs">
-      ${sumBtn("total", "Total", fmtShort(nw), nw >= 0 ? "#93c5fd" : "var(--red)")}
-      ${sumBtn("assets", "Assets", fmtShort(assets), "var(--green)")}
-      ${sumBtn("liquid", "Liquid", fmtShort(cash), "#93c5fd")}
-      ${sumBtn("debt", "Debt", fmtShort(debt), "var(--red)")}
+      ${sumBtn("total", "Total", blurNum(fmtShort(nw)), nw >= 0 ? "#93c5fd" : "var(--red)")}
+      ${sumBtn("assets", "Assets", blurNum(fmtShort(assets)), "var(--green)")}
+      ${sumBtn("liquid", "Liquid", blurNum(fmtShort(cash)), "#93c5fd")}
+      ${sumBtn("debt", "Debt", blurNum(fmtShort(debt)), "var(--red)")}
     </div>
     <div id="group-content"></div>
   `;
@@ -423,7 +423,12 @@ function assetRow(a) {
   const pnl = val - cost;
   const pnlPct = cost > 0 ? (pnl / cost) * 100 : 0;
   const isCapex = a.type === "capex";
-  const qtyLabel = a.type === "stock_id" ? `${fmtNum(a.quantity)} lot` : `${a.quantity}${a.type === "stock_us" ? " sh" : ""}`;
+  // Jumlah unit ikut blur mode juga (bukan cuma nilai Rp) — "berapa lot/lembar yang gue punya"
+  // sama sensitifnya buat disembunyiin pas layar keliatan orang lain. blurNum() manual di sini
+  // karena ini bukan lewat fmtIDR/fmtUSD (lihat CLAUDE.md bullet blur mode).
+  const qtyNum = a.type === "stock_id" ? fmtNum(a.quantity) : String(a.quantity);
+  const qtySuffix = a.type === "stock_id" ? " lot" : a.type === "stock_us" ? " sh" : "";
+  const qtyLabel = `${blurNum(qtyNum)}${qtySuffix}`;
   const srcLabel = a.manualOnly === true ? "🔒 manual"
     : a.priceSource ? `⚡ ${a.priceSource}` : "manual";
   const metaLine = isCapex
@@ -619,7 +624,7 @@ function openAssetTradeSheet(asset, dir, existingTx, opts = {}) {
       <div class="sub" style="margin-bottom:10px">Transaksi ${isBuy ? "pembelian" : "penjualan"} asset ga bisa diedit langsung (biar avg buy price ga rusak) — hapus &amp; catat ulang kalau salah.</div>
       <div class="table-like">
         <div style="display:flex; justify-content:space-between; padding:6px 0"><span class="sub">Asset</span><span>${escapeHtml(asset.symbol || asset.name)}</span></div>
-        <div style="display:flex; justify-content:space-between; padding:6px 0"><span class="sub">Jumlah</span><span>${asset.type === "stock_id" ? `${fmtNum(existingTx.assetQty)} lot` : existingTx.assetQty}</span></div>
+        <div style="display:flex; justify-content:space-between; padding:6px 0"><span class="sub">Jumlah</span><span>${blurNum(asset.type === "stock_id" ? `${fmtNum(existingTx.assetQty)} lot` : String(existingTx.assetQty))}</span></div>
         <div style="display:flex; justify-content:space-between; padding:6px 0"><span class="sub">Harga/unit</span><span>${fmtMoney(existingTx.assetPrice, asset.currency)}</span></div>
         <div style="display:flex; justify-content:space-between; padding:6px 0"><span class="sub">${isBuy ? "Dari" : "Ke"} Akun</span><span>${escapeHtml(acct?.name || "?")}</span></div>
         <div style="display:flex; justify-content:space-between; padding:6px 0"><span class="sub">Tanggal</span><span>${existingTx.date}</span></div>
@@ -683,15 +688,18 @@ function openAssetTradeSheet(asset, dir, existingTx, opts = {}) {
   const updateHint = () => {
     const qty = parseDec(qtyInput.value);
     const price = parseDec(priceInput.value);
+    // innerHTML + blurNum() di sini (bukan textContent kayak sebelumnya) — hint ini nampilin avg
+    // buy price & qty dimiliki, read-only info yang sama sensitifnya kayak yang lain, harus ikut
+    // blur mode juga.
     if (isBuy) {
       if (qty > 0 && price > 0) {
         const newAvg = (curQty * curAvg + qty * price) / (curQty + qty);
-        hint.textContent = `Avg buy: ${fmtNum(curAvg)} → ${fmtNum(Math.round(newAvg * 100) / 100)}`;
+        hint.innerHTML = `Avg buy: ${blurNum(fmtNum(curAvg))} → ${blurNum(fmtNum(Math.round(newAvg * 100) / 100))}`;
       } else {
-        hint.textContent = curQty > 0 ? `Avg buy sekarang: ${fmtNum(curAvg)}` : "";
+        hint.innerHTML = curQty > 0 ? `Avg buy sekarang: ${blurNum(fmtNum(curAvg))}` : "";
       }
     } else {
-      hint.textContent = `Dimiliki sekarang: ${asset.type === "stock_id" ? `${fmtNum(curQty)} lot` : curQty}`;
+      hint.innerHTML = `Dimiliki sekarang: ${blurNum(asset.type === "stock_id" ? `${fmtNum(curQty)} lot` : String(curQty))}`;
     }
   };
   qtyInput.addEventListener("input", updateHint);
