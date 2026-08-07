@@ -541,5 +541,37 @@ function makeState() {
   assertEqual(calc.goalProgressIDR(s, "g1", "2026-01"), calc.goalSavedIDR(s, "g1"), "goalProgressIDR: tanpa link -> sama persis kayak goalSavedIDR");
 }
 
+// ================= Arsip Goal =================
+{
+  // activeGoals(): filter isArchived, pola sama activeAccounts() tapi HELPER TAMPILAN doang —
+  // BUKAN dipakai di totalGoalSavingsIDR()/netWorthIDR() (lihat test di bawah).
+  const s = makeState();
+  s.goals = [
+    { id: "g1", targetAmount: 1_000_000 },
+    { id: "g2", targetAmount: 2_000_000, isArchived: true },
+    { id: "g3", targetAmount: 3_000_000, isArchived: false },
+  ];
+  const active = calc.activeGoals(s);
+  assertEqual(active.length, 2, "activeGoals: exclude goal isArchived:true");
+  assertEqual(active.map((g) => g.id).sort().join(","), "g1,g3", "activeGoals: sisain goal yang isArchived falsy/false");
+}
+{
+  // KRITIS: goal diarsipkan TETAP nyumbang penuh ke totalGoalSavingsIDR()/netWorthIDR() — beda
+  // dari akun (activeAccounts() dipakai LANGSUNG di totalCashIDR(), akun arsip berhenti keitung).
+  // Uang yang udah ke-topup ga boleh "ilang" dari net worth cuma gara-gara goal-nya diarsipin.
+  const archived = makeState();
+  archived.goals = [{ id: "g1", targetAmount: 1_000_000, isArchived: true }];
+  archived.transactions = [
+    { type: "transfer", amount: 400_000, accountId: "acc_idr", toGoalId: "g1", month: "2026-01", date: "2026-01-05" },
+  ];
+  const notArchived = makeState();
+  notArchived.goals = [{ id: "g1", targetAmount: 1_000_000, isArchived: false }];
+  notArchived.transactions = archived.transactions;
+
+  assertEqual(calc.totalGoalSavingsIDR(archived), 400_000, "goal arsip: totalGoalSavingsIDR() TETAP ngitung saldo goal arsip");
+  assertEqual(calc.totalGoalSavingsIDR(archived), calc.totalGoalSavingsIDR(notArchived), "goal arsip: totalGoalSavingsIDR() sama persis terlepas isArchived");
+  assertEqual(calc.netWorthIDR(archived, "2026-01"), calc.netWorthIDR(notArchived, "2026-01"), "goal arsip: netWorthIDR() sama persis terlepas isArchived");
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

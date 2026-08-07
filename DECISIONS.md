@@ -355,3 +355,50 @@ perlu badge biner sama sekali atau persentase polos udah cukup (kayak sekarang).
 **State operasional sekarang & aturan yang WAJIB dipatuhi:** lihat CLAUDE.md bullet `goals`
 (Data Model) — GA ADA status "Selesai" lagi, JANGAN tambahin balik tanpa mikir ulang soal
 kerapuhan yang dijelasin di atas.
+
+---
+
+## Blur mode bolong: sumtabs Wealth & jumlah unit asset ga ke-mask (2026-08)
+
+**Konteks:** blur mode (toggle 👁️ di card Total Balance) dirancang biar SEMUA angka finansial
+ke-mask jadi asterisk pas layar keliatan orang lain. Mekanismenya `blurNum()` (`utils.js`)
+bikin `<span class="blur-num" data-mask="...">`, dan `fmtIDR()`/`fmtUSD()` udah otomatis lewat
+situ — jadi kebanyakan tempat "otomatis aman" asal pakai formatter itu.
+
+**Bug yang ketemu:** owner report angka masih keliatan pas blur mode nyala di beberapa tempat:
+chip ringkasan "Total/Assets/Liquid/Debt" di atas halaman Wealth (`sumtabs`), dan jumlah unit
+asset (qty lot/lembar/share) di list Assets. Root cause beda-beda tapi pola sama — dua tempat
+ini SENGAJA (atau ga sadar) ga lewat `fmtIDR`/`fmtUSD`:
+1. Sumtabs pakai `fmtShort()` (formatter angka ringkas "2.1jt", bukan `fmtIDR`) supaya muat di
+   chip kecil — dan `fmtShort()` MEMANG sengaja ga auto-blur, karena dia juga dipakai di
+   `milestonePaceLine()` yang outputnya ikut ke laporan .md (plain text, HTML span bakal
+   ngerusak markdown-nya). Konsekuensinya: SETIAP pemakaian `fmtShort()` di DOM baru wajib
+   inget bungkus manual, ga otomatis kayak fmtIDR — poin ini kelewat pas sumtabs awalnya ditulis.
+2. Jumlah unit asset (`5 lot`, `10.5 sh`) itu bukan nilai Rp sama sekali, jadi ga pernah lewat
+   `fmtIDR`/`fmtUSD` — dari awal emang ga ada mekanisme yang otomatis nge-mask-nya, harus
+   `blurNum()` manual eksplisit tiap tempat qty itu dirender (mirip kasus "saldo awal akun" di
+   `accounts.js` yang jadi contoh asli kenapa `blurNum()` manual itu perlu ada).
+
+**Fix:** `js/views/wealth.js` — sumtabs (`fmtShort(n)` → `blurNum(fmtShort(n))`), qty di
+`assetRow()` (list Assets), qty di detail transaksi beli/jual, dan hint live "Avg buy"/"Dimiliki
+sekarang" di sheet Catat Pembelian/Penjualan (yang terakhir ini butuh ganti `textContent` →
+`innerHTML` dulu, soalnya `blurNum()` ngehasilin HTML span, bukan plain text). Ga nyentuh
+`calc.js` — murni bug tampilan, jumlah/nilai yang dihitung ga berubah.
+
+**Sengaja BELUM dibenerin (di luar scope waktu itu):** baris pace Main Milestone ("Sisa 5
+bulan · perlu ± RpXjt/bln · surplus rata-rata lo RpYjt/bln...", `milestonePaceLine()`,
+muncul di Home & Wealth) MASIH bocor pas blur mode nyala — dia satu fungsi yang sama dipakai
+buat teks DOM (harusnya blur) DAN isi laporan .md (harus tetap plain text, HTML span bakal
+ngerusak markdown). Butuh mikirin ulang API-nya (misal return angka mentah + template terpisah
+per konteks, bukan satu string jadi) sebelum dibenerin — bukan sekadar tempel `blurNum()`.
+
+**Pelajaran:** formatter yang **kelihatan** kayak "formatter angka biasa" (`fmtShort`) tapi
+dipakai LINTAS KONTEKS (DOM ber-blur DAN teks plain non-DOM) itu jebakan — gampang lupa yang
+satu butuh treatment beda dari yang lain. Kalau nambah formatter baru yang bakal dipakai di DOM,
+default-nya harus JELAS: auto-blur (kayak `fmtIDR`) atau eksplisit "caller wajib bungkus sendiri"
+(kayak `fmtShort` sekarang, sekarang didokumentasikan eksplisit di CLAUDE.md) — jangan biarin
+ambigu.
+
+**State operasional sekarang & aturan yang WAJIB dipatuhi:** lihat CLAUDE.md bagian blur mode
+(section Home page) — `fmtShort()` butuh `blurNum()` manual tiap dipakai di DOM, qty asset juga
+WAJIB `blurNum()` manual di tampilan read-only manapun.

@@ -256,7 +256,7 @@ tick callback (`wealth.js`, balikin literal `"***"`). State toggle di localStora
   `totalOutstanding` ≤ 0 → badge "Lunas 🎉" (tab Debt Wealth), bukan auto-delete. Debt yang
   punya transaksi ber-`debtId` ga bisa dihapus langsung — pola sama proteksi hapus akun/goal.
 - `goals` — Short Term Goals. {name, targetAmount, targetDate? ("YYYY-MM"), color,
-  linkedAssetIds?}. Bisa lebih dari satu (dikelola di `#/goals`, menu di Setting). **Sistem
+  linkedAssetIds?, isArchived?}. Bisa lebih dari satu (dikelola di `#/goals`, menu di Setting). **Sistem
   topup + pencairan**, bukan target pasif: saldo goal = topup − pencairan asli
   (`goalSavedIDR()`), bukan net worth. Goal yang punya riwayat topup ATAU pencairan ga bisa
   dihapus langsung (harus beresin transaksinya dulu di History) — pola sama kayak proteksi hapus
@@ -285,6 +285,26 @@ tick callback (`wealth.js`, balikin literal `"***"`). State toggle di localStora
   Snapshot (`upsertSnapshot()`) nyimpen `linkedValue` per goal TERPISAH dari `saved` (field
   opsional/additive, snapshot lama fallback 0) — biar `report-md.js` bisa nunjukin breakdown-nya,
   bukan angka yang udah di-pre-combine.
+  **Arsip** (`isArchived`, opsional, pola field sama `accounts.isArchived`) — checkbox di sheet
+  Edit Goal (cuma muncul buat goal existing, sama kayak "Arsipkan akun" di `accounts.js`).
+  **BEDA KONSEKUENSI dari akun**: `activeAccounts()` dipakai LANGSUNG di `totalCashIDR()` (akun
+  diarsip = saldo-nya BERHENTI keitung net worth, dianggap ditutup) — tapi goal diarsipin BUKAN
+  berarti uangnya ilang, jadi `totalGoalSavingsIDR()`/`goalSavedIDR()`/`netWorthIDR()` SENGAJA
+  TIDAK difilter `isArchived` sama sekali, tetap iterate semua goal apa adanya. `activeGoals(state)`
+  (calc.js, baru, di-export via store.js) HANYA dipakai buat filter TAMPILAN: preview Goals di
+  Home (goal arsip ga nongol di situ, dengan pesan beda "Semua goals diarsipkan" kalau semuanya
+  ke-arsip — bukan disamain sama "Belum ada goals" yang berarti belum pernah bikin), listing
+  section 8 laporan .md (`report-md.js`, TAPI total Goal Savings section 1 tetap termasuk goal
+  arsip — kalau ada saldo goal arsip yang bikin sum tabel section 8 ga match total section 1,
+  dikasih baris catatan eksplisit di bawah tabelnya), dan `breakdown.goals` snapshot bulanan
+  (`upsertSnapshot()`, db.js — snapshot BULAN INI aja yang kefilter, snapshot lama/historis ga
+  direwrite). Halaman `#/goals` sendiri **TIDAK** pakai `activeGoals()` — nampilin SEMUA (aktif +
+  arsip) dalam satu list flat (pola sama `accounts.js`), badge "arsip" + didorong ke bawah lewat
+  sort, TANPA section terpisah. Goal diarsip: tombol **"💰 Topup" disembunyikan** (nudge biar ga
+  terus ditambahin kalau udah dianggap beres — bukan hard block, un-archive dulu kalau mau topup
+  lagi), tombol **"💸 Cairkan" TETAP ada** kalau `saved > 0` (uang yang udah ke-topup harus tetap
+  bisa ditarik walau goal-nya diarsip), delete guard TIDAK berubah (masih dicek riwayat
+  topup/pencairan, terlepas status arsip).
 - `recurring` — {name, type, amount, accountId, toAccountId?, toGoalId?, assetId?, categoryId?,
   debtId?, dayOfMonth (1–31), active, lastPostedMonth? ("YYYY-MM")}. Template transfer bisa
   nabung rutin ke **Short Term Goal** (`toGoalId`, menggantikan `toAccountId` — toggle

@@ -7,35 +7,55 @@ Vanilla JS, zero build, Firebase Firestore (offline-first), hosted di GitHub Pag
 
 ## Fitur
 
-- 📒 Catat expense/income/transfer per akun (bank, e-wallet, cash, RDN, broker)
+- 📒 Catat expense/income/transfer per akun (bank, e-wallet, cash, RDN, broker, kartu kredit)
 - 📊 Budget bulanan per kategori + progress bar + salin dari bulan lalu
-- 💰 Assets (saham IDX per lot, US fractional shares, deposito, dll) dengan harga manual + P&L
-- 📈 Net worth otomatis (cash + assets − debt), snapshot bulanan, grafik tren ke target
-- 💳 Debt tracker (outstanding, cicilan, jatuh tempo)
+- 💰 Assets (saham IDX per lot, US fractional shares, deposito, emas, crypto, CAPEX/barang susut,
+  dll) dengan harga manual/auto + P&L, plus Catat Pembelian/Penjualan (weighted avg buy price)
+- 🎯 Short Term Goals (bisa banyak, topup/pencairan aktif) — bisa juga di-link ke asset yang
+  sudah ada, terpisah dari 🏆 Main Milestone (satu target net worth jangka panjang)
+- 📈 Net worth otomatis (cash + assets + goal savings − debt), snapshot bulanan, grafik tren &
+  dashboard proyeksi ke target
+- 💳 Kartu kredit sebagai akun biasa (utang derived dari saldo negatif) + Debt tracker terpisah
+  buat cicilan tetap (outstanding, cicilan, jatuh tempo)
+- 🔁 Recurring/rutin bulanan (termasuk DCA beli asset) dengan konfirmasi "Awal Bulan"
+- 👁️ Blur mode — mask semua angka finansial jadi asterisk (buat dipakai di tempat umum)
 - 💵 Kurs USD/IDR auto (frankfurter.app) dengan override manual
 - ⚡ Auto price asset: saham IDX (TradingView, tanpa key), saham/ETF US (Finnhub), crypto (CoinGecko, tanpa key) — tombol 🔄 di tab Assets + auto-refresh 1x/hari saat app dibuka; per-asset bisa dikunci manual
 - ⚡ Offline-first: catat transaksi tanpa internet, auto-sync saat online (Firestore persistence)
-- 💾 Backup/restore JSON (Replace All / Merge)
+- 📄 Export laporan .md siap paste ke AI, plus backup/restore JSON (Replace All / Merge)
+- 🩺 Cek Integritas Data (scan referensi yatim, read-only) + Reset Data (Zona Bahaya)
 - 📱 PWA installable
 
 ## Struktur
 
 ```
-index.html          app shell
-manifest.json       PWA manifest
-sw.js               service worker (offline cache)
+index.html            app shell
+manifest.json         PWA manifest
+sw.js                 service worker (offline cache)
 css/style.css
 js/
-├─ app.js           entry: auth, router, global UI
-├─ firebase.js      init SDK + offline persistence
-├─ store.js         state + Firestore listeners + derived calc
-├─ db.js            repository: CRUD, seeding, snapshot, backup
-├─ kurs.js          kurs USD/IDR auto
-├─ tx-sheet.js      sheet tambah/edit transaksi
-├─ utils.js         format, tanggal, toast, sheet
-└─ views/           home, transactions, budget, wealth, settings
+├─ app.js             entry: auth, router, month picker, SW register
+├─ firebase.js        init SDK + offline persistence
+├─ store.js           state global + Firestore listeners + wrapper ke calc.js
+├─ calc.js            kalkulasi murni (saldo, net worth, dll) — ga import Firebase, ditest
+├─ db.js              repository: CRUD, seeding, snapshot, backup, bulk delete
+├─ integrity.js       scan referensi yatim (read-only)
+├─ kurs.js            kurs USD/IDR auto
+├─ prices.js          auto price: TradingView (IDX), Finnhub (US), CoinGecko (crypto)
+├─ tx-sheet.js        sheet tambah/edit transaksi (quick-add)
+├─ recurring-sheet.js sheet konfirmasi "Awal Bulan" (post recurring)
+├─ report-md.js       generate laporan finansial .md
+├─ utils.js           format, tanggal, toast, sheet, blur mode, hard refresh
+└─ views/             home, transactions, budget, wealth, settings, accounts, categories,
+                       goals, recurring, danger
 icons/
+tests/
+└─ calc.test.mjs      smoke test manual buat js/calc.js (`node tests/calc.test.mjs`)
 ```
+
+Dokumentasi lebih lengkap buat development (aturan wajib, arsitektur detail, data model,
+known quirks) ada di `CLAUDE.md`; narasi historis "kenapa" di balik keputusan desain & insiden
+ada di `DECISIONS.md`; backlog task ada di `TASKS.md`.
 
 ## Deploy (GitHub Pages)
 

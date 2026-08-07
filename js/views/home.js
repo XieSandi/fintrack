@@ -1,5 +1,5 @@
 import {
-  state, activeAccounts, accountBalances, totalCashIDR,
+  state, activeAccounts, activeGoals, accountBalances, totalCashIDR,
   netWorthIDR, rangeSummary, catById, acctById, effectiveRate, budgetsOfMonth,
   spentByCategory, milestoneProgress,
 } from "../store.js";
@@ -64,7 +64,10 @@ export function render(root) {
   const sum = rangeSummary(from, to);
   const savingRate = sum.income > 0 ? ((sum.surplus / sum.income) * 100).toFixed(0) : null;
   const recent = state.transactions.slice(0, 3);
-  const goals = state.goals.slice().sort((a, b) => (a.targetAmount || 0) - (b.targetAmount || 0));
+  // activeGoals() — goal yang diarsipkan (goals.js) ga nongol di preview Home, biar "declutter"
+  // beneran kerasa (pola sama activeAccounts() dipakai di sini juga). Uangnya tetep kehitung
+  // penuh di totalBalance di atas (netWorthIDR/totalCashIDR ga filter archived).
+  const goals = activeGoals().slice().sort((a, b) => (a.targetAmount || 0) - (b.targetAmount || 0));
   const milestone = milestoneProgress();
   const paceLine = milestonePaceLine(milestone);
 
@@ -161,9 +164,11 @@ export function render(root) {
   // Goals slider
   const goalSlider = root.querySelector("#goal-slider");
   if (goals.length === 0) {
+    // Beda pesan kalau semua goals-nya ada tapi diarsipkan (bukan "belum ada" sama sekali).
+    const allArchived = state.goals.length > 0;
     goalSlider.innerHTML = `<div class="budget-mini" style="flex:1" onclick="location.hash='#/goals'">
-      <div class="bm-name">Belum ada goals</div>
-      <div class="bm-nums">Tap buat bikin target →</div>
+      <div class="bm-name">${allArchived ? "Semua goals diarsipkan" : "Belum ada goals"}</div>
+      <div class="bm-nums">${allArchived ? "Kelola di Goals →" : "Tap buat bikin target →"}</div>
     </div>`;
   } else {
     goals.forEach((g) => {
