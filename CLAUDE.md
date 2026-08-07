@@ -84,8 +84,15 @@ semantik (hijau/merah/dll) tetep kebawa karena `color` cuma inherit, ga di-overr
 `fmtIDR`/`fmtUSD` udah lewat situ otomatis, tapi kalau ada view yang bikin `span.blur-num` manual
 (bukan lewat `fmtIDR`/`fmtUSD`, kayak saldo awal akun di `accounts.js`) WAJIB bungkus pakai
 `blurNum(text)` juga — span tanpa `data-mask` matching-length bakal nampilin mask kosong/kepanjangan.
-Chart.js (canvas, ga bisa kena CSS) pakai jalur terpisah: cek `isBlurred()` langsung di tick
-callback (`wealth.js`, balikin literal `"***"`). State toggle di localStorage — bukan re-render.
+`fmtShort()` (angka ringkas "2.1jt") KHUSUSNYA **TIDAK** auto-blur kayak `fmtIDR`/`fmtUSD` — dia
+juga dipakai buat teks non-DOM (`milestonePaceLine()`, ikut ke laporan .md), jadi caller yang
+nampilin hasilnya di DOM (mis. sumtabs Total/Assets/Liquid/Debt di `wealth.js`) WAJIB bungkus
+manual `blurNum(fmtShort(n))` — kelewat sebelumnya (sumtabs sempet ga ke-blur sama sekali padahal
+breakdown card di bawahnya udah kena). Jumlah unit asset (qty lot/lembar/share, BUKAN cuma nilai
+Rp-nya) juga WAJIB kena blur di tampilan read-only (`assetRow()`/detail transaksi asset/hint
+Catat Pembelian-Penjualan di `wealth.js`) — "berapa banyak yang lo punya" sama sensitifnya kayak
+nilainya. Chart.js (canvas, ga bisa kena CSS) pakai jalur terpisah: cek `isBlurred()` langsung di
+tick callback (`wealth.js`, balikin literal `"***"`). State toggle di localStorage — bukan re-render.
 
 ## Data Model (Firestore `users/{uid}/`)
 
