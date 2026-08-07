@@ -236,6 +236,41 @@ export function snapshotNetWorth(s, includeCapex) {
   );
 }
 
+// Dekomposisi Δ net worth antara 2 breakdown mentah (`prevParts`/`currParts`, SAMA shape kayak
+// `netWorthFromParts()`: {cash, assets, capex, goalSavings, debt}) — dipakai report-md.js section
+// 10 "Perubahan komposisi" (TASK-1, 2026-08 — riwayat lengkap bug-nya: lihat DECISIONS.md).
+//
+// BUG YANG DIBENERIN DI SINI: versi lama nge-jumlah Δassets RAW *dan* ΔCAPEX terpisah (double
+// count — assets RAW UDAH TERMASUK CAPEX, lihat `netWorthFromParts()` di atas), PLUS nambahin
+// Δdebt RAW ke sum tanpa negasi (padahal formula aslinya `-debt` — debt naik itu KONTRIBUSI
+// NEGATIF ke net worth, bukan positif). Dua bug independen, sama-sama bikin Σ komponen ga match
+// Δ net worth beneran.
+//
+// FIX: setiap field yang di-return SUDAH representasi KONTRIBUSI ke net worth (bukan raw delta
+// apa adanya) — caller TINGGAL JUMLAH APA ADANYA (`cash + assets + (includeCapex ? capex : 0) +
+// goalSavings + debt`), TANPA sign-flip/exclude tambahan lagi. Ini yang bikin bug kelas ini ga
+// bisa kejadian lagi: `assets` di sini SELALU exclude CAPEX (pola sama `investAssets` di
+// wealth.js `renderTotal()` — CAPEX baris terpisah, cuma ikut disum kalau `includeCapex` true),
+// `debt` UDAH dinegasi. Dijamin ALGEBRAIC (bukan cuma "biasanya cocok"): `total` dihitung
+// LANGSUNG dari `netWorthFromParts()` (sumber kebenaran yang sama dipakai section 1 report-md.js
+// & chart Wealth), BUKAN dari nge-jumlah ulang field-field di bawah — jadi kalaupun caller lupa
+// nge-exclude CAPEX pas nyusun UI, `total` tetap benar (di-test eksplisit di calc.test.mjs pakai
+// angka asli dari laporan Agustus 2026 yang jadi bukti bug ini).
+//
+// TIDAK butuh `state` — murni angka breakdown yang udah dihitung caller (live totals ATAU field
+// mentah snapshot Firestore, dua-duanya shape-nya sama).
+export function netWorthComposition(prevParts, currParts, includeCapex) {
+  const num = (parts, key) => Number(parts[key]) || 0;
+  const cash = num(currParts, "cash") - num(prevParts, "cash");
+  const capex = num(currParts, "capex") - num(prevParts, "capex");
+  const assets = (num(currParts, "assets") - num(currParts, "capex"))
+    - (num(prevParts, "assets") - num(prevParts, "capex"));
+  const goalSavings = num(currParts, "goalSavings") - num(prevParts, "goalSavings");
+  const debt = -(num(currParts, "debt") - num(prevParts, "debt"));
+  const total = netWorthFromParts(currParts, includeCapex) - netWorthFromParts(prevParts, includeCapex);
+  return { cash, assets, capex, goalSavings, debt, total, includeCapex };
+}
+
 // Goal savings dihitung sebagai bagian net worth (uangnya ga hilang, cuma pindah "kantong").
 // CAPEX (barang fisik susut, lihat blok di atas) di-exclude/include tergantung toggle
 // `settings.includeCapexInNetWorth` — default FALSE (exclude) biar net worth existing user ga

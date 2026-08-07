@@ -3,7 +3,7 @@
 // Fungsi murni, ga nulis apa-apa ke Firestore, cuma baca dari store.
 import {
   state, activeAccounts, activeGoals, accountBalances, totalCashIDR, totalAssetsIDR, totalCapexIDR, totalDebtIDR,
-  totalGoalSavingsIDR, netWorthIDR, netWorthFromParts, snapshotNetWorth, assetValueIDR, assetCostIDR, capexLocalValue, goalSavedIDR,
+  totalGoalSavingsIDR, netWorthIDR, netWorthFromParts, snapshotNetWorth, netWorthComposition, assetValueIDR, assetCostIDR, capexLocalValue, goalSavedIDR,
   goalLinkedAssetsValueIDR, effectiveRate, monthSummary, spentByCategory, budgetsOfMonth, catById, acctById, milestoneProgress,
 } from "./store.js";
 import {
@@ -375,22 +375,26 @@ export function buildMonthlyReport(month) {
     fmtIDRPlain(snapshotNetWorth(s, false)),
   ]);
   lines.push(mdTable(["Bulan", "Net Worth (+ CAPEX)", "Net Worth (tanpa CAPEX)"], trendRows));
-  if (snaps.length >= 2) {
-    const last = snaps[snaps.length - 1];
-    const prevSnapForComp = snaps[snaps.length - 2];
+  // "Perubahan komposisi" pakai PASANGAN BULAN YANG SAMA kayak Δ net worth section 1 (`partsNow` +
+  // `prevSnap`, BUKAN dua entri terakhir tabel trend 12-bulan di atas — bisa beda pasangan bulan
+  // kalau report digenerate buat bulan lampau) + `netWorthComposition()` (calc.js) buat komponennya
+  // — SATU sumber angka, dijamin `comp.total` === `nwDelta` section 1 persis (bukan cuma toleransi
+  // Rp1 kayak sebelumnya), DAN dijamin Σ komponen === comp.total (TASK-1, riwayat bug: DECISIONS.md).
+  if (prevSnap && typeof prevSnap.totalCash === "number" && typeof prevSnap.totalAssets === "number") {
+    const prevParts = { cash: prevSnap.totalCash, assets: prevSnap.totalAssets, capex: prevSnap.totalCapex, goalSavings: prevSnap.totalGoalSavings, debt: prevSnap.totalDebt };
+    const comp = netWorthComposition(prevParts, partsNow, includeCapexNow);
+    // Field comp.* SEMUA udah representasi kontribusi ke net worth (assets exclude CAPEX, debt
+    // udah dinegasi) — tinggal ditampilin apa adanya, JANGAN sign-flip/exclude manual lagi di sini
+    // (itu persis pola yang bikin bug ganda TASK-1 kejadian: Δassets RAW+ΔCAPEX ke-double-count,
+    // Δdebt RAW ke-jumlah tanpa negasi).
     const parts = [];
-    const addCompDelta = (key, label) => {
-      if (typeof last[key] !== "number" || typeof prevSnapForComp[key] !== "number") return; // snapshot lama sebelum field ini ada
-      const d = last[key] - prevSnapForComp[key];
-      if (d !== 0) parts.push(`${label} ${signed(d)}`);
-    };
-    addCompDelta("totalCash", "Cash");
-    addCompDelta("totalAssets", "Assets");
-    addCompDelta("totalCapex", "CAPEX");
-    addCompDelta("totalGoalSavings", "Goal Savings");
-    addCompDelta("totalDebt", "Debt");
+    if (comp.cash !== 0) parts.push(`Cash ${signed(comp.cash)}`);
+    if (comp.assets !== 0) parts.push(`Assets ${signed(comp.assets)}`);
+    if (includeCapexNow && comp.capex !== 0) parts.push(`CAPEX ${signed(comp.capex)}`);
+    if (comp.goalSavings !== 0) parts.push(`Goal Savings ${signed(comp.goalSavings)}`);
+    if (comp.debt !== 0) parts.push(`Debt ${signed(comp.debt)}`);
     if (parts.length > 0) {
-      lines.push(`- Perubahan komposisi (${monthLabel(prevSnapForComp.month || prevSnapForComp.id)} → ${monthLabel(last.month || last.id)}): ${parts.join(", ")}`);
+      lines.push(`- Perubahan komposisi (${monthLabel(prevMonthKey)} → ${monthLabel(month)}, basis ${includeCapexNow ? "+ CAPEX" : "tanpa CAPEX"}, angka = kontribusi ke Δ net worth): ${parts.join(", ")} → **Total Δ ${signed(comp.total)}** (cocok Δ net worth di section 1)`);
     }
   }
   lines.push("");

@@ -105,6 +105,7 @@ export const goalProgressIDR = (goalId) => calc.goalProgressIDR(state, goalId, c
 export const netWorthIDR = () => calc.netWorthIDR(state, currentMonth());
 export const netWorthFromParts = (parts, includeCapex) => calc.netWorthFromParts(parts, includeCapex);
 export const snapshotNetWorth = (s, includeCapex) => calc.snapshotNetWorth(s, includeCapex);
+export const netWorthComposition = (prevParts, currParts, includeCapex) => calc.netWorthComposition(prevParts, currParts, includeCapex);
 export const milestoneProgress = () => calc.milestoneProgress(state, currentMonth());
 export const monthSummary = (month) => calc.monthSummary(state, month);
 export const spentByCategory = (month) => calc.spentByCategory(state, month);
