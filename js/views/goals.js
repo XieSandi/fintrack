@@ -11,6 +11,17 @@ const COLORS = ["#60a5fa", "#4ade80", "#facc15", "#f87171", "#c084fc", "#fb923c"
 // biar dua UI ga divergen (pola sama copyBudgetFromLastMonth()). `progress` (dipakai buat
 // progress bar/persentase/angka utama) = topup standalone + nilai asset ter-link
 // (`goalProgressIDR()`).
+// KEPUTUSAN (TASK-2, 2026-08, riwayat lengkap: DECISIONS.md): progress bar/pct/angka utama
+// SENGAJA (tunai + aset) — bukan tunai doang — karena buat goal yang memang di-fund via asset
+// (mis. Dana Pensiun via reksadana), (tunai+aset) itu representasi progress yang lebih masuk
+// akal daripada tunai doang. TAPI ini WAJIB dibarengi breakdown eksplisit `saved` (tunai) vs
+// `linkedValue` (aset) di tampilan — JANGAN pernah nampilin `progress` gabungan sendirian tanpa
+// rincian, karena sebagian dari situ (linkedValue) BUKAN tunai yang bisa langsung dicairkan
+// (naik-turun ngikutin harga pasar pula) — itu akar penyebab bug TASK-2 (Home/goals.js/report
+// nampilin satu angka gabungan yang keliatan kontradiksi sama "Goal savings" net worth di section
+// 1, yang SENGAJA cuma tunai). Field `saved`/`linkedValue` di return object di bawah ini itu
+// SUMBER breakdown-nya — caller (goals.js render, home.js) WAJIB pakai keduanya, bukan cuma
+// `progress`.
 // SENGAJA GA ADA status "Selesai 🎉" lagi (sempat ada, dihapus) — sebelum ada linking, "pot
 // topup abis" (`saved <= 0`) itu sinyal yang cukup jelas. Begitu goal bisa punya asset ter-link,
 // sinyal "selesai" yang benar jadi ambigu (pot topup abis ≠ progress gabungan capai target,
@@ -62,7 +73,9 @@ export function render(root) {
       <div class="sub" style="display:flex; justify-content:space-between; align-items:center">
         <span>${fmtIDR(progress)} / ${fmtIDR(target)}${g.targetDate ? ` · target ${monthLabel(g.targetDate)}` : ""}</span>
       </div>
-      ${linkedValue > 0 ? `<div class="sub">termasuk ${fmtIDR(linkedValue)} dari ${(g.linkedAssetIds || []).length} asset ter-link</div>` : ""}
+      ${linkedValue > 0 ? `
+      <div class="sub">💰 Ditabung (tunai): ${fmtIDR(saved)} · 📈 Dari ${(g.linkedAssetIds || []).length} asset ter-link: ${fmtIDR(linkedValue)}</div>
+      <div class="sub" style="color:var(--muted2)">⚠️ Sebagian progress dari nilai aset (naik-turun ngikutin pasar) — bukan semuanya tunai yang bisa langsung dicairkan</div>` : ""}
       <div style="margin-top:8px; display:flex; gap:8px;">
         ${g.isArchived ? "" : `<button class="btn btn-sm" data-topup style="flex:1">💰 Topup</button>`}
         ${saved > 0 ? `<button class="btn btn-sm" data-withdraw style="flex:1">💸 Cairkan</button>` : ""}

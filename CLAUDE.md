@@ -277,7 +277,19 @@ tick callback (`wealth.js`, balikin literal `"***"`). State toggle di localStora
   cash topup, bukan "menjual" asset ter-link (itu tetap lewat `openAssetSellSheet()`
   terpisah kalau mau dilikuidasi). Stats tampilan (`saved`/`linkedValue`/`progress`/`pct`/`cls`)
   DIPUSATKAN di `goalDisplayStats(g)` (goals.js, di-export) — dipakai BARENG sama `home.js`
-  (preview Goals) biar dua UI ga divergen, pola sama `copyBudgetFromLastMonth()`. Satu
+  (preview Goals) biar dua UI ga divergen, pola sama `copyBudgetFromLastMonth()`.
+  **Progress bar/pct/`progress` SENGAJA (tunai + aset)** — bukan tunai doang (TASK-2, 2026-08,
+  riwayat: `DECISIONS.md`) — keputusan final buat goal yang di-fund via asset (mis. Dana Pensiun).
+  TAPI karena itu beda dari `totalGoalSavingsIDR()`/net worth (yang cuma tunai), `progress`
+  gabungan **DILARANG ditampilin sendirian tanpa breakdown** `saved` (tunai) vs `linkedValue`
+  (aset) di SEMUA tempat goal ditampilin — `goals.js` list (2 baris: breakdown tunai/aset +
+  catatan "bukan semuanya tunai yang bisa dicairkan" saat `linkedValue > 0`), `home.js` preview
+  (baris kecil "tunai X + aset Y" saat `linkedValue > 0`), `report-md.js` section 1 (baris "Goal
+  savings" nambah "(tunai) + Rp Y (dari asset ter-link, sudah termasuk di Assets)" saat ada
+  goal ber-link — sebelumnya cuma nampilin total tunai polos yang kontradiksi sama section 8) dan
+  section 8 (header kolom eksplisit "Terkumpul (tunai+aset)", kolom Breakdown "tunai X + aset Y",
+  plus catatan kaki soal likuiditas). Kalau nambah entry point baru buat nampilin goal progress,
+  WAJIB ikutin pola breakdown ini — JANGAN balik ke satu angka `progress` polos. Satu
   asset BOLEH di-link ke lebih dari satu goal sekaligus (masing-masing goal nampilin nilai
   PENUH-nya, bukan dibagi) — sengaja simpel, ga ada mekanisme alokasi/split. Asset yang lagi
   di-link ke goal manapun **ga bisa dihapus langsung** (guard di `openAssetSheet()`, wealth.js —
@@ -612,10 +624,17 @@ tampilan progress goal.
   tipe `credit` & `DECISIONS.md`) biar ga disangka double-hitung. Section 7 (Hutang) nambah
   subsection "🪪 Kartu Kredit" terpisah dari tabel cicilan (`debts` collection) — field beda
   konsep (Terpakai/Limit, bukan Cicilan/JatuhTempo), TAPI tetap masuk Debt total yang sama.
-  Section 8 (Short Term Goals) — "Terkumpul" sekarang = topup + nilai asset ter-link
-  (`goalProgressIDR()`, lihat bullet `goals`), kolom "Breakdown" misahin dua-duanya biar jelas —
+  Section 8 (Short Term Goals) — header kolom eksplisit **"Terkumpul (tunai+aset)"** (TASK-2,
+  2026-08, riwayat: `DECISIONS.md` — dulu cuma "Terkumpul" polos, kebaca kontradiksi sama "Goal
+  savings" section 1 yang cuma tunai) = topup (tunai) + nilai asset ter-link (`goalProgressIDR()`,
+  lihat bullet `goals`), kolom "Breakdown" misahin dua-duanya ("tunai X + aset Y") biar jelas —
   asset ter-link TETAP dihitung normal di section 6 (Investasi)/net worth, kolom ini murni
-  informasi, BUKAN nambah net worth lagi. **Pakai
+  informasi, BUKAN nambah net worth lagi. Catatan kaki muncul di bawah tabel kalau ADA goal
+  ber-`linkedValue` (ngingetin progress-nya sebagian bukan tunai siap cair). Section 1 baris
+  "Goal savings" juga nambah "(tunai) + Rp Y (dari asset ter-link, sudah termasuk di Assets)"
+  kalau totalnya > 0 (SATU baris ringkasan lintas-goal, beda dari breakdown per-goal section 8)
+  — sebelumnya cuma nampilin `Rp 0` polos yang keliatan kontradiktif kalau ada goal ber-asset-link
+  yang progressnya jauh di atas 0. **Pakai
   `fmtIDRPlain()`/`fmtMoneyPlain()` (utils.js), BUKAN `fmtIDR()`/`fmtMoney()`** — yang terakhir
   itu wrapper `<span class="blur-num">` buat blur mode DOM, bakal ngerusak output markdown kalau
   kepake di teks/file. Section 9 (Komitmen Rutin, recurring aktif) SENGAJA SELALU live regardless

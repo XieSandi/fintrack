@@ -174,13 +174,17 @@ export function render(root) {
     goals.forEach((g) => {
       // goalDisplayStats() (goals.js) SATU sumber stats goal — progress-nya udah termasuk nilai
       // asset ter-link. Ga ada status "Selesai" lagi (dihapus, lihat komentar di goals.js).
-      const { target, progress, pct, cls } = goalDisplayStats(g);
+      // TASK-2 (2026-08): kalau ada linkedValue, kasih baris kecil "+ Rp Y aset" — biar preview
+      // compact ini ga nampilin `progress` gabungan sendirian tanpa petunjuk kalau sebagian dari
+      // situ bukan tunai (rincian lengkap tunai vs aset ada di #/goals, riwayat: DECISIONS.md).
+      const { target, saved, linkedValue, progress, pct, cls } = goalDisplayStats(g);
       const div = document.createElement("div");
       div.className = "budget-mini";
       div.innerHTML = `
         <div class="bm-name">🎯 ${escapeHtml(g.name)}</div>
         <div class="progress"><div class="${cls}" style="width:${pct}%"></div></div>
-        <div class="bm-nums">${fmtIDR(progress)} / ${fmtIDR(target)} <span style="color:${pct >= 100 ? "var(--green)" : "var(--muted)"}">· ${pct.toFixed(0)}%</span></div>`;
+        <div class="bm-nums">${fmtIDR(progress)} / ${fmtIDR(target)} <span style="color:${pct >= 100 ? "var(--green)" : "var(--muted)"}">· ${pct.toFixed(0)}%</span></div>
+        ${linkedValue > 0 ? `<div class="bm-nums">tunai ${fmtIDR(saved)} + aset ${fmtIDR(linkedValue)}</div>` : ""}`;
       div.onclick = () => { location.hash = "#/goals"; };
       goalSlider.appendChild(div);
     });

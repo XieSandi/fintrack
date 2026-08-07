@@ -432,6 +432,113 @@ generate baris "Perubahan komposisi", JANGAN hitung manual lagi di string builde
 
 ---
 
+## TASK-3: Utang CC 3,2jt vs expense Agustus 560rb — diinvestigasi, BUKAN bug (2026-08)
+
+**Kecurigaan awal (dari audit data, export Agt 2026):** akun kartu kredit nunjukin utang total
+Rp 3.210.581 (Tokopedia Card Rp 2.675.246 + Nex Card Rp 535.335), tapi total expense tercatat
+BULAN AGUSTUS (semua akun digabung, section 2 report) cuma Rp 560.950. Kecurigaannya: ada belanja
+CC yang "lolos" — entah ke-catat lewat jalur yang bukan `expense` biasa, atau ada bug di mekanisme
+saldo akun credit yang bikin angka gede muncul tanpa jejak transaksi.
+
+**Investigasi (pakai `Export_Aug_2026.md` asli, bukan data karangan):**
+1. **Argumen konservasi uang.** Total expense Agustus (SEMUA kategori, SEMUA akun — bukan cuma
+   CC) cuma Rp 560.950. Bahkan kalau 100% expense itu SEMUANYA ke CC (skenario paling ekstrem),
+   itu cuma bisa jelasin maksimal Rp 560.950 dari Rp 3.210.581 total utang CC. Sisanya, MINIMAL
+   Rp 2.649.631 (≈82,5% dari total utang), SECARA MATEMATIS TIDAK MUNGKIN berasal dari transaksi
+   Agustus — harus dari `initialBalance` akun Tokopedia/Nex Card saat dibuat. Owner sendiri udah
+   konfirmasi app efektif dipakai mulai 1 Agustus, jadi `initialBalance` negatif di kedua akun CC
+   itu = utang CC RIIL yang emang udah ada sebelum mulai pakai app (diisi manual saat setup akun,
+   sesuai pola yang didokumentasikan di CLAUDE.md bullet `accounts` — "Saldo awal 0 = belum ada
+   tagihan berjalan... isi negatif kalau udah ada tagihan saat mulai pakai app").
+2. **Audit kode — jalur yang bisa ubah saldo akun.** `accountBalances()` (calc.js) 100% derived
+   dari jurnal: `bal[id] = initialBalance`, lalu di-+/− tiap transaksi (expense/income/transfer)
+   — TIDAK ADA state saldo yang disimpan terpisah buat di-drift. Grep `patch("accounts", ...)` di
+   SELURUH `js/` — CUMA SATU pemanggil, di `#ac-save` (form Edit Akun, `accounts.js`), user-
+   initiated & eksplisit. Reconcile (`openReconcileSheet`) — sempat dicurigai sebagai kandidat
+   "jalur diam-diam" — TERNYATA bikin TRANSAKSI biasa (`add("transactions", {type: diff<0
+   ?"expense":"income", categoryId:"cat_adjust_out"/"cat_adjust_in", ...})`), BUKAN nge-patch
+   saldo/initialBalance langsung. "💳 Bayar Tagihan" (`openPayCreditSheet`) juga transaksi
+   `transfer` biasa. Ga ketemu jalur manapun yang bisa ngubah saldo CC TANPA bikin transaksi.
+3. **Bukti pendukung dari data asli.** Section 3 report (Expense per Kategori Agt 2026) beneran
+   nunjukin baris "⚖️ Penyesuaian Saldo Rp 17.000" — bukti LANGSUNG bahwa mekanisme reconcile di
+   app ini emang lewat transaksi normal (nongol di laporan expense), bukan patch tersembunyi.
+
+**Kesimpulan: BUKAN bug.** Utang CC Rp 3.210.581 legit — mayoritas (≥82,5%, kemungkinan besar
+seluruhnya) berasal dari `initialBalance` yang diisi saat akun Tokopedia Card/Nex Card dibuat,
+merepresentasikan utang CC riil yang udah ada sebelum owner mulai pakai app 1 Agustus 2026. Ga
+ada jalur kode yang bisa mengubah saldo akun (credit maupun tipe lain) tanpa membuat transaksi —
+prinsip "saldo TIDAK PERNAH disimpan, selalu derived dari jurnal" (CLAUDE.md) TETAP terjaga
+konsisten di semua jalur (reconcile, bayar tagihan, form edit akun). **Kode TIDAK diubah** — sesuai
+instruksi TASK-3 kalau ternyata normal.
+
+**Keterbatasan investigasi:** ga ada akses ke `initialBalance` PERSIS kedua akun CC ini atau
+riwayat transaksi History mentah (di luar apa yang ke-summary di `Export_Aug_2026.md`) — jadi
+argumen di atas itu BOUND matematis (≥82,5% pasti dari initialBalance), bukan rekonsiliasi 100%
+sampai ke rupiah terakhir. Kalau owner mau verifikasi exact, tinggal cek `initialBalance` di
+Setting → Akun → Edit Tokopedia/Nex Card, atau share backup JSON lengkap.
+
+**Pelajaran:** kecurigaan "angka gede tanpa jejak yang cukup" itu valid buat diinvestigasi, TAPI
+jangan langsung asumsikan bug — cross-check dulu SATU angka (total expense bulan itu) terhadap
+timeline pemakaian app (app baru dipakai N hari) sering udah cukup buat nge-bound seberapa
+mungkin sumbernya dari transaksi tercatat vs data awal/setup. Kombinasi argumen matematis (bound
+dari data agregat) + audit kode (pastikan ga ada jalur mutasi tersembunyi) bisa nutup investigasi
+tanpa butuh akses ke setiap baris transaksi mentah.
+
+---
+
+## TASK-2: Goal savings — "Rp 0" vs "Terkumpul Rp 512.542" kontradiktif (2026-08)
+
+**Ketemu dari:** audit data pemakaian nyata (export .md Agustus 2026, sama kayak TASK-1/TASK-3)
+— owner liat goal "Dana Pensiun" (di-fund via reksadana BIBIT yang di-link, `linkedAssetIds`)
+nunjukin dua cerita beda: section 1 bilang "Goal savings: Rp 0", section 8 bilang "Terkumpul
+Rp 512.542 = topup Rp 0 + asset Rp 512.542". Kelihatan kontradiktif walau dua-duanya SECARA
+TEKNIS benar.
+
+**Kenapa ini BUKAN bug kalkulasi (dari awal udah didesain gini, sengaja):** `totalGoalSavingsIDR()`
+(dipakai `netWorthIDR()`) SENGAJA cuma topup tunai — nilai asset ter-link (`linkedValue`) udah
+kehitung PENUH di `totalAssetsIDR()` lewat jalur normal, nambahin lagi ke goal savings bakal
+DOUBLE-COUNT net worth (lihat CLAUDE.md bullet `goals`, fitur goal↔asset-linking). Jadi "Goal
+savings: Rp 0" itu ANGKA YANG BENAR buat konteks net worth. Masalahnya murni **tampilan**: angka
+itu ditampilin SENDIRIAN tanpa konteks di section 1, sementara section 8 nampilin angka gabungan
+(`progress` = tunai + aset) yang jauh lebih besar TANPA breakdown eksplisit yang cukup jelas di
+section 1 buat ngejelasin kenapa dua angka itu beda cerita.
+
+**Root cause di UI:** progress bar/pct/angka utama goal (`goalDisplayStats().progress`, dipakai
+`goals.js` list + `home.js` preview + `report-md.js` section 8) dari awal MEMANG udah gabungan
+(tunai+aset, keputusan yang masuk akal buat goal yang di-fund via asset kayak Dana Pensiun) —
+tapi beberapa tempat cuma nampilin angka gabungan itu doang tanpa breakdown yang cukup eksplisit,
+dan section 1 report (baris "Goal savings", represents net worth) ga dikasih tau sama sekali
+kalau ada goal ber-asset-link yang bikin angka tunainya "kelihatan kecil".
+
+**Fix (murni tampilan, formula net worth TIDAK disentuh):**
+- **Keputusan resmi (didokumentasikan, bukan cuma default implisit lagi):** progress
+  bar/pct/`progress` TETAP (tunai + aset) — dipertahankan, bukan diubah ke tunai-doang, karena
+  buat goal ber-asset-link itu representasi progress yang lebih masuk akal. TAPI sekarang WAJIB
+  dibarengi breakdown eksplisit di SEMUA tempat: `goals.js` list (baris "💰 Ditabung (tunai): X ·
+  📈 Dari N asset ter-link: Y" + catatan kaki likuiditas), `home.js` preview (baris kecil "tunai X
+  + aset Y"), `report-md.js` section 1 (baris Goal savings nambah "(tunai) + Rp Y (dari asset
+  ter-link, sudah termasuk di Assets)" kalau totalnya > 0), section 8 (header kolom eksplisit
+  "Terkumpul (tunai+aset)" + breakdown "tunai X + aset Y" + catatan kaki).
+- Net worth, `totalGoalSavingsIDR()`, `goalSavedIDR()`, `goalLinkedAssetsValueIDR()`,
+  `goalProgressIDR()` — **TIDAK ada satupun yang diubah**. Verifikasi: task ini cuma nyentuh
+  `js/views/goals.js`, `js/views/home.js`, `js/report-md.js` (string/HTML doang), `js/calc.js`
+  SAMA SEKALI ga disentuh, jadi net worth dijamin identik sebelum/sesudah by construction (ga
+  perlu re-test calc.js buat task ini).
+
+**Pelajaran:** angka yang "secara teknis benar" bisa tetap MENYESATKAN kalau ditampilin tanpa
+konteks di tempat yang beda definisi — kombinasi (tunai-only) vs (tunai+aset) yang keduanya valid
+untuk PURPOSE beda (net worth vs progress tracking) itu WAJIB selalu tampil BERDAMPINGAN dengan
+label eksplisit di mana pun kombinasi itu bisa kelihatan, bukan diasumsikan user bakal nyambungin
+sendiri dari section yang beda. Pola serupa kayak TASK-1 (Σ komposisi vs Δ net worth) — audit
+data pemakaian nyata lagi-lagi lebih efektif nemuin gap presentasi kayak gini dibanding review
+kode preventif.
+
+**State operasional sekarang & aturan yang WAJIB dipatuhi:** lihat CLAUDE.md bullet `goals`
+(Data Model, paragraf "Progress bar/pct/`progress` SENGAJA...") — breakdown tunai vs aset WAJIB
+ada di setiap tempat goal progress ditampilin, JANGAN balik ke satu angka gabungan polos.
+
+---
+
 ## Blur mode bolong: sumtabs Wealth & jumlah unit asset ga ke-mask (2026-08)
 
 **Konteks:** blur mode (toggle 👁️ di card Total Balance) dirancang biar SEMUA angka finansial

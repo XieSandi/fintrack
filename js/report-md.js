@@ -166,7 +166,17 @@ export function buildMonthlyReport(month) {
   lines.push(`- **Net worth (+ CAPEX): ${fmtIDRPlain(nwWithCapex)}**`);
   lines.push(`- **Net worth (tanpa CAPEX): ${fmtIDRPlain(nwWithoutCapex)}**`);
   lines.push(`- Dipakai app sekarang (toggle CAPEX di Wealth → Total): **${includeCapexNow ? "+ CAPEX" : "tanpa CAPEX"}** → ${fmtIDRPlain(nwForToggle)}${nwDelta !== null ? ` (Δ ${signed(nwDelta)} vs ${monthLabel(prevMonthKey)})` : ""}`);
-  lines.push(`- Cash: ${fmtIDRPlain(position.cash)} · Assets (termasuk CAPEX): ${fmtIDRPlain(position.assetsTotal)}${position.capexTotal > 0 ? ` (di dalamnya CAPEX: ${fmtIDRPlain(position.capexTotal)})` : ""} · Goal savings: ${fmtIDRPlain(position.goalSavingsTotal)} · Debt: −${fmtIDRPlain(position.debtTotal)}`);
+  // TASK-2 (2026-08, riwayat: DECISIONS.md): "Goal savings" di sini SENGAJA cuma topup tunai
+  // (`goalSavingsTotal`, sumber `totalGoalSavingsIDR()` — TIDAK diubah, itu benar buat net worth,
+  // nilai asset ter-link udah kehitung penuh di Assets, nambahin lagi ke sini bakal double count).
+  // TAPI kalau ada goal ber-asset-link, angka ini SENDIRIAN ("Rp 0") kontradiktif sama section 8
+  // yang nunjukin "Terkumpul" jauh lebih besar — jadi WAJIB dikasih catatan eksplisit di sini kalau
+  // ada linkedValue, biar ga kebaca seolah goal savings-nya beneran 0.
+  const totalLinkedValue = position.goals.reduce((s, g) => s + (g.linkedValue || 0), 0);
+  const goalSavingsLabel = totalLinkedValue > 0
+    ? `${fmtIDRPlain(position.goalSavingsTotal)} (tunai) + ${fmtIDRPlain(totalLinkedValue)} (dari asset ter-link, sudah termasuk di Assets — TIDAK ditambah lagi di net worth)`
+    : fmtIDRPlain(position.goalSavingsTotal);
+  lines.push(`- Cash: ${fmtIDRPlain(position.cash)} · Assets (termasuk CAPEX): ${fmtIDRPlain(position.assetsTotal)}${position.capexTotal > 0 ? ` (di dalamnya CAPEX: ${fmtIDRPlain(position.capexTotal)})` : ""} · Goal savings: ${goalSavingsLabel} · Debt: −${fmtIDRPlain(position.debtTotal)}`);
   // Utang kartu kredit lewat DEBT PATH sekarang (v2, 2026-08 — lihat DECISIONS.md; beda dari v1
   // yang lewat cash path) — udah "included" di angka Debt di atas, TIDAK lagi di Cash. Baris ini
   // cuma informasi tambahan, misahin dari cicilan (collection `debts`) biar ga ketuker — detail
@@ -313,10 +323,13 @@ export function buildMonthlyReport(month) {
   lines.push("");
 
   // ===== 8. Short Term Goals =====
-  // "Terkumpul" = topup standalone + nilai asset ter-link (`linkedValue`) — progress TAMPILAN
-  // doang. Asset ter-link TETAP kehitung normal di section 6 (Investasi)/net worth, kolom
-  // Breakdown di sini CUMA informasi, JANGAN disangka nambah net worth (lihat section 1/CLAUDE.md
-  // bullet `goals` — goal savings yang masuk net worth cuma dari topup, bukan linkedValue).
+  // "Terkumpul (tunai+aset)" = topup standalone (tunai) + nilai asset ter-link (`linkedValue`) —
+  // progress TAMPILAN doang (TASK-2, 2026-08: header kolom dibikin eksplisit "(tunai+aset)",
+  // BUKAN "Terkumpul" polos — biar ga kebaca kontradiktif sama "Goal savings" section 1 yang
+  // SENGAJA cuma tunai, riwayat lengkap: DECISIONS.md). Asset ter-link TETAP kehitung normal di
+  // section 6 (Investasi)/net worth, kolom Breakdown di sini CUMA informasi, JANGAN disangka
+  // nambah net worth (lihat section 1/CLAUDE.md bullet `goals` — goal savings yang masuk net
+  // worth cuma dari topup, bukan linkedValue).
   lines.push(`## 8. Short Term Goals (${position.label})`);
   const goalRows = position.goals.map((g) => {
     const t = g.targetAmount;
@@ -326,11 +339,14 @@ export function buildMonthlyReport(month) {
     const remaining = Math.max(0, t - progress);
     return [
       g.name, fmtIDRPlain(t), fmtIDRPlain(progress),
-      linkedValue > 0 ? `topup ${fmtIDRPlain(g.saved)} + asset ${fmtIDRPlain(linkedValue)}` : NA,
+      linkedValue > 0 ? `tunai ${fmtIDRPlain(g.saved)} + aset ${fmtIDRPlain(linkedValue)}` : NA,
       `${p.toFixed(0)}%`, g.targetDate ? monthLabel(g.targetDate) : NA, fmtIDRPlain(remaining),
     ];
   });
-  lines.push(mdTable(["Goal", "Target", "Terkumpul", "Breakdown", "%", "Target Date", "Sisa Perlu Ditabung"], goalRows));
+  lines.push(mdTable(["Goal", "Target", "Terkumpul (tunai+aset)", "Breakdown", "%", "Target Date", "Sisa Perlu Ditabung"], goalRows));
+  if (position.goals.some((g) => (g.linkedValue || 0) > 0)) {
+    lines.push(`_⚠️ Goal dengan breakdown "+ aset" progress-nya sebagian dari nilai aset ter-link (ngikut harga pasar, naik-turun), BUKAN semuanya tunai yang bisa langsung dicairkan — tombol "Cairkan" cuma narik dari pool tunai (kolom pertama breakdown)._`);
+  }
   // Tabel di atas cuma nampilin goal AKTIF (goal diarsipkan ga ditabelin, pola sama akun
   // activeAccounts() di section 5) — TAPI goalSavingsTotal (section 1, ikut netWorthIDR) TETAP
   // include saldo goal arsip (uangnya real, cuma "declutter" tampilan). Kalau ada goal diarsipkan

@@ -17,77 +17,6 @@ ATURAN WAJIB berlaku, terutama:
 - Setelah selesai: update CLAUDE.md (+ DECISIONS.md kalau ada keputusan arsitektur),
   hapus task dari TASKS.md, kasih ringkasan perubahan + file yang disentuh.
 
-Temuan di TASK-2 berasal dari audit data pemakaian nyata (export .md Agt 2026).
-
----
-
-## TASK-2 (P1, BUG tampilan) — Goal savings: dua angka beda cerita (section 1 vs section 8)
-
-**Bukti (report Agt 2026):**
-- Section 1: "Goal savings: **Rp 0**"
-- Section 8: Dana Pensiun "Terkumpul **Rp 512.542** = topup Rp 0 + asset Rp 512.542"
-
-Dua angka ini bikin bingung: net worth bilang goal savings 0, goal view bilang terkumpul 512rb.
-Akarnya: goal punya dua sumber "terkumpul" yang beda sifat — **topup** (uang tunai yang benar-benar
-dipindahkan ke goal, mengurangi akun cash) vs **asset-linked** (asset yang di-assign ke goal, TAPI
-nilainya sudah masuk `totalAssetsIDR`). Kalau "goal savings" di net worth cuma menghitung topup
-(supaya tidak double-count dengan Assets — itu BENAR), maka menampilkan "Terkumpul 512rb" tanpa
-konteks di tempat lain jadi menyesatkan (user bisa ngira punya 512rb tunai di goal yang bisa
-dicairkan).
-
-**Ini kemungkinan BUKAN bug kalkulasi net worth** (memisahkan topup dari asset-linked untuk
-menghindari double-count itu benar). Yang salah adalah **konsistensi & kejelasan tampilan**.
-
-**Implementasi (tampilan, hati-hati jangan ubah rumus net worth):**
-- Di SEMUA tempat goal ditampilkan (goals.js, report section 8, home/wealth kalau ada), pisahkan
-  dengan label eksplisit: "Ditabung (tunai): Rp X" vs "Dari aset ter-link: Rp Y" vs
-  "Total nilai goal: Rp X+Y". Jangan tampilkan satu angka "Terkumpul" gabungan tanpa rincian.
-- Progress bar goal: tentukan dan dokumentasikan apakah progress dihitung dari (tunai saja) atau
-  (tunai + aset). Untuk goal seperti Dana Pensiun yang memang di-fund via aset, (tunai + aset)
-  lebih masuk akal — tapi harus KONSISTEN dengan angka yang dipakai, dan diberi catatan kaki
-  "sebagian dari nilai aset, bukan tunai yang bisa langsung dicairkan".
-- Section 1 report: kalau goal punya asset-linked, "Goal savings: Rp 0 (tunai) + Rp 512.542 (aset,
-  sudah termasuk di Assets)" — jangan cuma "Rp 0" yang seolah kontradiktif.
-- Pastikan asset-linked yang di-assign ke goal TIDAK menghilang dari perhitungan Assets (verifikasi
-  BIBIT tetap terhitung di `totalAssetsIDR`) — dan tidak double-count di net worth.
-
-**Acceptance:**
-- Goal Dana Pensiun menampilkan rincian tunai vs aset di goals.js dan report, tidak ada satu angka
-  "terkumpul" telanjang yang kontradiksi dengan section 1.
-- Net worth TIDAK berubah nilainya karena task ini (murni tampilan) — verifikasi angka net worth
-  sebelum-sesudah identik.
-- Asset ter-link tetap terhitung di Assets.
-
----
-
-## TASK-3 (P0/investigasi, [VERIFIKASI] — mungkin bukan bug) — Utang CC 3,2jt vs expense Agt 560rb
-
-**Konteks dari data:** CC terpakai total Rp 3.210.581 (Tokopedia 2,67jt + Nex 535rb), tapi expense
-Agustus cuma Rp 560.950. Perlu dipastikan tidak ada belanja CC yang LOLOS dari pencatatan expense
-(bug guard), vs skenario normal (utang CC dari data lama / diinput via reconcile saldo awal).
-
-**Langkah investigasi (JANGAN ubah kode sebelum tahu):**
-- Cek History: filter akun Tokopedia Card & Nex Card. Untuk tiap transaksi yang membentuk saldo
-  −3,2jt, klasifikasikan: (a) expense normal (benar, mengurangi balance & masuk laporan bulan-nya),
-  (b) reconcile "Penyesuaian Saldo" / initialBalance saat akun dibuat (benar, saldo awal utang),
-  (c) sesuatu yang lain (potensi bug).
-- Verifikasi mekanis: untuk akun credit, `balance == initialBalance + Σ(income) − Σ(expense) ±
-  transfer`. Pastikan tidak ada jalur yang mengubah balance CC tanpa membuat transaksi
-  (mis. tombol/aksi yang nge-`patch` balance langsung — seharusnya TIDAK ADA, balance derived).
-
-**Kalau ditemukan bug** (ada belanja CC yang tidak jadi expense, atau balance CC diubah tanpa
-transaksi): perbaiki sesuai temuan + tambah ke integrity check: "akun credit yang balance-nya tidak
-sama dengan hasil hitung dari jurnal" (kalau memungkinkan dideteksi).
-
-**Kalau normal** (semua −3,2jt terjelaskan oleh expense historis + saldo awal): cukup catat
-kesimpulan di ringkasan, TIDAK usah ubah kode. Owner sudah konfirmasi app efektif dipakai 1 Agustus,
-jadi saldo awal CC via reconcile itu wajar.
-
-**Acceptance:** laporan investigasi jelas menyatakan setiap komponen utang CC berasal dari mana;
-kalau ada jalur yang mengubah balance CC tanpa transaksi, dihilangkan.
-
----
-
 ## TASK-4 (P1, fitur besar) — Jenis asset baru: Obligasi / SBN Ritel (ORI, SR, SBR, ST)
 
 **Konsep instrumen (sudah diverifikasi ke mekanisme SBN ritel Indonesia):** investor beli obligasi
@@ -197,11 +126,8 @@ angka app cocok dengan realita).
 
 ## Urutan eksekusi disarankan
 
-1. **TASK-3** (investigasi CC — cepat, mungkin no-op; lakukan sebelum nambah fitur biar yakin
-   fondasi CC sehat).
-2. **TASK-2** (tampilan goal — kecil, murni klaritas).
-3. **TASK-4** (obligasi — fitur besar, taruh terakhir; sentuh calc/report/snapshot yang idealnya
-   sudah bersih).
+1. **TASK-4** (obligasi — satu-satunya task aktif yang tersisa; fitur besar, sentuh calc/report/
+   snapshot yang idealnya sudah bersih dari TASK-1/2/3).
 
 ~~TASK-1~~ — udah dikerjain: "Perubahan komposisi" report ga sum ke Δ net worth ternyata 2 bug
 independen (CAPEX double count + sign Debt kebalik). Fix: `netWorthComposition()` (calc.js, pure,
@@ -211,6 +137,34 @@ LANGSUNG dari `netWorthFromParts()`. Section 10 report-md.js sekarang pakai pasa
 SAMA kayak Δ net worth section 1, jadi dua angka itu sekarang identik (dulu beda ±Rp1). Riwayat
 lengkap & angka pembuktian bug: `DECISIONS.md`. Aturan sekarang: CLAUDE.md bullet
 `report-md.js`.
+
+~~TASK-3~~ — udah diinvestigasi, **BUKAN bug, kode ga diubah**: utang CC Rp 3.210.581 (Tokopedia
+2.675.246 + Nex 535.335) vs expense Agustus cuma Rp 560.950 — dicek pakai export Agt 2026 asli.
+Pembuktian: expense Agustus (SEMUA akun digabung, section 2 report) cuma Rp 560.950, jadi
+walaupun 100% expense itu ke CC, MINIMAL Rp 2.649.631 (82,5% dari total utang CC) ga mungkin
+dari transaksi Agustus — harus dari `initialBalance` pas akun Tokopedia/Nex Card dibuat (utang
+CC beneran yang udah ada sebelum mulai pakai app 1 Agustus, sesuai konfirmasi owner). Audit kode
+(`accountBalances()` calc.js + grep `patch("accounts", ...)` across `js/`): saldo akun 100% derived
+dari jurnal (`initialBalance ± transaksi`), **CUMA SATU** jalur nulis `initialBalance` (form Edit
+Akun, `accounts.js` save handler) — TIDAK ADA jalur lain yang bisa ubah balance CC tanpa bikin
+transaksi. Reconcile (`openReconcileSheet`) & "💳 Bayar Tagihan" (`openPayCreditSheet`) dua-duanya
+bikin transaksi biasa (expense/income `cat_adjust_out`/`cat_adjust_in`, atau transfer) lewat
+`add("transactions",...)` generik — dikonfirmasi juga dari data asli (section 3 report nunjukin
+baris real "⚖️ Penyesuaian Saldo Rp 17.000" Agustus, bukti mekanisme reconcile emang lewat
+transaksi normal). Kesimpulan: TIDAK ADA jalur yang mengubah balance CC tanpa transaksi — akun
+credit sehat. Riwayat lengkap & perhitungan: `DECISIONS.md`.
+
+~~TASK-2~~ — udah dikerjain: goal savings "Rp 0" (section 1) vs "Terkumpul Rp 512.542" (section
+8) itu BUKAN bug kalkulasi (goal savings net worth SENGAJA cuma tunai, biar ga double-count sama
+Assets) — murni gap tampilan, angka gabungan (tunai+aset) ditampilin tanpa breakdown yang cukup
+jelas di tempat yang butuh. Fix: breakdown eksplisit tunai vs aset di SEMUA tempat goal
+ditampilkan — `goals.js` list (2 baris: breakdown + catatan likuiditas), `home.js` preview (baris
+kecil), `report-md.js` section 1 (baris Goal savings nambah keterangan asset-linked) & section 8
+(header kolom "Terkumpul (tunai+aset)" + catatan kaki). Keputusan progress bar (tunai+aset)
+DIPERTAHANKAN (bukan diubah ke tunai-doang) tapi sekarang didokumentasikan eksplisit. Net
+worth/`calc.js` SAMA SEKALI ga disentuh (murni tampilan, verifikasi: cuma 3 file view/report yang
+diedit). Riwayat lengkap: `DECISIONS.md`. Aturan sekarang: CLAUDE.md bullet `goals` (paragraf
+"Progress bar/pct/`progress` SENGAJA...") + bullet `report-md.js` (Section 8/section 1).
 
 ## Roadmap (kandidat, belum task)
 
