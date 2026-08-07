@@ -97,6 +97,7 @@ export const capexLocalValue = (a) => calc.capexLocalValue(state, a, currentMont
 export const totalAssetsIDR = () => calc.totalAssetsIDR(state, currentMonth());
 export const totalCapexIDR = () => calc.totalCapexIDR(state, currentMonth());
 export const totalDebtIDR = () => calc.totalDebtIDR(state);
+export const activeGoals = () => calc.activeGoals(state);
 export const goalSavedIDR = (goalId) => calc.goalSavedIDR(state, goalId);
 export const totalGoalSavingsIDR = () => calc.totalGoalSavingsIDR(state);
 export const goalLinkedAssetsValueIDR = (goalId) => calc.goalLinkedAssetsValueIDR(state, goalId, currentMonth());

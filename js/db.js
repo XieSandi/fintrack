@@ -6,7 +6,7 @@ import {
 import {
   state, netWorthIDR, totalCashIDR, totalAssetsIDR, totalCapexIDR, totalDebtIDR, totalGoalSavingsIDR,
   accountBalances, assetValueIDR, assetCostIDR, capexLocalValue, effectiveRate, goalSavedIDR,
-  goalLinkedAssetsValueIDR, activeAccounts,
+  goalLinkedAssetsValueIDR, activeAccounts, activeGoals,
 } from "./store.js";
 import { currentMonth } from "./utils.js";
 
@@ -196,7 +196,12 @@ export async function upsertSnapshot() {
       remainingMonths: d.remainingMonths ?? null,
       dueDay: d.dueDay ?? null,
     })),
-    goals: state.goals.map((g) => ({
+    // activeGoals() — goal yang diarsipkan ga ikut ke-listing breakdown snapshot (pola sama
+    // accounts pakai activeAccounts() di atas), TAPI `totalGoalSavings` (di bawah, top-level)
+    // TETAP dari totalGoalSavingsIDR() yang ga difilter — saldo goal arsip tetap real net worth,
+    // cuma listing per-item-nya yang "declutter". Snapshot bulan sebelum goal diarsipkan ga
+    // kena efek ini (upsertSnapshot cuma nulis bulan berjalan, historis ga direwrite).
+    goals: activeGoals().map((g) => ({
       name: g.name,
       targetAmount: Math.round(Number(g.targetAmount) || 0),
       saved: Math.round(goalSavedIDR(g.id)),

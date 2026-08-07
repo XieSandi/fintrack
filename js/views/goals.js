@@ -28,8 +28,15 @@ export function goalDisplayStats(g) {
   return { target, saved, linkedValue, progress, pct, cls };
 }
 
+// Goal diarsip TETAP nongol di halaman ini (pola sama accounts.js — flat list + badge, BUKAN
+// disembunyiin/dipisah section) karena ini halaman kelola (`#/goals`), beda dari Home preview
+// yang emang buat "declutter" (lihat `activeGoals()` di calc.js dipakai home.js). Diarsip ga
+// berarti dihapus/uangnya ilang — cuma didorong ke bawah list + tombol Topup disembunyiin
+// (nudge biar ga terus-terusan ditambahin kalau udah dianggap "beres").
 export function render(root) {
-  const goals = state.goals.slice().sort((a, b) => (a.targetAmount || 0) - (b.targetAmount || 0));
+  const goals = state.goals.slice().sort((a, b) =>
+    (a.isArchived === true) - (b.isArchived === true) || (a.targetAmount || 0) - (b.targetAmount || 0)
+  );
 
   root.innerHTML = `
     <div class="card">
@@ -48,7 +55,7 @@ export function render(root) {
     div.className = "budget-item";
     div.innerHTML = `
       <div class="budget-top">
-        <span class="budget-name" style="color:${g.color || "#60a5fa"}">● ${escapeHtml(g.name)}</span>
+        <span class="budget-name" style="color:${g.color || "#60a5fa"}">● ${escapeHtml(g.name)} ${g.isArchived ? '<span class="badge badge-yellow">arsip</span>' : ""}</span>
         <span class="budget-nums">${pct.toFixed(0)}%</span>
       </div>
       <div class="progress"><div class="${cls}" style="width:${pct}%"></div></div>
@@ -57,11 +64,11 @@ export function render(root) {
       </div>
       ${linkedValue > 0 ? `<div class="sub">termasuk ${fmtIDR(linkedValue)} dari ${(g.linkedAssetIds || []).length} asset ter-link</div>` : ""}
       <div style="margin-top:8px; display:flex; gap:8px;">
-        <button class="btn btn-sm" data-topup style="flex:1">💰 Topup</button>
+        ${g.isArchived ? "" : `<button class="btn btn-sm" data-topup style="flex:1">💰 Topup</button>`}
         ${saved > 0 ? `<button class="btn btn-sm" data-withdraw style="flex:1">💸 Cairkan</button>` : ""}
         <button class="btn btn-sm" data-edit style="flex:1">✎ Edit</button>
       </div>`;
-    div.querySelector("[data-topup]").onclick = () => openTopupSheet(g);
+    div.querySelector("[data-topup]")?.addEventListener("click", () => openTopupSheet(g));
     div.querySelector("[data-withdraw]")?.addEventListener("click", () => openWithdrawSheet(g));
     div.querySelector("[data-edit]").onclick = () => openGoalSheet(g);
     list.appendChild(div);
@@ -71,7 +78,7 @@ export function render(root) {
 }
 
 export function openGoalSheet(existing) {
-  const g = existing || { name: "", targetAmount: "", targetDate: "", color: COLORS[state.goals.length % COLORS.length], linkedAssetIds: [] };
+  const g = existing || { name: "", targetAmount: "", targetDate: "", color: COLORS[state.goals.length % COLORS.length], linkedAssetIds: [], isArchived: false };
   const linkedIds = new Set(g.linkedAssetIds || []);
   const el = openSheet(`
     ${sheetHead(existing ? "Edit Goal" : "Tambah Goal")}
@@ -96,6 +103,8 @@ export function openGoalSheet(existing) {
           <span class="sub">${fmtIDR(assetValueIDR(a))}</span>
         </label>`).join("")}
     </div>` : ""}
+    ${existing ? `<label style="margin-top:14px"><input type="checkbox" id="g-arch" style="width:auto" ${g.isArchived ? "checked" : ""}/> Arsipkan goal (sembunyikan dari Home, ga bisa di-topup lagi)</label>
+    <div class="sub" style="margin-top:2px">Uang yang udah ke-topup TETAP kehitung di net worth — arsip cuma nyembunyiin dari tampilan sehari-hari, bukan ngapus saldo. Bisa di-un-arsip lagi kapan aja.</div>` : ""}
     <div style="margin-top:18px; display:flex; gap:8px;">
       ${existing ? `<button id="g-delete" class="btn btn-danger">Hapus</button>` : ""}
       <button id="g-save" class="btn btn-primary" style="flex:1">Simpan</button>
@@ -120,6 +129,7 @@ export function openGoalSheet(existing) {
       targetDate: el.querySelector("#g-date").value || null,
       color,
       linkedAssetIds: Array.from(el.querySelectorAll("[data-asset-link]:checked")).map((cb) => cb.value),
+      isArchived: existing ? el.querySelector("#g-arch").checked : false,
     };
     if (!data.name) return toast("Isi nama goal");
     if (!data.targetAmount) return toast("Isi target nominal");

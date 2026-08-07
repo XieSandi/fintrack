@@ -2,7 +2,7 @@
 // Beda dari exportAll() (db.js): itu backup JSON buat restore, ini human/AI-readable.
 // Fungsi murni, ga nulis apa-apa ke Firestore, cuma baca dari store.
 import {
-  state, activeAccounts, accountBalances, totalCashIDR, totalAssetsIDR, totalCapexIDR, totalDebtIDR,
+  state, activeAccounts, activeGoals, accountBalances, totalCashIDR, totalAssetsIDR, totalCapexIDR, totalDebtIDR,
   totalGoalSavingsIDR, netWorthIDR, netWorthFromParts, snapshotNetWorth, assetValueIDR, assetCostIDR, capexLocalValue, goalSavedIDR,
   goalLinkedAssetsValueIDR, effectiveRate, monthSummary, spentByCategory, budgetsOfMonth, catById, acctById, milestoneProgress,
 } from "./store.js";
@@ -117,7 +117,10 @@ function buildPosition(month, isCurrentMonth) {
       monthlyInstalment: Number(d.monthlyInstalment) || 0,
       remainingMonths: d.remainingMonths ?? null, dueDay: d.dueDay ?? null,
     })),
-    goals: state.goals.map((g) => ({
+    // activeGoals() — goal yang diarsipkan ga ikut ditabelin di section 8 (pola sama akun
+    // pakai activeAccounts() di atas), goalSavingsTotal-nya sendiri (atas) TETAP dari
+    // totalGoalSavingsIDR() yang ga difilter, jadi saldo goal arsip tetap kehitung di net worth.
+    goals: activeGoals().map((g) => ({
       name: g.name, targetAmount: Number(g.targetAmount) || 0,
       saved: goalSavedIDR(g.id), linkedValue: goalLinkedAssetsValueIDR(g.id),
       targetDate: g.targetDate || null,
@@ -328,6 +331,15 @@ export function buildMonthlyReport(month) {
     ];
   });
   lines.push(mdTable(["Goal", "Target", "Terkumpul", "Breakdown", "%", "Target Date", "Sisa Perlu Ditabung"], goalRows));
+  // Tabel di atas cuma nampilin goal AKTIF (goal diarsipkan ga ditabelin, pola sama akun
+  // activeAccounts() di section 5) — TAPI goalSavingsTotal (section 1, ikut netWorthIDR) TETAP
+  // include saldo goal arsip (uangnya real, cuma "declutter" tampilan). Kalau ada goal diarsipkan
+  // yang masih punya saldo, itu bikin sum kolom Terkumpul ga match goalSavingsTotal — dikasih
+  // catatan eksplisit di sini biar AI yang baca laporan ga bingung "kok ga sum", bukan didiemin.
+  const untrackedGoalSavings = position.goalSavingsTotal - position.goals.reduce((s, g) => s + (g.saved || 0), 0);
+  if (Math.abs(untrackedGoalSavings) >= 1) {
+    lines.push(`_Catatan: ${fmtIDRPlain(untrackedGoalSavings)} dari Goal Savings (section 1) berasal dari goal yang diarsipkan (ga ditabelin di atas, tapi tetap kehitung di Net Worth)._`);
+  }
   lines.push("");
 
   // ===== 9. Komitmen Rutin ===== (selalu live — recurring itu komitmen SEKARANG, bukan posisi historis)

@@ -158,6 +158,15 @@ export const totalCapexIDR = (state, nowMonth) =>
 export const totalDebtIDR = (state) =>
   state.debts.reduce((s, d) => s + (Number(d.totalOutstanding) || 0), 0) + totalCreditDebtIDR(state);
 
+// Goal yang diarsipkan (`isArchived`, pola sama `activeAccounts()`) — TAPI beda konsekuensi:
+// `activeAccounts()` dipakai LANGSUNG di totalCashIDR() (akun diarsip = ditutup, saldo-nya
+// berhenti keitung). Goal diarsipin BUKAN berarti uangnya ilang — cuma "udah beres dilihat
+// sehari-hari", uang yang udah ke-topup TETAP real net worth. Makanya `totalGoalSavingsIDR()`
+// di bawah SENGAJA TETAP iterate `state.goals` mentah (TANPA filter activeGoals) — helper ini
+// cuma buat filter TAMPILAN (Home preview, snapshot breakdown, laporan .md); halaman `#/goals`
+// sendiri TETAP nampilin semua (aktif + arsip, badge doang buat bedain, pola sama accounts.js).
+export const activeGoals = (state) => state.goals.filter((g) => !g.isArchived);
+
 // Saldo goal = total topup (toGoalId) − total pencairan (fromGoalId).
 // Dihitung IDR pakai currency akun lawan-nya, biar konsisten sama totalCashIDR().
 export function goalSavedIDR(state, goalId) {
