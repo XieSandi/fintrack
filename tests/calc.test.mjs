@@ -407,6 +407,69 @@ function makeState() {
   assertEqual(calc.netWorthFromParts(parts, false), 1_000_000 + (5_000_000 - 2_000_000) + 300_000 - 200_000, "netWorthFromParts: includeCapex false -> assets dikurangi capex");
 }
 
+// ============== netWorthComposition (TASK-1: bug "Perubahan komposisi" report-md.js) ==============
+// Bug lama (dua independen): (1) Δassets RAW (udah termasuk CAPEX) dijumlah BARENG ΔCAPEX
+// terpisah -> double count; (2) Δdebt RAW dijumlah tanpa negasi (debt naik seharusnya KONTRIBUSI
+// NEGATIF ke net worth, formula aslinya `-debt`). Test di bawah pakai ANGKA ASLI dari laporan
+// Agustus 2026 yang jadi bukti bug ini (lihat TASKS.md/DECISIONS.md) sebagai regression test.
+{
+  // Angka mentah dari laporan (raw field deltas, BUKAN kontribusi): Cash -560.950,
+  // Assets(RAW,incl.CAPEX) -61.021, CAPEX -150.686, Goal Savings -500.000, Debt(RAW) +1.008.
+  // Δ net worth (+CAPEX) BENERAN = -1.122.979 (dihitung manual dari definisi netWorthFromParts,
+  // BUKAN dari sum komposisi versi lama yang munculin -1.271.649 -- itu bukti bug-nya).
+  const prevParts = { cash: 10_000_000, assets: 20_061_021, capex: 5_150_686, goalSavings: 1_500_000, debt: 2_000_000 };
+  const currParts = {
+    cash: 10_000_000 - 560_950,
+    assets: 20_061_021 - 61_021, // raw assets turun 61.021 (INCLUDES CAPEX di dalamnya)
+    capex: 5_150_686 - 150_686,
+    goalSavings: 1_500_000 - 500_000,
+    debt: 2_000_000 + 1_008, // debt NAIK 1.008
+  };
+  const comp = calc.netWorthComposition(prevParts, currParts, true);
+  assertEqual(comp.total, -1_122_979, "netWorthComposition: total Δ net worth (+CAPEX) match angka asli laporan Agustus 2026");
+  assertEqual(comp.cash, -560_950, "netWorthComposition: cash = raw delta apa adanya");
+  assertEqual(comp.capex, -150_686, "netWorthComposition: capex = raw delta apa adanya (baris terpisah)");
+  assertEqual(comp.assets, -61_021 - (-150_686), "netWorthComposition: assets EXCLUDE capex (raw assets delta dikurangi capex delta)");
+  assertEqual(comp.debt, -1_008, "netWorthComposition: debt UDAH dinegasi (debt naik 1.008 -> kontribusi -1.008)");
+  // Invarian inti bug ini: komponen (basis +CAPEX, capex line IKUT disum) HARUS persis == total,
+  // tanpa exclude/sign-flip tambahan di caller.
+  assertEqual(comp.cash + comp.assets + comp.capex + comp.goalSavings + comp.debt, comp.total, "netWorthComposition: Σ komponen (+CAPEX, capex ikut disum) === total, TANPA double count/sign error");
+
+  // Basis tanpa CAPEX: capex line DIKELUARKAN dari sum (bukan cuma disembunyikan tampilan) —
+  // invarian tetap harus pas.
+  const compNoCapex = calc.netWorthComposition(prevParts, currParts, false);
+  assertEqual(compNoCapex.total, calc.netWorthFromParts(currParts, false) - calc.netWorthFromParts(prevParts, false), "netWorthComposition: total basis tanpa CAPEX match netWorthFromParts");
+  assertEqual(compNoCapex.cash + compNoCapex.assets + compNoCapex.goalSavings + compNoCapex.debt, compNoCapex.total, "netWorthComposition: Σ komponen (tanpa CAPEX, capex line DIKELUARKAN dari sum) === total");
+}
+{
+  // Regression end-to-end: goal ber-linkedAssetIds TIDAK bikin netWorthComposition ke-double-count
+  // (goalSavings di breakdown snapshot SELALU topup-only, linkedValue asset udah kehitung penuh
+  // di totalAssetsIDR — lihat bullet `goals` CLAUDE.md). Bangun 2 `state` "bulan sebelum/sesudah"
+  // pakai fungsi calc.js ASLI (bukan angka dikarang manual), assert Σ komponen === total DAN match
+  // netWorthIDR() langsung.
+  const mkState = (goalTopup, assetPrice) => ({
+    accounts: [{ id: "acc_idr", currency: "IDR", initialBalance: 5_000_000, isArchived: false }],
+    categories: [], budgets: [], debts: [], recurring: [], snapshots: [],
+    settings: { usdIdrManual: 15000 },
+    usdIdr: null,
+    assets: [{ id: "a1", type: "gold", quantity: 2, manualPrice: assetPrice, currency: "IDR" }],
+    goals: [{ id: "g1", targetAmount: 10_000_000, linkedAssetIds: ["a1"] }],
+    transactions: goalTopup > 0
+      ? [{ type: "transfer", amount: goalTopup, accountId: "acc_idr", toGoalId: "g1", month: "2026-01", date: "2026-01-05" }]
+      : [],
+  });
+  const prevState = mkState(300_000, 1_000_000); // asset 2 x 1jt = 2jt
+  const currState = mkState(500_000, 1_200_000); // topup nambah + harga asset naik -> 2 x 1.2jt = 2.4jt
+
+  const partsOf = (s) => ({
+    cash: calc.totalCashIDR(s), assets: calc.totalAssetsIDR(s, "2026-01"), capex: calc.totalCapexIDR(s, "2026-01"),
+    goalSavings: calc.totalGoalSavingsIDR(s), debt: calc.totalDebtIDR(s),
+  });
+  const comp = calc.netWorthComposition(partsOf(prevState), partsOf(currState), true);
+  assertEqual(comp.cash + comp.assets + comp.capex + comp.goalSavings + comp.debt, comp.total, "netWorthComposition: goal asset-linked -> Σ komponen tetap === total (no double count)");
+  assertEqual(comp.total, calc.netWorthIDR(currState, "2026-01") - calc.netWorthIDR(prevState, "2026-01"), "netWorthComposition: goal asset-linked -> total match netWorthIDR() langsung");
+}
+
 // ================= Akun tipe credit (kartu kredit) — DEBT PATH =================
 // v2 (2026-08): CC pindah dari cash path ke debt path (lihat DECISIONS.md) — totalCashIDR()
 // SEKARANG exclude utang CC, totalDebtIDR() SEKARANG include-nya. Net worth VALUE-nya sendiri

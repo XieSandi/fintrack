@@ -358,6 +358,80 @@ kerapuhan yang dijelasin di atas.
 
 ---
 
+## TASK-1: "Perubahan komposisi" report ga sum ke Δ net worth — 2 bug independen (2026-08)
+
+**Ketemu dari:** audit data pemakaian nyata (owner baca laporan .md Agustus 2026, section 10)
+— bukan dari brainstorm/spec baru. Owner nemu Σ baris "Perubahan komposisi" (−Rp 1.271.649) ga
+match Δ net worth section 10 yang beneran (−Rp 1.122.979), selisih Rp 148.670.
+
+**Kode lama (report-md.js, sebelum fix):**
+```js
+const addCompDelta = (key, label) => {
+  const d = last[key] - prevSnapForComp[key];
+  if (d !== 0) parts.push(`${label} ${signed(d)}`);
+};
+addCompDelta("totalCash", "Cash");
+addCompDelta("totalAssets", "Assets");
+addCompDelta("totalCapex", "CAPEX");
+addCompDelta("totalGoalSavings", "Goal Savings");
+addCompDelta("totalDebt", "Debt");
+```
+Nge-jumlah 5 raw field delta apa adanya, seolah `netWorth = cash + assets + capex + goalSavings
++ debt` (semua PLUS). Formula ASLINYA (`netWorthFromParts()`, calc.js): `base = cash + assets +
+goalSavings - debt`, lalu `includeCapex ? base : base - capex` — `assets` di situ RAW, UDAH
+TERMASUK CAPEX (bukan field terpisah yang ditambahkan).
+
+**Bug #1 — CAPEX double count:** karena `totalAssets` snapshot itu RAW (udah termasuk CAPEX),
+nambahin `totalCapex` sebagai baris TERPISAH ke sum berarti CAPEX kehitung DUA KALI. Ini persis
+kelas bug yang sama kayak yang udah diantisipasi di tempat lain (`wealth.js` breakdown Total
+motong CAPEX dari baris Assets biar ga double count, lihat CLAUDE.md bullet `assets` tipe
+`capex`) — tapi component report-md.js ini kelewat pas ditulis, ga ngikutin pola yang sama.
+
+**Bug #2 — Debt sign ga dinegasi:** `addCompDelta("totalDebt", "Debt")` nambahin raw
+`Δdebt` (debt NAIK → angka POSITIF) ke sum, padahal formula net worth-nya `-debt` — debt naik
+seharusnya KONTRIBUSI NEGATIF ke net worth. Efeknya: laporan Agustus nunjukin "Debt +1.008" yang
+kebaca seolah debt naik itu NAMBAH net worth, dan ke-jumlah sebagai +1.008 alih-alih -1.008.
+
+**Verifikasi dua bug itu SEKALIGUS jelasin selisihnya:** dari data laporan (Cash −560.950,
+Assets(RAW) −61.021, CAPEX −150.686, Goal Savings −500.000, Debt(RAW) +1.008) — formula BENAR
+(exclude baris CAPEX terpisah karena udah nempel di Assets, negasi Debt) ngasih
+`-560.950 + -61.021 + -500.000 - (+1.008) = -1.122.979`, PERSIS match Δ net worth beneran. Kode
+lama nambahin `-150.686` (CAPEX, double count) DAN pakai `+1.008` (bukan `-1.008`, sign kebalik)
+→ `-1.271.649`. Dua bug itu ga saling menutupi, keduanya nyumbang ke selisih Rp 148.670 yang
+diketemuin owner (150.686 − 1.008 × 2 ≈ 148.670, dua kesalahan sign/exclude nubruk kebetulan
+deket, TAPI keduanya harus dibenerin terpisah — bukan satu fix nutupin dua-duanya).
+
+**Root cause lebih dalam:** perhitungan ditulis LANGSUNG di string builder report-md.js (bukan
+fungsi murni ter-test di calc.js), jadi ga ada test yang bisa nangkep dua bug sign/double-count
+ini sebelum ke-ship. Pola ini (kalkulasi finansial nangkring di view/report layer, bukan
+calc.js) udah berkali-kali jadi sumber bug kelas ini di app ini.
+
+**Fix:** `netWorthComposition(prevParts, currParts, includeCapex)` (calc.js, PURE, di-test
+eksplisit pakai angka ASLI dari laporan Agustus 2026 sebagai regression test) — return semua
+field SEBAGAI KONTRIBUSI siap-jumlah (assets exclude CAPEX, debt udah dinegasi), `total` dihitung
+LANGSUNG dari `netWorthFromParts()` (bukan re-sum manual) biar bug klasnya ga bisa kejadian lagi
+walau caller lupa exclude/negasi sesuatu. report-md.js section 10 sekarang manggil fungsi ini,
+plus dipaksa pakai PASANGAN BULAN YANG SAMA kayak Δ net worth section 1 (`partsNow`/`prevSnap`,
+bukan 2 entri terakhir tabel trend 12-bulan section 10 sendiri, yang bisa beda pasangan bulan
+kalau report digenerate buat bulan lampau) — efek sampingnya, angka Δ section 1 & "Total Δ" di
+section 10 sekarang identik persis (dulu bisa beda ±Rp1 karena sumbernya beda jalur kalkulasi).
+
+**Pelajaran:** (1) kalkulasi finansial apapun yang "kelihatan simpel" (jumlahin beberapa delta)
+tetap WAJIB lewat calc.js + test, JANGAN ditulis manual di report/view layer — kelas bug ini
+(double count, sign kebalik) gampang lolos review manual tapi gampang ketangkep test sekali
+ditulis sebagai fungsi murni. (2) Kalau ada breakdown yang splitting satu total jadi beberapa
+baris tampilan (assets vs CAPEX, dst), pola invariant "Σ baris === total" WAJIB dijamin
+ALGEBRAIC (baris dihitung dari definisi yang sama-sama konsisten), bukan diasumsikan bakal cocok
+karena "kelihatannya masuk akal". (3) Bug produksi paling berharga sering ketemu dari OWNER
+BACA OUTPUT BENERAN (laporan .md dipakai buat analisis AI), bukan dari audit kode preventif —
+worth dicatat sebagai pola buat roadmap ke depan (lihat catatan strategis di TASKS.md).
+
+**State operasional sekarang & aturan yang WAJIB dipatuhi:** lihat CLAUDE.md bullet
+`report-md.js` (bagian "Export Laporan (.md)") — `netWorthComposition()` SATU-SATUNYA cara
+generate baris "Perubahan komposisi", JANGAN hitung manual lagi di string builder manapun.
+
+---
+
 ## Blur mode bolong: sumtabs Wealth & jumlah unit asset ga ke-mask (2026-08)
 
 **Konteks:** blur mode (toggle 👁️ di card Total Balance) dirancang biar SEMUA angka finansial

@@ -582,10 +582,28 @@ tampilan progress goal.
   hardcoded), biar konsisten sama yang ditampilin live di Home/Wealth. Section "Tren Net Worth"
   (10) juga DUA kolom yang sama (bukan satu kolom "Net Worth" + "Delta" kayak dulu) — tujuannya
   biar AI yang baca laporan ini bisa analisis/bandingin dua skenario itu sendiri tanpa perlu
-  ngitung manual. Baris "Perubahan komposisi" nambah CAPEX sebagai salah satu komponen yang
-  di-delta (selain Cash/Assets/Goal Savings/Debt) antara 2 snapshot TERAKHIR kalau datanya ada
-  — ga butuh breakdown baru, field total (`totalCash`/`totalAssets`/`totalCapex`/dst) di snapshot
-  udah ada dari awal (`totalCapex` sejak fitur CAPEX). Section 5 (Akun) — akun tipe `credit`
+  ngitung manual. Baris "Perubahan komposisi" (TASK-1, 2026-08 — dulu ada bug ganda, riwayat
+  lengkap: `DECISIONS.md`) di-generate lewat `netWorthComposition(prevParts, currParts,
+  includeCapex)` (calc.js, PURE, ga butuh `state`) — **JANGAN hitung manual di string builder
+  lagi** (itu akar penyebab bug-nya). Field balikannya SEMUA udah representasi KONTRIBUSI ke net
+  worth (bukan raw delta apa adanya): `assets` SELALU exclude CAPEX (pola sama `investAssets` di
+  wealth.js `renderTotal()` — assets RAW udah termasuk CAPEX, jadi CAPEX WAJIB baris terpisah,
+  JANGAN dijumlah bareng `assets` atau bakal double count lagi), `debt` UDAH DINEGASI (debt naik
+  = kontribusi NEGATIF ke net worth, sesuai formula `netWorthFromParts` yang `-debt`). Caller
+  (report-md.js) TINGGAL JUMLAH APA ADANYA field-field itu (`cash + assets + (includeCapex ?
+  capex : 0) + goalSavings + debt`) buat dapet total — dijamin ALGEBRAIC sama persis `total`
+  (yang dihitung LANGSUNG dari `netWorthFromParts()`, bukan dari nge-jumlah ulang komponennya) —
+  kalau nanti nambah komponen baru ke breakdown net worth, pastikan tetap pola ini (return
+  kontribusi siap-jumlah, bukan raw delta yang butuh sign-flip manual di caller). Pasangan bulan
+  yang dipakai (`prevParts`/`currParts`) SAMA PERSIS kayak yang dipakai Δ net worth section 1
+  (`partsNow` + `prevSnap`, BUKAN dua entri terakhir tabel trend 12-bulan di section 10 sendiri —
+  bisa beda pasangan bulan kalau report digenerate buat bulan lampau) — jadi angka Δ section 1 &
+  "Total Δ" di baris komposisi section 10 SELALU identik (bukan cuma toleransi Rp1 kayak
+  sebelumnya). Basis (`includeCapex`) ngikut toggle `settings.includeCapexInNetWorth` yang
+  berlaku SEKARANG (`includeCapexNow`, sama kayak section 1), dan baris CAPEX di tampilan CUMA
+  muncul (+ ikut disum) kalau basisnya `includeCapex`. Skip total kalau `prevSnap` ga punya
+  breakdown lengkap (`totalCash`/`totalAssets` bukan number — snapshot lama/manual backfill) —
+  jangan ngarang komposisi dari data yang ga ada. Section 5 (Akun) — akun tipe `credit`
   ditampilin sebagai ringkasan "Terpakai / Limit / Sisa" di kolom Saldo (BUKAN saldo signed
   polos), kolom Ekuivalen IDR tetap angka negatif apa adanya. Section 1 nambah baris "🪪 Kartu
   Kredit terpakai" (dari `position.accounts`, cocok dipakai buat live MAUPUN snapshot-based
