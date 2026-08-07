@@ -1,0 +1,8 @@
+# Personal financial data — exports/backups from the live app, never commit real data here.
+# Matches the app's own download filenames (js/views/settings.js) plus ad-hoc renamed copies.
+fintrack-backup-*.json
+fintrack-laporan-*.md
+Export_*.md
+Export_*.json
+export_*.md
+export_*.json
