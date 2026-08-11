@@ -17,117 +17,26 @@ ATURAN WAJIB berlaku, terutama:
 - Setelah selesai: update CLAUDE.md (+ DECISIONS.md kalau ada keputusan arsitektur),
   hapus task dari TASKS.md, kasih ringkasan perubahan + file yang disentuh.
 
-## TASK-4 (P1, fitur besar) — Jenis asset baru: Obligasi / SBN Ritel (ORI, SR, SBR, ST)
-
-**Konsep instrumen (sudah diverifikasi ke mekanisme SBN ritel Indonesia):** investor beli obligasi
-senilai pokok tertentu (kelipatan Rp1jt). Dapat **kupon/return periodik** (bulanan untuk ORI/SR,
-bisa juga tenor lain) yang cair ke rekening (RDN). Saat **jatuh tempo (maturity)**, **pokok kembali
-100%** ke rekening. Kupon dan pengembalian pokok adalah dua peristiwa berbeda.
-
-**Keputusan owner yang WAJIB diikuti:**
-1. Return/kupon **TIDAK dihitung otomatis** — user input manual sebagai transaksi income saat kupon
-   cair ke RDN. App hanya menyimpan metadata (rate, periode) sebagai pengingat/informasi, bukan
-   generator angka.
-2. Periode kupon **bisa di-set, tidak fix** (bulanan / 6-bulanan / bebas) — jangan hardcode bulanan.
-3. Nilai pokok obligasi **tidak fluktuatif seperti saham** — default = par (100% pokok). (Pasar
-   sekunder bisa naik/turun, tapi itu opsional/manual, bukan default.)
-4. Ada **tanggal maturity**; saat itu pokok cair ke akun (berbeda dari kupon).
-
-**Data model — extend `assets` (JANGAN bikin collection baru):**
-- Tambah `type: "bond"` ke enum tipe asset.
-- Field khusus bond (semua opsional kecuali yang ditandai):
-  - `principal` (WAJIB) — nilai pokok yang diinvestasikan (Rp). Ini basis nilai asset.
-  - `couponRatePA` — kupon % per annum (bisa di-edit; untuk SBR/floating bisa diubah kapan saja).
-  - `couponPeriodMonths` — 1 (bulanan) / 6 / dst. Default 1. Untuk pengingat, bukan kalkulasi.
-  - `couponAccountId` — akun tujuan kupon (biasanya RDN) — dipakai untuk PRE-FILL transaksi income
-    kupon, bukan auto-post.
-  - `maturityDate` (WAJIB) — tanggal jatuh tempo.
-  - `issueDate` / `purchaseDate` — tanggal beli (untuk info & urutan).
-  - `maturityAccountId` — akun tujuan pengembalian pokok saat maturity (biasanya RDN).
-  - `seriesName` — mis. "ORI030T3" (opsional, buat label).
-- **Nilai asset bond** (`assetValueIDR` untuk bond): default = `principal` (par). Kalau user
-  mengisi `manualPrice`/harga pasar (opsional, pasar sekunder), pakai itu. JANGAN paksa fluktuasi.
-  `assetCostIDR` = `principal`. P&L bond default 0 (kecuali user set harga pasar) — ini BENAR,
-  beda dari saham; jangan tampilkan P&L merah/hijau menyesatkan untuk bond yang dipegang sampai
-  jatuh tempo.
-
-**Kalkulasi (`js/calc.js` + test):**
-- `bondValueIDR(asset)` → `manualPrice > 0 ? (logika pasar) : principal`. Masuk ke `totalAssetsIDR`
-  seperti asset lain (bond adalah asset, menambah net worth via Assets).
-- Tidak ada kalkulasi kupon (sesuai keputusan owner). Boleh ada helper INFORMATIF
-  `bondNextCouponHint(asset, today)` → estimasi tanggal kupon berikutnya + estimasi nominal
-  (`principal × couponRatePA/12 × couponPeriodMonths`) HANYA sebagai teks bantu di UI ("≈ Rp X,
-  perkiraan sebelum pajak") — dengan disclaimer jelas bahwa ini estimasi & user tetap input manual.
-  Jangan pernah membuat transaksi dari angka ini.
-
-**UI — form asset (wealth.js):**
-- Tipe "Obligasi / SBN" → tampilkan field khusus bond (principal, couponRatePA, couponPeriodMonths,
-  couponAccountId, maturityDate, maturityAccountId, seriesName). Sembunyikan field yang tidak
-  relevan (qty/lot/avg buy ala saham — untuk bond, "qty" = principal, tidak perlu lot).
-- Tampilan bond di list asset: tampilkan principal, kupon % PA, periode, dan **hitung mundur ke
-  maturity** ("jatuh tempo 15 Nov 2028 · 27 bln lagi"). Kalau sudah lewat maturity tapi belum
-  di-redeem → badge "⚠️ Jatuh tempo, cairkan pokok".
-
-**UI — dua aksi khusus bond:**
-1. **"Catat Kupon Masuk"** (bisa dari detail bond, atau reminder — lihat integrasi recurring di
-   bawah): buka sheet transaksi **income** pre-filled: akun = `couponAccountId`, kategori = income
-   "Bunga & Dividen" (atau kategori income yang sesuai — pastikan ada), nominal = kosong atau
-   estimasi (user isi/koreksi manual), catatan = "Kupon {seriesName}". Ini transaksi income BIASA
-   (masuk cashflow) — bukan mekanisme baru. Verifikasi masuk `monthSummary().income`.
-2. **"Cairkan Pokok (Jatuh Tempo)"**: saat maturity. Ini memindahkan `principal` dari bond ke akun
-   `maturityAccountId`. Model sebagai **penjualan asset** (pola `assetId` sell yang sudah ada):
-   transaksi transfer masuk ke akun tujuan senilai principal, asset bond ditandai selesai
-   (quantity/principal → 0 atau flag `redeemed:true` supaya hilang dari asset aktif tapi jejak
-   tetap ada). BUKAN income (pokok kembali bukan penghasilan — itu uang lo sendiri balik).
-   Verifikasi: net worth TIDAK berubah saat pencairan pokok (asset turun, cash naik senilai sama);
-   income/expense tidak tersentuh.
-
-**Integrasi recurring (opsional, kalau tidak menambah banyak kompleksitas):**
-- Karena kupon periodik, bond cocok jadi **reminder** di sheet Awal Bulan (pola DCA asset di
-  TASK recurring: reminder yang membuka "Catat Kupon Masuk" pre-filled, BUKAN auto-post — karena
-  nominal aktual kena pajak & pembulatan). Kalau mengerjakan ini, ikuti pola reminder asset yang
-  sudah ada; kalau menambah kompleksitas berlebih, SKIP dan cukup andalkan hitung-mundur di list
-  bond + badge maturity. Putuskan dan catat alasannya.
-
-**Report .md (report-md.js):**
-- Bond muncul di section Investasi dengan kolom yang sesuai (principal, kupon %, maturity) — jangan
-  paksa ke kolom "avg buy / harga / P&L" ala saham kalau tidak relevan; boleh baris dengan format
-  sedikit beda atau kolom P&L "—" untuk bond par.
-- Tambah baris informatif di section konteks/investasi: total pokok obligasi + estimasi kupon
-  tahunan (informatif) + daftar maturity terdekat. Berguna buat analisis AI (arus kas pasif masa
-  depan).
-
-**Snapshot & backup:**
-- Field additive/opsional → snapshot & backup lama tetap valid → **schemaVersion TIDAK naik**
-  (konfirmasi di ringkasan). breakdown snapshot bond simpan principal + maturityDate.
-
-**Integrity check:**
-- Bond dengan `maturityDate` < hari ini tapi belum `redeemed` → info "jatuh tempo, belum dicairkan".
-- Bond `couponRatePA` di luar 0–100 atau `principal` ≤ 0 → info.
-- `maturityDate` sebelum `purchaseDate` → info (salah input).
-
-**Acceptance:**
-- Bikin bond "ORI030T3", principal Rp 5jt, kupon 6,9% PA, periode 1 bln, RDN sebagai
-  coupon+maturity account, maturity 15 Jul 2029. → muncul di Assets dengan nilai Rp 5jt (par,
-  P&L 0/—), hitung mundur maturity benar, net worth naik Rp 5jt via Assets.
-- "Catat Kupon Masuk" → sheet income pre-filled (akun RDN, kategori Bunga & Dividen), user isi
-  nominal → tercatat sebagai income, masuk cashflow bulan itu, saldo RDN naik.
-- "Cairkan Pokok" di/after maturity → RDN naik Rp 5jt, bond hilang dari asset aktif (jejak tetap),
-  net worth TIDAK berubah, income/expense tidak tersentuh.
-- `node tests/calc.test.mjs` hijau dengan case bond (nilai = principal; par; masuk totalAssets).
-- Backup lama tetap restore (schemaVersion tidak naik).
-
-**Setelah selesai:** update CLAUDE.md (Data Model → assets: tambah `type:bond` + field-nya + aturan
-"nilai = principal/par, bukan fluktuatif; kupon & pokok manual, dua peristiwa beda"); dokumentasikan
-di DECISIONS.md kenapa return TIDAK diotomatisasi (pajak 10%, pembulatan, timing mutasi RDN — biar
-angka app cocok dengan realita).
+Ga ada task aktif di backlog sekarang — semua (TASK-1 s/d TASK-4) udah dikerjain, ringkasan di
+bawah. Lihat Roadmap di bagian bawah buat kandidat berikutnya (belum jadi task resmi).
 
 ---
 
-## Urutan eksekusi disarankan
-
-1. **TASK-4** (obligasi — satu-satunya task aktif yang tersisa; fitur besar, sentuh calc/report/
-   snapshot yang idealnya sudah bersih dari TASK-1/2/3).
+~~TASK-4~~ — udah dikerjain: asset type baru `bond` (Obligasi/SBN Ritel — ORI/SR/SBR/ST). Nilai
+default par (`principal`, field baru, BUKAN reuse `avgBuyPrice`), `manualPrice` opsional buat
+harga pasar sekunder ABSOLUT (bukan qty×harga/unit). `quantity` dipaksa 1, `currency` dipaksa
+IDR, `symbol` direuse jadi "Series Name". Kupon (`couponRatePA`/`couponPeriodMonths`/
+`couponAccountId`) SENGAJA TIDAK dihitung/auto-post otomatis (pajak PPh final 10%, pembulatan,
+timing mutasi RDN — riwayat lengkap: DECISIONS.md) — cuma `bondNextCouponHint()` informatif buat
+bantu UI, tombol "💰 Catat Kupon Masuk" = income transaksi biasa TANPA assetId. "🏁 Cairkan
+Pokok" = transfer ber-assetId+`assetDir:"redeem"` (arah BARU, extend db.js
+`applyAssetQtyEffect()` buat reversal-nya + fix false-positive di integrity.js yang ketangkep
+pas nulis ini) + flag `redeemed:true` (bond ilang dari list aktif, dokumennya tetap ada).
+Integrasi recurring SENGAJA DI-SKIP (diputuskan, bukan kelupaan — alasan: CLAUDE.md bullet
+`recurring`). report-md.js section 6 dapet kolom bond-specific + ringkasan pokok/kupon/maturity.
+integrity.js dapet 3 check baru (overdue redeem, principal/rate invalid, tanggal salah). Field
+semua additive — schemaVersion TIDAK naik. Riwayat lengkap: `DECISIONS.md`. Aturan sekarang:
+CLAUDE.md bullet `assets` tipe `bond`.
 
 ~~TASK-1~~ — udah dikerjain: "Perubahan komposisi" report ga sum ke Δ net worth ternyata 2 bug
 independen (CAPEX double count + sign Debt kebalik). Fix: `netWorthComposition()` (calc.js, pure,

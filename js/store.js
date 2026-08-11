@@ -6,7 +6,7 @@
 import {
   db, collection, doc, onSnapshot, query, orderBy,
 } from "./firebase.js";
-import { currentMonth } from "./utils.js";
+import { currentMonth, todayStr } from "./utils.js";
 import * as calc from "./calc.js";
 
 export const state = {
@@ -94,6 +94,8 @@ export const totalCreditDebtIDR = () => calc.totalCreditDebtIDR(state);
 export const assetValueIDR = (a) => calc.assetValueIDR(state, a, currentMonth());
 export const assetCostIDR = (a) => calc.assetCostIDR(state, a);
 export const capexLocalValue = (a) => calc.capexLocalValue(state, a, currentMonth());
+export const bondLocalValue = (a) => calc.bondLocalValue(a);
+export const bondNextCouponHint = (a) => calc.bondNextCouponHint(a, todayStr());
 export const totalAssetsIDR = () => calc.totalAssetsIDR(state, currentMonth());
 export const totalCapexIDR = () => calc.totalCapexIDR(state, currentMonth());
 export const totalDebtIDR = () => calc.totalDebtIDR(state);

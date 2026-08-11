@@ -583,3 +583,62 @@ ambigu.
 **State operasional sekarang & aturan yang WAJIB dipatuhi:** lihat CLAUDE.md bagian blur mode
 (section Home page) — `fmtShort()` butuh `blurNum()` manual tiap dipakai di DOM, qty asset juga
 WAJIB `blurNum()` manual di tampilan read-only manapun.
+
+---
+
+## TASK-4: Bond/SBN Ritel — kenapa kupon TIDAK dihitung otomatis (2026-08)
+
+**Konteks:** nambah tipe asset baru `bond` (Obligasi/SBN Ritel — ORI, SR, SBR, ST) buat nge-track
+posisi investasi obligasi ritel Indonesia. Mekanismenya: beli senilai `principal`, dapet kupon
+periodik yang cair ke rekening, pokok balik 100% saat jatuh tempo. Ini keputusan owner yang
+EKSPLISIT ditulis di spec (TASKS.md), bukan hasil investigasi/debat — dicatat di sini biar
+alasannya ga ilang kalau nanti ada yang kepikiran "kenapa ga diotomatisasi aja sekalian".
+
+**Kenapa kupon ga dihitung/di-auto-post otomatis** (padahal secara teknis gampang: `principal ×
+couponRatePA/12 × couponPeriodMonths` per bulan, mirip pola declining-balance CAPEX yang emang
+auto):
+1. **Pajak.** Kupon SBN kena PPh final 10% dipotong LANGSUNG oleh penerbit/kustodian sebelum
+   duitnya nyampe ke RDN — nominal yang BENERAN cair ≠ hasil kali rate mentah. Auto-post bakal
+   selalu salah (kelebihan) kecuali app ikut ngitung pajak, yang nambah kompleksitas & rawan
+   meleset dari aturan pajak yang bisa berubah.
+2. **Pembulatan & mekanisme kustodian.** Nominal kupon aktual dibulatkan/disesuaikan oleh sistem
+   kustodian (BI-SSSS dkk), bukan hasil kali matematis bersih dari rate — auto-post bakal
+   nunjukin angka yang KELIHATAN presisi tapi sebenarnya cuma estimasi, menyesatkan.
+3. **Timing mutasi RDN ga presisi ke tanggal kalender.** Kupon dijadwalkan tanggal tertentu tapi
+   mutasi RDN riil bisa maju/mundur beberapa hari kerja (weekend, hari libur, proses bank) — auto-
+   post berbasis tanggal bakal nyatet transaksi di hari yang belum tentu match saldo RDN aktual,
+   ngerusak reconcile.
+   
+   Beda dari CAPEX (yang MEMANG auto — depresiasi itu murni definisi matematis, ga ada pajak/
+   timing pihak ketiga yang bikin angka riilnya beda dari hasil formula) — kupon SBN punya TIGA
+   sumber ketidakpastian sekaligus yang cuma bisa diselesaikan dengan user konfirmasi manual tiap
+   kali kupon beneran cair.
+
+**Keputusan:** `bondNextCouponHint()` (calc.js) cuma kasih ESTIMASI (SEBELUM pajak, badge jelas
+"perkiraan") buat bantu user inget & isi form lebih cepat — TIDAK PERNAH dipakai buat bikin
+transaksi otomatis. User WAJIB buka "💰 Catat Kupon Masuk" dan isi/koreksi nominal aktual manual
+tiap kupon cair.
+
+**Keputusan arsitektur terkait: `assetDir` diperluas jadi 3 arah ("buy"/"sell"/"redeem").**
+Pencairan pokok (`openBondRedeemSheet()`) SENGAJA dimodelkan lewat jalur `assetId`+`assetDir`
+yang UDAH ADA (bukan bikin field baru) — arah `"redeem"` ditambahkan, TAPI beda pola dari buy/
+sell: ga pakai `assetQty`/`assetPrice` (bond ga punya qty-tracking), efeknya `redeemed:true`/
+`false` (bukan mutasi `quantity`). Ini butuh 3 tempat nge-tau soal arah baru ini: (1)
+`db.js` `applyAssetQtyEffect()` — reversal hapus transaksi, (2) `integrity.js` — validasi
+assetId+assetDir (kalau lupa, transaksi redeem ke-flag false-positive "invalid" karena
+assetQty/assetPrice kosong — ini KETANGKEP & DIBENERIN pas nulis fitur ini, bukan lolos ke
+production), (3) `home.js` `openTxDetail()`/`txRow()` — routing & label tampilan. Kupon TIDAK
+lewat jalur `assetId` sama sekali (transaksi income biasa, tanpa referensi balik ke bond) —
+SENGAJA beda dari redeem, karena kupon emang ga perlu dilacak balik (bukan trade/perubahan
+kepemilikan asset), sementara redeem itu literally "penjualan"/penutupan posisi asset yang
+butuh jejak balik.
+
+**Pelajaran:** nambah "arah" baru ke pola `assetId`+`assetDir` yang udah establish (buy/sell)
+itu GAMPANG kelupaan satu tempat, karena polanya ke-assumsi "semua assetDir sama" di beberapa
+tempat (integrity.js validation yang kejadian di sini). Kalau nambah arah baru lagi ke depan,
+audit SEMUA tempat yang baca `t.assetDir` (bukan cuma grep `"sell"`/`"buy"` literal, itu bisa
+kelewat arah baru yang belum ada literal-nya).
+
+**State operasional sekarang & aturan yang WAJIB dipatuhi:** lihat CLAUDE.md bullet `assets`
+tipe `bond` — dua aksi terpisah (Catat Kupon Masuk = income biasa TANPA assetId; Cairkan Pokok =
+transfer ber-assetId+assetDir:"redeem"), kupon TIDAK PERNAH auto-post.

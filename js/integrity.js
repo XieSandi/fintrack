@@ -3,7 +3,7 @@
 // di Setting. Referensi yatim baru bisa kejadian kalau entity dihapus lewat luar app (mis.
 // Firestore console langsung) — guard normal di app (accounts.js, goals.js, dll) udah nyegah
 // ini lewat UI biasa.
-import { monthOf } from "./utils.js";
+import { monthOf, todayStr } from "./utils.js";
 import { accountBalances, isCreditAccount, creditUsed } from "./calc.js";
 
 const ONE_YEAR_MS = 365 * 24 * 3600 * 1000;
@@ -22,7 +22,12 @@ export function scanIntegrity(state) {
       if (t.fromGoalId && !state.goals.find((g) => g.id === t.fromGoalId)) problems.push("goal (pencairan) ga ketemu");
       if (t.assetId) {
         if (!state.assets.find((a) => a.id === t.assetId)) problems.push("asset ga ketemu");
-        if (!(Number(t.assetQty) > 0) || !(Number(t.assetPrice) > 0) || (t.assetDir !== "buy" && t.assetDir !== "sell")) {
+        // "redeem" (TASK-4, bond) BEDA validasi dari buy/sell — bond ga pakai assetQty/assetPrice
+        // sama sekali (ga ada qty/harga-per-unit yang berarti buat instrumen lump-sum), cukup
+        // assetId + assetDir aja.
+        if (t.assetDir === "redeem") {
+          // valid, ga butuh assetQty/assetPrice
+        } else if (!(Number(t.assetQty) > 0) || !(Number(t.assetPrice) > 0) || (t.assetDir !== "buy" && t.assetDir !== "sell")) {
           problems.push("assetQty/assetPrice/assetDir kosong atau invalid");
         }
       }
@@ -68,6 +73,24 @@ export function scanIntegrity(state) {
       ref: a,
       problems: [`tercatat ${fmt(recorded)} ${unit}, jejak transaksi ${fmt(netQty)} ${unit}, selisih ${fmt(Math.abs(diff))} ${unit} — perlu dicek`],
     });
+  }
+
+  // Bond (TASK-4) — info doang, BUKAN auto-fix: (1) udah lewat maturityDate tapi belum
+  // di-redeem (pengingat "cairkan pokok"), (2) couponRatePA/principal di luar rentang wajar
+  // (salah input), (3) maturityDate sebelum purchaseDate (salah input tanggal).
+  const today = todayStr(); // "YYYY-MM-DD" local time — WAJIB, JANGAN toISOString() (lihat
+  // CLAUDE.md Known Quirks soal bug timezone WIB kalau pakai itu buat tanggal kalender).
+  for (const a of state.assets) {
+    if (a.type !== "bond") continue;
+    const problems = [];
+    if (a.maturityDate && a.maturityDate < today && a.redeemed !== true) {
+      problems.push("jatuh tempo, belum dicairkan");
+    }
+    const rate = Number(a.couponRatePA);
+    if (a.couponRatePA != null && (isNaN(rate) || rate < 0 || rate > 1)) problems.push("couponRatePA di luar 0–100%");
+    if (!(Number(a.principal) > 0)) problems.push("principal ≤ 0");
+    if (a.maturityDate && a.purchaseDate && a.maturityDate < a.purchaseDate) problems.push("maturityDate sebelum purchaseDate — salah input");
+    if (problems.length > 0) issues.push({ kind: "asset", ref: a, problems });
   }
 
   // Kartu kredit: over-limit / saldo plus tak terduga. Read-only INFO, BUKAN error — over-limit

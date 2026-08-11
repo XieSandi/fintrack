@@ -88,9 +88,18 @@ async function handleDebtPatch(before, data) {
 // SENGAJA bypass remove() generik, raw batch write) juga bisa manggil logic yang sama secara
 // eksplisit tanpa duplikasi. avgBuyPrice SENGAJA GA di-reverse (butuh replay history buat
 // rekonstruksi avg sebelumnya) — cuma quantity yang exact-reversible.
+//
+// `dir === "redeem"` (TASK-4, bond/SBN — `openBondRedeemSheet()` wealth.js) BEDA POLA dari
+// buy/sell: bond ga pakai qty-tracking sama sekali (`quantity` dipaksa 1, GA PERNAH berubah),
+// efek "cairkan pokok" itu flag `redeemed`, BUKAN quantity — hapus transaksi redeem = un-redeem
+// (bond aktif lagi, belum dicairkan), bukan nambah qty balik.
 async function applyAssetQtyEffect(assetId, dir, qty) {
   const asset = state.assets.find((a) => a.id === assetId);
   if (!asset) return; // asset-nya udah kehapus duluan — ga ada yang bisa disesuaikan
+  if (dir === "redeem") {
+    await patch("assets", assetId, { redeemed: false });
+    return;
+  }
   const delta = dir === "buy" ? -qty : qty;
   const newQty = Math.max(0, (Number(asset.quantity) || 0) + delta);
   await patch("assets", assetId, { quantity: newQty });
@@ -175,7 +184,10 @@ export async function upsertSnapshot() {
         creditLimit: a.type === "credit" ? (Number(a.creditLimit) || 0) : null,
       };
     }),
-    assets: state.assets.map((a) => ({
+    // Bond yang udah redeemed di-exclude dari breakdown (pola sama wealth.js renderAssets() &
+    // report-md.js live branch) — "hilang dari asset aktif", nilainya udah 0 di net worth
+    // (bondValueIDR), snapshot ga perlu nyimpen baris Rp0 yang ga informatif.
+    assets: state.assets.filter((a) => !(a.type === "bond" && a.redeemed === true)).map((a) => ({
       symbol: a.symbol || a.name, type: a.type, currency: a.currency,
       quantity: Number(a.quantity) || 0,
       avgBuyPrice: Number(a.avgBuyPrice) || 0,
@@ -186,6 +198,12 @@ export async function upsertSnapshot() {
       priceDate: a.type === "capex" ? m : (a.manualPriceUpdatedAt || null),
       purchaseDate: a.type === "capex" ? (a.purchaseDate || null) : null,
       depreciationPctMonth: a.type === "capex" ? (Number(a.depreciationPctMonth) || 0) : null,
+      // Field bond (TASK-4) — additive/opsional, `null` kecuali tipe "bond", pola SAMA persis
+      // kayak purchaseDate/depreciationPctMonth di atas buat CAPEX. schemaVersion TIDAK naik.
+      principal: a.type === "bond" ? (Number(a.principal) || 0) : null,
+      maturityDate: a.type === "bond" ? (a.maturityDate || null) : null,
+      couponRatePA: a.type === "bond" ? (Number(a.couponRatePA) || 0) : null,
+      redeemed: a.type === "bond" ? (a.redeemed === true) : null,
       valueIDR: Math.round(assetValueIDR(a)),
       costIDR: Math.round(assetCostIDR(a)),
     })),

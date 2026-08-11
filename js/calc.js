@@ -9,7 +9,7 @@
 // Kalau nyentuh file ini, jalankan `node tests/calc.test.mjs` sebelum selesai (lihat CLAUDE.md
 // ATURAN WAJIB). Boleh import dari `./utils.js` (murni, TIDAK ada Firebase juga) kalau butuh
 // helper tanggal — JANGAN duplikasi ulang logic yang udah ada di sana.
-import { addMonths } from "./utils.js";
+import { addMonths, toDateStr } from "./utils.js";
 
 export const activeAccounts = (state) => state.accounts.filter((a) => !a.isArchived);
 export const catById = (state, id) => state.categories.find((c) => c.id === id);
@@ -97,10 +97,13 @@ export function totalCashIDR(state) {
 
 // Nilai asset (harga manual). Saham IDX: qty dalam LOT → ×100 lembar. CAPEX (lihat blok di
 // bawah) dispatch ke capexValueIDR — nilainya auto-dihitung dari penyusutan, bukan harga manual.
-// `nowMonth` cuma dipakai buat CAPEX (tipe lain abaikan parameter ini) — WAJIB dikirim eksplisit
-// oleh caller (store.js → currentMonth()), calc.js ga boleh baca wall-clock sendiri.
+// Bond (lihat blok di bawah) dispatch ke bondValueIDR — nilai default par (`principal`), BUKAN
+// qty×harga/unit kayak saham. `nowMonth` cuma dipakai buat CAPEX (tipe lain abaikan parameter
+// ini) — WAJIB dikirim eksplisit oleh caller (store.js → currentMonth()), calc.js ga boleh baca
+// wall-clock sendiri.
 export function assetValueIDR(state, a, nowMonth) {
   if (a.type === "capex") return capexValueIDR(state, a, nowMonth);
+  if (a.type === "bond") return bondValueIDR(state, a);
   const rate = effectiveRate(state);
   const qty = Number(a.quantity) || 0;
   const price = Number(a.manualPrice) || 0;
@@ -110,6 +113,7 @@ export function assetValueIDR(state, a, nowMonth) {
 }
 
 export function assetCostIDR(state, a) {
+  if (a.type === "bond") return bondCostIDR(state, a);
   const rate = effectiveRate(state);
   const qty = Number(a.quantity) || 0;
   const avg = Number(a.avgBuyPrice) || 0;
@@ -139,6 +143,73 @@ export function capexValueIDR(state, a, nowMonth) {
   const rate = effectiveRate(state);
   const val = capexLocalValue(state, a, nowMonth);
   return a.currency === "USD" ? val * rate : val;
+}
+
+// ============== Bond / SBN Ritel (ORI, SR, SBR, ST) — TASK-4 ==============
+// Beli senilai `principal` (kelipatan Rp1jt), dapet kupon periodik yang cair ke rekening —
+// KUPON TIDAK DIHITUNG OTOMATIS di sini (keputusan owner: pajak PPh final 10%, pembulatan, &
+// timing mutasi RDN beda-beda tiap kali cair, bikin angka app gampang meleset dari realita kalau
+// diotomatisasi — lihat DECISIONS.md), user input manual transaksi income pas kupon beneran cair
+// (`openBondCouponSheet`, wealth.js). Pokok balik 100% saat `maturityDate` — PERISTIWA TERPISAH
+// dari kupon, dicatat lewat `openBondRedeemSheet()` (transfer transaction ber-`assetId`+
+// `assetDir:"redeem"`, db.js `applyAssetQtyEffect()` di-extend buat nge-handle arah ini).
+//
+// Nilai TIDAK fluktuatif kayak saham (`bondLocalValue`): default = par (`principal` apa adanya).
+// `manualPrice` (opsional) = nilai pasar sekunder ABSOLUT dalam currency bond ini (BUKAN qty×
+// harga/unit — bond ga punya qty yang berarti, `principal` udah representasi "nilai Rp" langsung,
+// beda dari saham yang qty×harga/lembar). `quantity` DIPAKSA 1 di form (pola sama CAPEX) — ga ada
+// konsep qty buat instrumen lump-sum kayak gini.
+//
+// `redeemed:true` (di-set `openBondRedeemSheet()` saat pokok dicairkan) -> value & cost 0 (posisi
+// udah ditutup, duitnya balik ke cash, ga ada lagi yang "dipegang") TAPI dokumen assets-nya TETAP
+// ADA (ga dihapus, jejak riwayat kepertahankan) — filter dari list ASSET AKTIF ada di UI
+// (wealth.js `renderAssets()`), BUKAN di sini (di sini cuma soal nilai, bukan visibility).
+export function bondLocalValue(a) {
+  if (a.redeemed === true) return 0;
+  const market = Number(a.manualPrice) || 0;
+  return market > 0 ? market : (Number(a.principal) || 0);
+}
+
+export function bondValueIDR(state, a) {
+  const rate = effectiveRate(state);
+  const val = bondLocalValue(a);
+  return a.currency === "USD" ? val * rate : val;
+}
+
+// Cost basis bond SELALU `principal` (BUKAN avgBuyPrice — field itu ga dipakai buat bond sama
+// sekali, beda dari CAPEX yang REUSE avgBuyPrice) — P&L bond = value − principal, otomatis 0
+// kalau `manualPrice` kosong (BENAR, bond par ga punya gain/loss sampai ada harga pasar eksplisit
+// yang beda). Redeemed -> 0 juga, biar P&L ga nyisain klaim "rugi" palsu buat posisi yang udah
+// ditutup (uangnya balik 100% ke cash, bukan hilang).
+export function bondCostIDR(state, a) {
+  if (a.redeemed === true) return 0;
+  const rate = effectiveRate(state);
+  const principal = Number(a.principal) || 0;
+  return a.currency === "USD" ? principal * rate : principal;
+}
+
+// Helper INFORMATIF doang (TIDAK pernah dipakai buat bikin transaksi/kalkulasi net worth) —
+// estimasi tanggal kupon berikutnya + nominal kasar (SEBELUM pajak), buat teks bantu di UI
+// (assetRow/openBondCouponSheet, wealth.js). Return null kalau ga cukup data buat diestimasi
+// (belum redeemed-check dulu, butuh couponRatePA>0 + principal>0 + issueDate/purchaseDate) ATAU
+// kalau estimasi tanggalnya udah lewat `maturityDate` (ga ada kupon lagi setelah jatuh tempo).
+// `todayStr` WAJIB dikirim eksplisit oleh caller (bukan baca wall-clock sendiri di sini, pola
+// sama fungsi calc.js lain yang butuh "hari ini").
+export function bondNextCouponHint(a, todayStr) {
+  if (a.type !== "bond" || a.redeemed === true) return null;
+  const rate = Number(a.couponRatePA) || 0; // desimal 0-1, pola sama projectionRateA/B
+  const period = Math.max(1, Number(a.couponPeriodMonths) || 1);
+  const principal = Number(a.principal) || 0;
+  const anchor = a.issueDate || a.purchaseDate;
+  if (rate <= 0 || principal <= 0 || !anchor || !todayStr) return null;
+  const d = new Date(`${anchor}T00:00:00`);
+  const t = new Date(`${todayStr}T00:00:00`);
+  if (isNaN(d.getTime()) || isNaN(t.getTime())) return null;
+  while (d.getTime() <= t.getTime()) d.setMonth(d.getMonth() + period);
+  const nextDate = toDateStr(d);
+  if (a.maturityDate && nextDate > a.maturityDate) return null; // ga ada kupon lagi setelah jatuh tempo
+  const estAmount = Math.round(principal * (rate / 12) * period);
+  return { nextDate, estAmount };
 }
 
 export const totalAssetsIDR = (state, nowMonth) =>

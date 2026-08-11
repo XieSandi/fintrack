@@ -246,6 +246,60 @@ tick callback (`wealth.js`, balikin literal `"***"`). State toggle di localStora
   `purchaseDate`/`depreciationPctMonth` di breakdown — field opsional/additive, snapshot lama
   (pre-fitur) `undefined` → fallback 0, JADI **schemaVersion TIDAK dinaikkan** buat perubahan ini
   (backup lama tetap valid di-restore).
+  **Tipe `bond`** (Obligasi / SBN Ritel — ORI, SR, SBR, ST) BEDA POLA dari saham/reksadana:
+  nilainya **TIDAK fluktuatif** kayak instrumen lain — default = **par** (`principal` apa
+  adanya), bukan qty×harga/unit. Field baru (semua di `assets` doc, TIDAK ada collection baru):
+  `principal` (WAJIB, nilai pokok Rp — basis nilai asset ini, BUKAN `avgBuyPrice`, field itu
+  SAMA SEKALI ga dipakai buat bond, dipaksa 0 di form), `couponRatePA` (desimal 0–1, pola sama
+  `projectionRateA/B`/`depreciationPctMonth` — input form-nya persen), `couponPeriodMonths`
+  (integer ≥1, default 1 — buat pengingat doang, BUKAN kalkulasi), `couponAccountId`/
+  `maturityAccountId` (akun tujuan kupon/pokok, buat pre-fill sheet), `maturityDate` (WAJIB,
+  "YYYY-MM-DD"), `purchaseDate`/`issueDate` (tanggal terbit/beli — field yang KEPAKE cuma
+  `purchaseDate`, sama kayak CAPEX, `issueDate` cuma fallback di `bondNextCouponHint()` kalau
+  ada data lama yang pakai nama itu), `redeemed` (bool, default false — `true` = pokok udah
+  dicairkan). `quantity` DIPAKSA 1 & `currency` DIPAKSA IDR di form (SBN Ritel selalu IDR) — ga
+  ada konsep qty buat instrumen lump-sum. Field `symbol` DIREUSE jadi "Series Name" (mis.
+  "ORI030T3", relabel di form) — BUKAN field baru, biar `a.symbol || a.name` yang udah dipakai
+  di mana-mana (assetRow, goal-link checklist, snapshot breakdown) otomatis jalan tanpa kode baru.
+  **Nilai** (`bondValueIDR()`/`bondLocalValue()`, calc.js): `manualPrice > 0 ? manualPrice :
+  principal` — `manualPrice` di sini (opsional) itu nilai pasar sekunder ABSOLUT dalam currency
+  bond (Rp langsung, BUKAN harga-per-unit dikali qty kayak saham). **Cost** (`bondCostIDR()`)
+  SELALU `principal` apa adanya (ga kepengaruh `manualPrice`) — P&L bond = value − principal,
+  otomatis 0 di par (BENAR, bukan bug, bond ga punya gain/loss sampai ada harga pasar sekunder
+  eksplisit yang beda). `redeemed:true` → value & cost 0 (posisi ditutup, uangnya balik 100% ke
+  cash) TAPI dokumen assets-nya **TETAP ADA** (ga dihapus — jejak riwayat kepertahankan), cuma
+  di-filter dari tampilan "asset aktif" (`renderAssets()` wealth.js, `buildPosition()` &
+  `upsertSnapshot()` live branch — snapshot LAMA yang udah kesimpen ga direwrite). **Kupon TIDAK
+  dihitung otomatis** (keputusan owner — pajak PPh final 10%, pembulatan, timing mutasi RDN beda
+  tiap kali cair, riwayat lengkap kenapa: `DECISIONS.md`) — `bondNextCouponHint(asset, todayStr)`
+  (calc.js, pure) cuma estimasi INFORMATIF (tanggal kupon berikutnya + `principal ×
+  couponRatePA/12 × couponPeriodMonths`, SEBELUM pajak) buat teks bantu UI, **TIDAK PERNAH**
+  dipakai bikin transaksi — return `null` kalau `redeemed`/data ga cukup/estimasi udah lewat
+  `maturityDate`. **Dua aksi khusus** (tombol di sheet Edit Asset tipe bond, `wealth.js`,
+  MENGGANTIKAN Catat Pembelian/Penjualan yang di-hide buat tipe ini — pola sama CAPEX): (1)
+  **"💰 Catat Kupon Masuk"** (`openBondCouponSheet()`) — transaksi `income` BIASA, akun =
+  `couponAccountId`, kategori `cat_bunga` ("Bunga & Dividen", preset udah ada dari awal), **TANPA
+  `assetId`** (beda dari beli/jual/redeem — kupon ga perlu dilacak balik ke bond-nya, "transaksi
+  income biasa" per spec), nominal WAJIB diisi/dikoreksi manual user (estimasi cuma hint). (2)
+  **"🏁 Cairkan Pokok"** (`openBondRedeemSheet()`, di-export — dipakai juga `home.js`
+  `openTxDetail()` buat routing detail transaksi) — transfer ber-`assetId`+**`assetDir:"redeem"`**
+  (arah BARU, beda dari `"buy"`/`"sell"` — bond ga pakai qty-tracking sama sekali, `assetQty`/
+  `assetPrice` SENGAJA ga diisi), `patch(assets, {redeemed:true})` ditulis MANUAL di sheet (pola
+  sama openAssetBuySheet/Sell nulis quantity sendiri, BUKAN via hook) SEBELUM `add()` transaksinya.
+  Reversal (hapus transaksi redeem) DIPUSATKAN di db.js `applyAssetQtyEffect()` (di-extend
+  khusus arah `"redeem"` — balikin `redeemed:false`, BUKAN nyentuh `quantity` kayak buy/sell).
+  `integrity.js` validasi assetId+assetDir SEKARANG punya cabang terpisah buat `"redeem"` (ga
+  butuh assetQty/assetPrice, beda dari buy/sell) — kalau lupa update ini pas nambah arah baru
+  lagi ke depan, transaksi bakal ke-flag false-positive "invalid". `assetRow()`/list Assets
+  nampilin pokok + kupon%/periode (meta) + hitung mundur `maturityDate` atau badge "⚠️ Jatuh
+  tempo, cairkan pokok" kalau udah lewat & belum redeemed (stale line) — TIDAK auto-refresh
+  (bukan bagian `AUTO_TYPES` prices.js). `report-md.js` section 6: kolom Qty/Avg Buy/P&L
+  di-repurpose (Qty "—", Avg Buy = cost basis/principal, P&L "—" kalau par murni) + baris
+  informatif terpisah (total pokok + estimasi kupon tahunan sebelum pajak + maturity terdekat).
+  `integrity.js` info-check (bukan error): `maturityDate` lewat tapi belum `redeemed`,
+  `principal` ≤ 0, `couponRatePA` di luar 0–100%, `maturityDate` sebelum `purchaseDate`. Field
+  semuanya additive/opsional (`null` kecuali tipe bond, pola sama CAPEX) — **schemaVersion TIDAK
+  naik**, backup lama tetap valid restore.
 - `debts` — outstanding, monthlyInstalment, dueDay, remainingMonths. Mengurangi net worth.
   Transaksi expense bisa opsional bawa `debtId` (dropdown "Potong hutang?" di `openTxSheet()`
   kalau ada ≥1 debt, dan di form `recurring`) — CREATE/EDIT/DELETE transaksi ber-`debtId`
@@ -358,6 +412,14 @@ tick callback (`wealth.js`, balikin literal `"***"`). State toggle di localStora
   `lastPostedMonth` juga di-reset (null) otomatis oleh `bulkDelete()` (Zona Bahaya, lihat bawah)
   buat template yang `lastPostedMonth`-nya masuk periode yang baru dihapus — biar sheet Awal
   Bulan nawarin lagi, bukan nganggep udah pernah post buat bulan yang datanya udah lenyap.
+  **Bond (TASK-4) SENGAJA TIDAK diintegrasikan ke recurring sama sekali** (opsional di spec,
+  diputuskan SKIP) — `dayOfMonth` recurring itu "tiap bulan di tanggal X", sedangkan periode
+  kupon bond bisa multi-bulan (`couponPeriodMonths` > 1), jadi butuh field interval BARU + logic
+  "udah due belum berdasar N bulan sejak terakhir" yang recurring belum punya sama sekali —
+  jauh lebih kompleks dari sekadar nambah destination baru (beda dari DCA asset di atas yang
+  reuse `dayOfMonth` apa adanya, tiap bulan emang wajar). Reminder-nya CUKUP diandalkan dari
+  hitung mundur maturity + badge overdue di list Assets (Wealth) — user buka Wealth, langsung
+  keliatan kalau ada bond yang perlu di-follow-up, ga butuh mekanisme jadwal terpisah.
 - `snapshots/{YYYY-MM}` — net worth bulanan, di-upsert otomatis saat app dibuka (`upsertSnapshot`,
   db.js). Selain total (`totalCash`/`totalAssets`/`totalCapex`/`totalGoalSavings`/`totalDebt`/
   `netWorth` — `totalCapex` field baru sejak fitur CAPEX, snapshot lama ga punya ini, lihat
@@ -634,7 +696,10 @@ tampilan progress goal.
   "Goal savings" juga nambah "(tunai) + Rp Y (dari asset ter-link, sudah termasuk di Assets)"
   kalau totalnya > 0 (SATU baris ringkasan lintas-goal, beda dari breakdown per-goal section 8)
   — sebelumnya cuma nampilin `Rp 0` polos yang keliatan kontradiktif kalau ada goal ber-asset-link
-  yang progressnya jauh di atas 0. **Pakai
+  yang progressnya jauh di atas 0. Section 6 (Investasi) — bond (tipe `bond`) dapet kolom
+  Qty/Avg Buy/P&L yang di-repurpose (bukan format saham biasa) + baris informatif terpisah
+  (total pokok + estimasi kupon tahunan + maturity terdekat) — detail lengkap: CLAUDE.md bullet
+  `assets` tipe `bond`, section itu yang jadi sumber kebenaran field-nya, bukan di sini. **Pakai
   `fmtIDRPlain()`/`fmtMoneyPlain()` (utils.js), BUKAN `fmtIDR()`/`fmtMoney()`** — yang terakhir
   itu wrapper `<span class="blur-num">` buat blur mode DOM, bakal ngerusak output markdown kalau
   kepake di teks/file. Section 9 (Komitmen Rutin, recurring aktif) SENGAJA SELALU live regardless
