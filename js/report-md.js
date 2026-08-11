@@ -105,11 +105,19 @@ function buildPosition(month, isCurrentMonth) {
         creditLimit: a.type === "credit" ? (Number(a.creditLimit) || 0) : null,
       };
     }),
-    assets: state.assets.map((a) => ({
+    // Bond yang udah redeemed di-exclude (pola sama wealth.js renderAssets()) — "hilang dari
+    // asset aktif", nilainya udah 0 otomatis di net worth (bondValueIDR) tapi ga perlu ditabelin
+    // lagi di laporan sebagai baris Rp0 yang ga informatif.
+    assets: state.assets.filter((a) => !(a.type === "bond" && a.redeemed === true)).map((a) => ({
       symbol: a.symbol || a.name, type: a.type, currency: a.currency,
       quantity: Number(a.quantity) || 0, avgBuyPrice: Number(a.avgBuyPrice) || 0,
       price: a.type === "capex" ? capexLocalValue(a) : Number(a.manualPrice) || 0,
       priceDate: a.type === "capex" ? todayStr() : (a.manualPriceUpdatedAt || null),
+      // Field bond (TASK-4) — cuma relevan buat type "bond", pola sama purchaseDate/
+      // depreciationPctMonth buat CAPEX di atas (dan di db.js upsertSnapshot()).
+      principal: a.type === "bond" ? (Number(a.principal) || 0) : null,
+      maturityDate: a.type === "bond" ? (a.maturityDate || null) : null,
+      couponRatePA: a.type === "bond" ? (Number(a.couponRatePA) || 0) : null,
       valueIDR: assetValueIDR(a), costIDR: assetCostIDR(a),
     })),
     debts: state.debts.map((d) => ({
@@ -271,9 +279,27 @@ export function buildMonthlyReport(month) {
     position.assets.filter((a) => a.type === type).forEach((a) => {
       const val = a.valueIDR;
       const cost = a.costIDR;
+      invTotal += val; invCost += cost;
+      if (type === "bond") {
+        // Bond (TASK-4): kolom di-repurpose — Qty ga relevan ("—", dipaksa 1 di data model),
+        // Avg Buy = cost basis-nya (principal, bukan harga per-unit kayak saham), P&L "—" kalau
+        // masih par murni (BENAR, bukan kolom kosong karena lupa isi — bond par emang ga ada
+        // gain/loss sampai ada harga pasar sekunder eksplisit, lihat calc.js bullet Bond).
+        const p = val - cost;
+        const pPct = cost > 0 ? (p / cost) * 100 : 0;
+        const atPar = val === cost;
+        assetRows.push([
+          a.symbol, ASSET_TYPES[a.type] || a.type, NA,
+          fmtIDRPlain(cost),
+          atPar ? "par (100%)" : `${fmtIDRPlain(val)} (pasar sekunder)`,
+          fmtIDRPlain(val),
+          atPar ? "—" : `${p >= 0 ? "+" : ""}${fmtIDRPlain(p)}`,
+          atPar ? "—" : `${pPct >= 0 ? "+" : ""}${pPct.toFixed(1)}%`,
+        ]);
+        return;
+      }
       const p = val - cost;
       const pPct = cost > 0 ? (p / cost) * 100 : 0;
-      invTotal += val; invCost += cost;
       assetRows.push([
         a.symbol, ASSET_TYPES[a.type] || a.type,
         a.type === "stock_id" ? `${fmtNum(a.quantity)} lot` : String(a.quantity),
@@ -288,6 +314,22 @@ export function buildMonthlyReport(month) {
     const invPnl = invTotal - invCost;
     const invPnlPct = invCost > 0 ? (invPnl / invCost) * 100 : 0;
     lines.push(`**Total** — Nilai: ${fmtIDRPlain(invTotal)} · Invested: ${fmtIDRPlain(invCost)} · Unrealized P&L: ${invPnl >= 0 ? "+" : ""}${fmtIDRPlain(invPnl)} (${invPnl >= 0 ? "+" : ""}${invPnlPct.toFixed(1)}%)`);
+  }
+  // Baris informatif obligasi (TASK-4) — total pokok + estimasi kupon TAHUNAN (SEBELUM pajak,
+  // kupon sendiri TETAP TIDAK dihitung otomatis per transaksi, lihat DECISIONS.md) + maturity
+  // terdekat. Berguna buat analisis AI (arus kas pasif masa depan) — informasi murni, BUKAN
+  // dipakai buat bikin transaksi apapun.
+  const bondAssets = position.assets.filter((a) => a.type === "bond");
+  if (bondAssets.length > 0) {
+    const totalPrincipal = bondAssets.reduce((s, a) => s + (Number(a.principal) || 0), 0);
+    const totalAnnualCoupon = bondAssets.reduce((s, a) => s + (Number(a.principal) || 0) * (Number(a.couponRatePA) || 0), 0);
+    const upcoming = bondAssets
+      .filter((a) => a.maturityDate)
+      .sort((a, b) => a.maturityDate.localeCompare(b.maturityDate))
+      .slice(0, 5)
+      .map((a) => `${a.symbol} (${a.maturityDate})`)
+      .join(", ");
+    lines.push(`**🏦 Obligasi/SBN** — Total pokok: ${fmtIDRPlain(totalPrincipal)} · Estimasi kupon tahunan (sebelum pajak): ${fmtIDRPlain(totalAnnualCoupon)}${upcoming ? ` · Maturity terdekat: ${upcoming}` : ""}`);
   }
   lines.push("");
 

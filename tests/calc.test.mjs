@@ -407,6 +407,63 @@ function makeState() {
   assertEqual(calc.netWorthFromParts(parts, false), 1_000_000 + (5_000_000 - 2_000_000) + 300_000 - 200_000, "netWorthFromParts: includeCapex false -> assets dikurangi capex");
 }
 
+// ================= Bond / SBN Ritel (TASK-4) =================
+{
+  // Default (tanpa manualPrice) -> value = principal (par), cost = principal juga -> P&L 0
+  // (BENAR, bukan bug — bond par ga punya gain/loss sampai ada harga pasar sekunder eksplisit).
+  const s = makeState();
+  s.assets = [{ id: "b1", type: "bond", principal: 5_000_000, currency: "IDR", maturityDate: "2029-07-15", purchaseDate: "2026-01-01", couponRatePA: 0.069, couponPeriodMonths: 1 }];
+  const val = calc.assetValueIDR(s, s.assets[0], "2026-01");
+  const cost = calc.assetCostIDR(s, s.assets[0]);
+  assertEqual(val, 5_000_000, "bond: value default = principal (par)");
+  assertEqual(cost, 5_000_000, "bond: cost = principal");
+  assertEqual(val - cost, 0, "bond: P&L 0 di par");
+}
+{
+  // manualPrice (opsional, harga pasar sekunder ABSOLUT) -> value pakai itu, cost TETAP principal
+  // (P&L bond = value - principal, BUKAN qty x harga/unit kayak saham).
+  const s = makeState();
+  s.assets = [{ id: "b1", type: "bond", principal: 5_000_000, manualPrice: 5_100_000, currency: "IDR", maturityDate: "2029-07-15" }];
+  const val = calc.assetValueIDR(s, s.assets[0], "2026-01");
+  const cost = calc.assetCostIDR(s, s.assets[0]);
+  assertEqual(val, 5_100_000, "bond: manualPrice override -> value pakai harga pasar sekunder");
+  assertEqual(cost, 5_000_000, "bond: cost TETAP principal walau manualPrice diisi");
+}
+{
+  // redeemed:true -> value & cost 0 (posisi ditutup, uangnya balik ke cash — dokumen assets-nya
+  // TETAP ADA/ga dihapus, cuma nilainya nol, filter dari list AKTIF itu urusan UI bukan calc).
+  const s = makeState();
+  s.assets = [{ id: "b1", type: "bond", principal: 5_000_000, currency: "IDR", maturityDate: "2029-07-15", redeemed: true }];
+  assertEqual(calc.assetValueIDR(s, s.assets[0], "2026-01"), 0, "bond: redeemed -> value 0");
+  assertEqual(calc.assetCostIDR(s, s.assets[0]), 0, "bond: redeemed -> cost 0 (P&L ga nyisain klaim rugi palsu)");
+}
+{
+  // totalAssetsIDR: bond ikut kehitung normal (par) kayak tipe asset lain — bond adalah asset,
+  // nambah net worth via Assets (bukan mekanisme terpisah).
+  const s = makeState();
+  s.assets = [{ id: "b1", type: "bond", principal: 5_000_000, currency: "IDR", maturityDate: "2029-07-15" }];
+  assertEqual(calc.totalAssetsIDR(s, "2026-01"), 5_000_000, "bond: totalAssetsIDR ikut kehitung normal");
+}
+{
+  // bondNextCouponHint: estimasi tanggal kupon berikutnya (loncat per couponPeriodMonths dari
+  // issueDate sampe lewat "hari ini") + estimasi nominal SEBELUM pajak — informatif doang.
+  const bond = { type: "bond", principal: 5_000_000, couponRatePA: 0.069, couponPeriodMonths: 1, issueDate: "2026-01-15", maturityDate: "2029-07-15" };
+  const hint = calc.bondNextCouponHint(bond, "2026-03-10");
+  // Anchor 2026-01-15, periode 1 bln: 2026-02-15 masih <= 2026-03-10, lompat lagi ke 2026-03-15
+  // yang udah lewat "hari ini" -> berhenti di situ.
+  assertEqual(hint?.nextDate, "2026-03-15", "bondNextCouponHint: tanggal kupon berikutnya loncat per periode dari anchor sampe lewat hari ini");
+  assertEqual(hint?.estAmount, Math.round(5_000_000 * (0.069 / 12) * 1), "bondNextCouponHint: estimasi nominal = principal x (couponRatePA/12) x couponPeriodMonths");
+}
+{
+  // Return null: redeemed, couponRatePA 0/kosong, ga ada issueDate/purchaseDate sama sekali,
+  // ATAU estimasi kupon berikutnya udah lewat maturityDate (ga ada kupon lagi setelah jatuh tempo).
+  const base = { type: "bond", principal: 5_000_000, couponRatePA: 0.069, couponPeriodMonths: 1, issueDate: "2026-01-15", maturityDate: "2026-02-01" };
+  assertEqual(calc.bondNextCouponHint({ ...base, redeemed: true }, "2026-01-20"), null, "bondNextCouponHint: null kalau redeemed");
+  assertEqual(calc.bondNextCouponHint({ ...base, couponRatePA: 0 }, "2026-01-20"), null, "bondNextCouponHint: null kalau couponRatePA 0/kosong");
+  assertEqual(calc.bondNextCouponHint({ ...base, issueDate: null, purchaseDate: null }, "2026-01-20"), null, "bondNextCouponHint: null kalau ga ada issueDate/purchaseDate");
+  assertEqual(calc.bondNextCouponHint(base, "2026-01-20"), null, "bondNextCouponHint: null kalau estimasi kupon berikutnya (2026-02-15) udah lewat maturityDate (2026-02-01)");
+}
+
 // ============== netWorthComposition (TASK-1: bug "Perubahan komposisi" report-md.js) ==============
 // Bug lama (dua independen): (1) Δassets RAW (udah termasuk CAPEX) dijumlah BARENG ΔCAPEX
 // terpisah -> double count; (2) Δdebt RAW dijumlah tanpa negasi (debt naik seharusnya KONTRIBUSI

@@ -1,7 +1,7 @@
 import {
   state, activeAccounts, accountBalances, netWorthIDR, totalCashIDR,
   totalAssetsIDR, totalCapexIDR, totalDebtIDR, totalGoalSavingsIDR, assetValueIDR, assetCostIDR,
-  capexLocalValue, effectiveRate, monthSummary, milestoneProgress, recentAvgSurplus,
+  capexLocalValue, bondLocalValue, bondNextCouponHint, effectiveRate, monthSummary, milestoneProgress, recentAvgSurplus,
   monthsBetween, projectSeries, snapshotNetWorth,
   isCreditAccount, creditUsed, creditRemaining, totalCreditDebtIDR,
 } from "../store.js";
@@ -26,6 +26,7 @@ export const ASSET_TYPES = {
   deposito: "Deposito",
   gold: "Emas",
   crypto: "Crypto",
+  bond: "Obligasi / SBN",
   capex: "CAPEX (Barang Susut)",
   other: "Lainnya",
 };
@@ -337,7 +338,11 @@ function renderProjectionChart(root, canvas, gridColor, milestone) {
 
 // ================= ASSETS =================
 function renderAssets(root) {
-  const all = state.assets.slice();
+  // Bond yang udah redeemed (TASK-4) "hilang dari asset aktif" (pola diminta) — TETAP ada di
+  // Firestore (jejak riwayat, lihat calc.js bullet Bond), cuma difilter dari list/filter-dropdown/
+  // summary tab ini. Nilai net worth-nya sendiri udah 0 otomatis (bondValueIDR), jadi filter di
+  // sini murni declutter tampilan, BUKAN yang bikin net worth benar.
+  const all = state.assets.filter((a) => !(a.type === "bond" && a.redeemed === true));
   const typesPresent = [...new Set(all.map((a) => a.type))];
   const rows = assetFilter ? all.filter((a) => a.type === assetFilter) : all;
   const filteredTotal = rows.reduce((s, a) => s + assetValueIDR(a), 0);
@@ -423,6 +428,7 @@ function assetRow(a) {
   const pnl = val - cost;
   const pnlPct = cost > 0 ? (pnl / cost) * 100 : 0;
   const isCapex = a.type === "capex";
+  const isBond = a.type === "bond";
   // Jumlah unit ikut blur mode juga (bukan cuma nilai Rp) — "berapa lot/lembar yang gue punya"
   // sama sensitifnya buat disembunyiin pas layar keliatan orang lain. blurNum() manual di sini
   // karena ini bukan lewat fmtIDR/fmtUSD (lihat CLAUDE.md bullet blur mode).
@@ -431,12 +437,26 @@ function assetRow(a) {
   const qtyLabel = `${blurNum(qtyNum)}${qtySuffix}`;
   const srcLabel = a.manualOnly === true ? "🔒 manual"
     : a.priceSource ? `⚡ ${a.priceSource}` : "manual";
-  const metaLine = isCapex
-    ? `Beli ${fmtMoney(a.avgBuyPrice, a.currency)} · susut ${(Number(a.depreciationPctMonth || 0) * 100).toFixed(1)}%/bln`
-    : `${qtyLabel} · avg ${fmtMoney(a.avgBuyPrice, a.currency)}`;
-  const staleLine = isCapex
-    ? `nilai sekarang ${fmtMoney(capexLocalValue(a), a.currency)} per ${todayStr()} · beli ${a.purchaseDate || "?"}`
-    : `harga ${fmtMoney(a.manualPrice, a.currency)} per ${a.manualPriceUpdatedAt || "?"} · ${srcLabel}`;
+  let metaLine, staleLine;
+  if (isCapex) {
+    metaLine = `Beli ${fmtMoney(a.avgBuyPrice, a.currency)} · susut ${(Number(a.depreciationPctMonth || 0) * 100).toFixed(1)}%/bln`;
+    staleLine = `nilai sekarang ${fmtMoney(capexLocalValue(a), a.currency)} per ${todayStr()} · beli ${a.purchaseDate || "?"}`;
+  } else if (isBond) {
+    // Bond (TASK-4): meta = pokok + kupon% (info doang, ga dihitung otomatis). Stale line = hitung
+    // mundur ke maturity — badge ⚠️ kalau udah lewat tapi belum di-redeem (redeemed bond sendiri
+    // udah difilter dari list ini, lihat renderAssets()).
+    const ratePct = (Number(a.couponRatePA) || 0) * 100;
+    const period = Math.max(1, Number(a.couponPeriodMonths) || 1);
+    metaLine = `Pokok ${fmtMoney(a.principal, a.currency)}${ratePct > 0 ? ` · kupon ${ratePct.toFixed(1)}%/th tiap ${period} bln` : ""}`;
+    const isPastMaturity = a.maturityDate && a.maturityDate <= todayStr();
+    const monthsLeft = a.maturityDate ? monthsBetween(currentMonth(), a.maturityDate.slice(0, 7)) : null;
+    staleLine = isPastMaturity
+      ? `⚠️ Jatuh tempo ${a.maturityDate} — cairkan pokok`
+      : `jatuh tempo ${a.maturityDate || "?"}${monthsLeft !== null ? ` · ${monthsLeft} bln lagi` : ""}`;
+  } else {
+    metaLine = `${qtyLabel} · avg ${fmtMoney(a.avgBuyPrice, a.currency)}`;
+    staleLine = `harga ${fmtMoney(a.manualPrice, a.currency)} per ${a.manualPriceUpdatedAt || "?"} · ${srcLabel}`;
+  }
   const div = document.createElement("div");
   div.className = "asset-item";
   div.innerHTML = `
@@ -457,7 +477,10 @@ export function openAssetSheet(existing, contentRoot) {
   const a = existing || {
     type: assetFilter || "stock_id", symbol: "", name: "", quantity: "", avgBuyPrice: "",
     currency: "IDR", manualPrice: "", purchaseDate: todayStr(), depreciationPctMonth: "",
+    principal: "", couponRatePA: "", couponPeriodMonths: 1, maturityDate: "",
+    couponAccountId: "", maturityAccountId: "",
   };
+  const accountsForBond = activeAccounts();
 
   const el = openSheet(`
     ${sheetHead(existing ? "Edit Asset" : "Tambah Asset")}
@@ -466,7 +489,7 @@ export function openAssetSheet(existing, contentRoot) {
       ${Object.entries(ASSET_TYPES).map(([k, v]) => `<option value="${k}" ${k === a.type ? "selected" : ""}>${v}</option>`).join("")}
     </select>
     <div class="row">
-      <div id="a-symbol-wrap"><label>Symbol / Kode</label><input id="a-symbol" placeholder="BBCA / VOO" value="${escapeHtml(a.symbol || "")}" /></div>
+      <div id="a-symbol-wrap"><label id="a-symbol-label">Symbol / Kode</label><input id="a-symbol" placeholder="BBCA / VOO" value="${escapeHtml(a.symbol || "")}" /></div>
       <div><label id="a-name-label">Nama (opsional)</label><input id="a-name" placeholder="Bank Central Asia" value="${escapeHtml(a.name || "")}" /></div>
     </div>
     <div class="row" id="a-qty-row">
@@ -479,15 +502,34 @@ export function openAssetSheet(existing, contentRoot) {
       </div>
     </div>
     <div class="row">
-      <div><label id="a-avg-label">Avg Buy / unit</label><input id="a-avg" inputmode="decimal" placeholder="6710" value="${a.avgBuyPrice ?? ""}" /></div>
-      <div id="a-price-wrap"><label>Harga sekarang / unit</label><input id="a-price" inputmode="decimal" placeholder="6175" value="${a.manualPrice ?? ""}" /></div>
+      <div id="a-avg-wrap"><label id="a-avg-label">Avg Buy / unit</label><input id="a-avg" inputmode="decimal" placeholder="6710" value="${a.avgBuyPrice ?? ""}" /></div>
+      <div id="a-price-wrap"><label id="a-price-label">Harga sekarang / unit</label><input id="a-price" inputmode="decimal" placeholder="6175" value="${a.manualPrice ?? ""}" /></div>
     </div>
     <div class="row hidden" id="a-capex-row">
       <div><label>Tanggal Beli</label><input id="a-purchase-date" type="date" value="${a.purchaseDate || todayStr()}" /></div>
       <div><label>Susut / bulan (%)</label><input id="a-deprec-pct" type="number" inputmode="decimal" step="0.1" min="0" max="100" placeholder="2" value="${a.depreciationPctMonth ? (Number(a.depreciationPctMonth) * 100) : ""}" /></div>
     </div>
+    <div class="row hidden" id="a-bond-row1">
+      <div><label>Nilai Pokok / Principal (Rp)</label><input id="a-bond-principal" inputmode="numeric" placeholder="5.000.000" value="${a.principal ? fmtNum(a.principal) : ""}" /></div>
+      <div><label>Tanggal Jatuh Tempo</label><input id="a-bond-maturity" type="date" value="${a.maturityDate || ""}" /></div>
+    </div>
+    <div class="row hidden" id="a-bond-row2">
+      <div><label>Kupon %/tahun</label><input id="a-bond-rate" type="number" inputmode="decimal" step="0.1" min="0" max="100" placeholder="6.9" value="${a.couponRatePA ? (Number(a.couponRatePA) * 100) : ""}" /></div>
+      <div><label>Periode Kupon (bulan)</label><input id="a-bond-period" type="number" inputmode="numeric" min="1" placeholder="1" value="${a.couponPeriodMonths || 1}" /></div>
+    </div>
+    <div class="row hidden" id="a-bond-row3">
+      <div><label>Tanggal Terbit/Beli</label><input id="a-bond-issue" type="date" value="${a.purchaseDate || todayStr()}" /></div>
+      <div><label>Akun Kupon</label>
+        <select id="a-bond-coupon-acct">${accountsForBond.map((acc) => `<option value="${acc.id}" ${acc.id === a.couponAccountId ? "selected" : ""}>${escapeHtml(acc.name)}</option>`).join("")}</select>
+      </div>
+    </div>
+    <div class="hidden" id="a-bond-row4" style="margin-top:12px">
+      <label>Akun Jatuh Tempo (tujuan pokok)</label>
+      <select id="a-bond-maturity-acct">${accountsForBond.map((acc) => `<option value="${acc.id}" ${acc.id === a.maturityAccountId ? "selected" : ""}>${escapeHtml(acc.name)}</option>`).join("")}</select>
+    </div>
     <div class="sub" id="a-hint-normal">💡 Saham IDX: jumlah dalam <b>lot</b> (1 lot = 100 lembar), harga per <b>lembar</b>. US: jumlah dalam shares (boleh desimal), harga per share USD. Crypto: symbol umum (BTC, ETH, SOL...) atau CoinGecko ID.</div>
     <div class="sub hidden" id="a-hint-capex">📉 Nilai dihitung OTOMATIS tiap bulan: Harga Beli × (1 − susut%)<sup>bulan sejak Tanggal Beli</sup> — ga perlu update manual. Toggle "sertakan di Net Worth" ada di Setting.</div>
+    <div class="sub hidden" id="a-hint-bond">📋 Nilai default = par (pokok 100%) — isi "Harga sekarang/unit" di atas cuma kalau mau override pakai harga pasar sekunder (opsional). Kupon TIDAK dihitung otomatis, pakai tombol "💰 Catat Kupon Masuk" di bawah pas kupon beneran cair. Pokok balik 100% saat jatuh tempo lewat "🏁 Cairkan Pokok".</div>
     <label id="a-manual-wrap" style="margin-top:12px; font-size:12px; text-transform:none; letter-spacing:0; color:var(--muted2)">
       <input type="checkbox" id="a-manual-only" style="width:auto" ${a.manualOnly === true ? "checked" : ""}/>
       🔒 Harga manual saja (skip auto-refresh)
@@ -497,6 +539,11 @@ export function openAssetSheet(existing, contentRoot) {
       <button id="a-buy" class="btn" style="flex:1">💰 Catat Pembelian</button>
       <button id="a-sell" class="btn" style="flex:1">💸 Catat Penjualan</button>
     </div>
+    <div id="a-bond-buttons" style="margin-top:14px; display:none; gap:8px;">
+      <button id="a-bond-coupon" class="btn" style="flex:1">💰 Catat Kupon Masuk</button>
+      <button id="a-bond-redeem" class="btn" style="flex:1">🏁 Cairkan Pokok</button>
+    </div>
+    ${existing && existing.type === "bond" && existing.redeemed === true ? `<div class="sub" style="margin-top:10px">✅ Pokok obligasi ini udah dicairkan (redeemed) — ga lagi kehitung sebagai asset aktif.</div>` : ""}
     <div style="margin-top:18px; display:flex; gap:8px;">
       ${existing ? `<button id="a-delete" class="btn btn-danger">Hapus</button>` : ""}
       <button id="a-save" class="btn btn-primary" style="flex:1">Simpan</button>
@@ -509,28 +556,43 @@ export function openAssetSheet(existing, contentRoot) {
     crypto: "⚡ Auto price via CoinGecko — gratis, ga butuh API key.",
   };
 
+  attachThousands(el.querySelector("#a-bond-principal"));
+
   const typeSel = el.querySelector("#a-type");
   const curSel = el.querySelector("#a-currency");
   const qtyLabel = el.querySelector("#a-qty-label");
   const syncType = () => {
     const t = typeSel.value;
     const isCapexType = t === "capex";
+    const isBondType = t === "bond";
     qtyLabel.textContent = t === "stock_id" ? "Jumlah (lot)" : "Jumlah";
     if (t === "stock_id") curSel.value = "IDR";
     if (t === "stock_us") curSel.value = "USD";
+    if (isBondType) curSel.value = "IDR"; // SBN Ritel selalu IDR
     const isAuto = !!AUTO_HINTS[t];
     el.querySelector("#a-auto-hint").textContent = AUTO_HINTS[t] || "";
     el.querySelector("#a-manual-wrap").classList.toggle("hidden", !isAuto);
 
+    // Symbol field DIREUSE jadi "Series Name" buat bond (mis. "ORI030T3") — bukan field baru,
+    // biar `a.symbol || a.name` yang udah dipakai di mana-mana (assetRow, goal-link list,
+    // snapshot) otomatis jalan tanpa kode baru.
     el.querySelector("#a-symbol-wrap").classList.toggle("hidden", isCapexType);
+    el.querySelector("#a-symbol-label").textContent = isBondType ? "Series Name" : "Symbol / Kode";
+    el.querySelector("#a-symbol").placeholder = isBondType ? "ORI030T3" : "BBCA / VOO";
     el.querySelector("#a-name-label").textContent = isCapexType ? "Nama Barang" : "Nama (opsional)";
-    el.querySelector("#a-qty-row").classList.toggle("hidden", isCapexType);
+    el.querySelector("#a-qty-row").classList.toggle("hidden", isCapexType || isBondType);
+    el.querySelector("#a-avg-wrap").classList.toggle("hidden", isBondType);
     el.querySelector("#a-price-wrap").classList.toggle("hidden", isCapexType);
+    el.querySelector("#a-price-label").textContent = isBondType ? "Harga pasar sekunder (opsional)" : "Harga sekarang / unit";
     el.querySelector("#a-capex-row").classList.toggle("hidden", !isCapexType);
-    el.querySelector("#a-hint-normal").classList.toggle("hidden", isCapexType);
+    ["a-bond-row1", "a-bond-row2", "a-bond-row3", "a-bond-row4"].forEach((id) =>
+      el.querySelector(`#${id}`).classList.toggle("hidden", !isBondType));
+    el.querySelector("#a-hint-normal").classList.toggle("hidden", isCapexType || isBondType);
     el.querySelector("#a-hint-capex").classList.toggle("hidden", !isCapexType);
+    el.querySelector("#a-hint-bond").classList.toggle("hidden", !isBondType);
     el.querySelector("#a-avg-label").textContent = isCapexType ? "Harga Beli" : "Avg Buy / unit";
-    el.querySelector("#a-trade-buttons").style.display = (existing && !isCapexType) ? "flex" : "none";
+    el.querySelector("#a-trade-buttons").style.display = (existing && !isCapexType && !isBondType) ? "flex" : "none";
+    el.querySelector("#a-bond-buttons").style.display = (existing && isBondType && existing.redeemed !== true) ? "flex" : "none";
   };
   typeSel.onchange = syncType;
   syncType();
@@ -541,18 +603,32 @@ export function openAssetSheet(existing, contentRoot) {
   el.querySelector("#a-save").onclick = async () => {
     const parseDec = (v) => parseFloat(String(v).replace(",", ".")) || 0;
     const isCapexNow = typeSel.value === "capex";
+    const isBondNow = typeSel.value === "bond";
     const data = {
       type: typeSel.value,
+      // Symbol DIPAKAI juga buat "Series Name" bond (relabeled di syncType) — cuma capex yang
+      // ga punya symbol sama sekali.
       symbol: isCapexNow ? "" : el.querySelector("#a-symbol").value.trim().toUpperCase(),
       name: el.querySelector("#a-name").value.trim(),
-      quantity: isCapexNow ? 1 : parseDec(el.querySelector("#a-qty").value),
-      avgBuyPrice: parseDec(el.querySelector("#a-avg").value),
+      quantity: (isCapexNow || isBondNow) ? 1 : parseDec(el.querySelector("#a-qty").value),
+      avgBuyPrice: isBondNow ? 0 : parseDec(el.querySelector("#a-avg").value),
       currency: curSel.value,
     };
     if (isCapexNow) {
       data.purchaseDate = el.querySelector("#a-purchase-date").value || todayStr();
       const pct = parseDec(el.querySelector("#a-deprec-pct").value);
       data.depreciationPctMonth = Math.max(0, Math.min(100, pct)) / 100;
+    } else if (isBondNow) {
+      data.principal = parseAmount(el.querySelector("#a-bond-principal").value);
+      data.maturityDate = el.querySelector("#a-bond-maturity").value || "";
+      data.couponRatePA = Math.max(0, Math.min(100, parseDec(el.querySelector("#a-bond-rate").value))) / 100;
+      data.couponPeriodMonths = Math.max(1, parseInt(el.querySelector("#a-bond-period").value) || 1);
+      data.purchaseDate = el.querySelector("#a-bond-issue").value || todayStr();
+      data.couponAccountId = el.querySelector("#a-bond-coupon-acct").value || null;
+      data.maturityAccountId = el.querySelector("#a-bond-maturity-acct").value || null;
+      data.manualPrice = parseDec(el.querySelector("#a-price").value); // opsional, harga pasar sekunder
+      // `redeemed` SENGAJA GA disentuh di sini — cuma openBondRedeemSheet() (set true) & reversal
+      // hapus transaksi redeem (db.js applyAssetQtyEffect, set false) yang boleh ubah field ini.
     } else {
       data.manualPrice = parseDec(el.querySelector("#a-price").value);
       data.manualOnly = el.querySelector("#a-manual-only").checked;
@@ -563,8 +639,10 @@ export function openAssetSheet(existing, contentRoot) {
       }
     }
     if (!data.symbol && !data.name) return toast("Isi symbol atau nama");
-    if (!data.quantity) return toast("Isi jumlah");
+    if (!isBondNow && !data.quantity) return toast("Isi jumlah");
     if (isCapexNow && !data.avgBuyPrice) return toast("Isi harga beli");
+    if (isBondNow && !data.principal) return toast("Isi nilai pokok/principal");
+    if (isBondNow && !data.maturityDate) return toast("Isi tanggal jatuh tempo");
     closeSheet();
     if (existing) await patch("assets", existing.id, data);
     else await add("assets", data);
@@ -574,6 +652,8 @@ export function openAssetSheet(existing, contentRoot) {
   if (existing) {
     el.querySelector("#a-buy").onclick = () => openAssetBuySheet(existing);
     el.querySelector("#a-sell").onclick = () => openAssetSellSheet(existing);
+    el.querySelector("#a-bond-coupon").onclick = () => openBondCouponSheet(existing);
+    el.querySelector("#a-bond-redeem").onclick = () => openBondRedeemSheet(existing);
     el.querySelector("#a-delete").onclick = async () => {
       const used = state.transactions.some((t) => t.assetId === existing.id);
       if (used) return toast("Asset ini punya riwayat pembelian/penjualan — beresin transaksinya di History dulu, baru hapus asset-nya");
@@ -585,6 +665,145 @@ export function openAssetSheet(existing, contentRoot) {
       toast("Dihapus");
     };
   }
+}
+
+// ================= Bond / SBN Ritel — Kupon & Pencairan Pokok (TASK-4) =================
+// Dua aksi TERPISAH (dua peristiwa finansial beda, lihat calc.js bullet Bond):
+// 1. "Catat Kupon Masuk" — transaksi income BIASA, TANPA assetId (beda dari beli/jual/redeem
+//    yang emang perlu dilacak balik ke asset-nya — kupon TIDAK, "Ini transaksi income BIASA...
+//    bukan mekanisme baru" per spec) — kupon TIDAK dihitung otomatis (keputusan owner, lihat
+//    DECISIONS.md kenapa: pajak PPh final 10%, pembulatan, timing mutasi RDN beda-beda). Sheet
+//    ini cuma PRE-FILL akun/kategori/tanggal + estimasi informatif (`bondNextCouponHint`), user
+//    tetap input/koreksi manual nominal aktualnya.
+// 2. "Cairkan Pokok" — transfer ber-`assetId`+`assetDir:"redeem"` (arah BARU, beda dari "sell":
+//    ga nge-adjust `quantity`/qty-tracking — bond ga pakai itu — efeknya flag `redeemed`, di-set
+//    manual DI SINI pas create (pola sama openAssetTradeSheet nulis quantity-nya sendiri, BUKAN
+//    via hook), reversal-nya (hapus transaksi) lewat db.js `applyAssetQtyEffect()` yang di-extend
+//    khusus buat arah "redeem" ini — balikin `redeemed:false`, bukan qty).
+function openBondCouponSheet(asset) {
+  const accounts = activeAccounts();
+  if (accounts.length === 0) {
+    toast("Buat akun dulu di Settings ⚙️");
+    location.hash = "#/settings";
+    return;
+  }
+  const defaultAcctId = asset.couponAccountId && accounts.some((a) => a.id === asset.couponAccountId)
+    ? asset.couponAccountId : accounts[0].id;
+  const hint = bondNextCouponHint(asset);
+
+  const el = openSheet(`
+    ${sheetHead(`Catat Kupon: ${escapeHtml(asset.symbol || asset.name)}`)}
+    ${hint ? `<div class="sub" style="margin-bottom:10px">💡 Estimasi kupon berikutnya ${hint.nextDate}: ≈ ${fmtIDR(hint.estAmount)} (perkiraan SEBELUM pajak, BUKAN nominal final — isi nominal aktual di bawah).</div>` : ""}
+    <input id="bc-amount" class="amount-input" inputmode="numeric" placeholder="0" autocomplete="off" />
+    <label>Ke Akun</label>
+    <select id="bc-account">
+      ${accounts.map((a) => `<option value="${a.id}" ${a.id === defaultAcctId ? "selected" : ""}>${escapeHtml(a.name)} (${a.currency})</option>`).join("")}
+    </select>
+    <label>Tanggal</label>
+    <input id="bc-date" type="date" value="${todayStr()}" />
+    <label>Catatan (opsional)</label>
+    <input id="bc-note" type="text" value="Kupon ${escapeHtml(asset.symbol || asset.name)}" />
+    <button id="bc-save" class="btn btn-primary btn-block" style="margin-top:18px">Simpan</button>
+  `);
+  const amountInput = el.querySelector("#bc-amount");
+  attachThousands(amountInput);
+  setTimeout(() => amountInput.focus(), 250);
+  el.querySelector("[data-close]").onclick = closeSheet;
+
+  el.querySelector("#bc-save").onclick = async () => {
+    const amount = parseAmount(amountInput.value);
+    const accountId = el.querySelector("#bc-account").value;
+    const date = el.querySelector("#bc-date").value;
+    const note = el.querySelector("#bc-note").value.trim();
+    if (!amount || amount <= 0) return toast("Isi nominal kupon");
+    if (!date) return toast("Tanggal belum diisi");
+    closeSheet();
+    // categoryId "cat_bunga" ("Bunga & Dividen") — preset category, udah ada dari seedIfNeeded()
+    // sejak awal, ga perlu ensurePresetCategories() baru.
+    await add("transactions", {
+      type: "income", amount, date, month: monthOf(date),
+      accountId, categoryId: "cat_bunga",
+      note: note || `Kupon ${asset.symbol || asset.name}`,
+    });
+    toast("Kupon tercatat ✓");
+  };
+}
+
+// Export — dipakai home.js `openTxDetail()` buat routing transaksi ber-`assetDir:"redeem"`.
+export function openBondRedeemSheet(asset, existingTx = null) {
+  if (existingTx) {
+    const acct = state.accounts.find((a) => a.id === existingTx.accountId);
+    const el = openSheet(`
+      ${sheetHead("Detail Pencairan Pokok")}
+      <div class="sub" style="margin-bottom:10px">Pencairan pokok obligasi ga bisa diedit langsung — hapus transaksi ini kalau salah catat (bond bakal balik status "belum dicairkan").</div>
+      <div class="table-like">
+        <div style="display:flex; justify-content:space-between; padding:6px 0"><span class="sub">Bond</span><span>${escapeHtml(asset.symbol || asset.name)}</span></div>
+        <div style="display:flex; justify-content:space-between; padding:6px 0"><span class="sub">Pokok Cair</span><span>${fmtMoney(existingTx.amount, acct?.currency)}</span></div>
+        <div style="display:flex; justify-content:space-between; padding:6px 0"><span class="sub">Ke Akun</span><span>${escapeHtml(acct?.name || "?")}</span></div>
+        <div style="display:flex; justify-content:space-between; padding:6px 0"><span class="sub">Tanggal</span><span>${existingTx.date}</span></div>
+      </div>
+      <button id="br-delete" class="btn btn-danger btn-block" style="margin-top:18px">Hapus &amp; Batalkan Pencairan</button>
+    `);
+    el.querySelector("[data-close]").onclick = closeSheet;
+    el.querySelector("#br-delete").onclick = async () => {
+      if (!confirmDialog("Batalkan pencairan pokok ini? Bond bakal aktif lagi (status belum dicairkan).")) return;
+      closeSheet();
+      // Reversal flag `redeemed` DIPUSATKAN di db.js remove() (hook applyAssetQtyEffect, pola
+      // sama reversal quantity buy/sell) — bukan manual di sini.
+      await remove("transactions", existingTx.id);
+      toast("Pencairan dibatalkan, bond aktif lagi");
+    };
+    return;
+  }
+
+  const accounts = activeAccounts();
+  if (accounts.length === 0) {
+    toast("Buat akun dulu di Settings ⚙️");
+    location.hash = "#/settings";
+    return;
+  }
+  const principal = Number(asset.principal) || 0;
+  const defaultAcctId = asset.maturityAccountId && accounts.some((a) => a.id === asset.maturityAccountId)
+    ? asset.maturityAccountId : accounts[0].id;
+  const isPastMaturity = asset.maturityDate && asset.maturityDate <= todayStr();
+
+  const el = openSheet(`
+    ${sheetHead(`Cairkan Pokok: ${escapeHtml(asset.symbol || asset.name)}`)}
+    ${!isPastMaturity ? `<div class="sub" style="margin-bottom:10px">⚠️ Belum jatuh tempo (${asset.maturityDate || "?"}) — pastiin emang mau cairkan lebih awal.</div>` : ""}
+    <label>Nominal Pokok (Rp)</label>
+    <input id="br-amount" class="amount-input" inputmode="numeric" value="${fmtNum(principal)}" autocomplete="off" />
+    <label>Ke Akun</label>
+    <select id="br-account">
+      ${accounts.map((a) => `<option value="${a.id}" ${a.id === defaultAcctId ? "selected" : ""}>${escapeHtml(a.name)} (${a.currency})</option>`).join("")}
+    </select>
+    <label>Tanggal</label>
+    <input id="br-date" type="date" value="${isPastMaturity ? todayStr() : (asset.maturityDate || todayStr())}" />
+    <label>Catatan (opsional)</label>
+    <input id="br-note" type="text" placeholder="cth: jatuh tempo" />
+    <button id="br-save" class="btn btn-primary btn-block" style="margin-top:18px">Konfirmasi Cairkan Pokok</button>
+  `);
+  const amountInput = el.querySelector("#br-amount");
+  attachThousands(amountInput);
+  el.querySelector("[data-close]").onclick = closeSheet;
+
+  el.querySelector("#br-save").onclick = async () => {
+    const amount = parseAmount(amountInput.value);
+    const accountId = el.querySelector("#br-account").value;
+    const date = el.querySelector("#br-date").value;
+    const note = el.querySelector("#br-note").value.trim();
+    if (!amount || amount <= 0) return toast("Isi nominal pokok");
+    if (!date) return toast("Tanggal belum diisi");
+    if (!confirmDialog(`Cairkan pokok Rp ${fmtNum(amount)} obligasi ini? Bond bakal ditandai selesai (redeemed), ga lagi kehitung sebagai asset aktif.`)) return;
+    closeSheet();
+    await patch("assets", asset.id, { redeemed: true });
+    await add("transactions", {
+      type: "transfer", amount, date, month: monthOf(date),
+      accountId, toAccountId: null, categoryId: null,
+      assetId: asset.id, assetDir: "redeem",
+      note: note || `Cairkan pokok ${asset.symbol || asset.name}`,
+    });
+    toast("Pokok obligasi dicairkan ✓");
+  };
 }
 
 // ================= Catat Pembelian / Penjualan (TASK-3) =================

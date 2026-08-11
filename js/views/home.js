@@ -9,7 +9,7 @@ import {
 } from "../utils.js";
 import { openTxSheet } from "../tx-sheet.js";
 import { openTopupSheet, openWithdrawSheet, goalDisplayStats } from "./goals.js";
-import { openAssetBuySheet, openAssetSellSheet } from "./wealth.js";
+import { openAssetBuySheet, openAssetSellSheet, openBondRedeemSheet } from "./wealth.js";
 
 // Filter periode Home — persist selama sesi (module-level, bukan di store global)
 const period = { mode: "month", from: null, to: null };
@@ -259,7 +259,10 @@ export function openTxDetail(t) {
   const goalId = t.toGoalId || t.fromGoalId;
   const goal = goalId ? state.goals.find((g) => g.id === goalId) : null;
   const asset = t.assetId ? state.assets.find((a) => a.id === t.assetId) : null;
-  if (asset) { t.assetDir === "sell" ? openAssetSellSheet(asset, t) : openAssetBuySheet(asset, t); }
+  // assetDir "redeem" (TASK-4, bond) — BEDA sheet dari beli/jual biasa (pencairan pokok, bukan
+  // trade), lihat wealth.js openBondRedeemSheet().
+  if (asset && t.assetDir === "redeem") openBondRedeemSheet(asset, t);
+  else if (asset) { t.assetDir === "sell" ? openAssetSellSheet(asset, t) : openAssetBuySheet(asset, t); }
   else if (goal && t.fromGoalId) openWithdrawSheet(goal, t);
   else if (goal) openTopupSheet(goal, t);
   else openTxSheet(t);
@@ -271,6 +274,10 @@ export function txRow(t) {
   const goal = goalId ? state.goals.find((g) => g.id === goalId) : null;
   const asset = t.assetId ? state.assets.find((a) => a.id === t.assetId) : null;
   const isSell = t.assetDir === "sell";
+  // "redeem" (TASK-4, bond) — pencairan pokok, BUKAN jual biasa (beda label/icon), tapi arah
+  // arus kasnya SAMA kayak sell (asset -> akun, bukan akun -> asset kayak "buy").
+  const isRedeem = t.assetDir === "redeem";
+  const assetInflow = isSell || isRedeem;
   const cat = t.type === "transfer" ? null : catById(t.categoryId);
   const acct = acctById(t.accountId);
   const toAcct = t.toAccountId ? acctById(t.toAccountId) : null;
@@ -278,10 +285,10 @@ export function txRow(t) {
   div.className = "tx-item";
   const sign = t.type === "expense" ? "−" : t.type === "income" ? "+" : "⇄";
   div.innerHTML = `
-    <div class="tx-ic">${asset ? "📈" : goal ? "🎯" : t.type === "transfer" ? "🔁" : (cat?.icon || "📦")}</div>
+    <div class="tx-ic">${asset ? (isRedeem ? "🏁" : "📈") : goal ? "🎯" : t.type === "transfer" ? "🔁" : (cat?.icon || "📦")}</div>
     <div class="tx-main">
       <div class="tx-cat">${asset
-        ? `${isSell ? "Jual" : "Beli"}: ${escapeHtml(asset.symbol || asset.name)}`
+        ? `${isRedeem ? "Cairkan Pokok" : isSell ? "Jual" : "Beli"}: ${escapeHtml(asset.symbol || asset.name)}`
         : goal
         ? `${isWithdraw ? "Pencairan" : "Topup"}: ${escapeHtml(goal.name)}`
         : t.type === "transfer" ? `Transfer` : escapeHtml(cat?.name || "—")}</div>
@@ -290,7 +297,7 @@ export function txRow(t) {
     <div>
       <div class="tx-amt ${t.type}">${sign} ${fmtMoney(t.amount, acct?.currency)}</div>
       <div class="tx-acct">${asset
-        ? (isSell ? `📈 ${escapeHtml(asset.symbol || asset.name)} → ${escapeHtml(acct?.name || "?")}` : `${escapeHtml(acct?.name || "?")} → 📈 ${escapeHtml(asset.symbol || asset.name)}`)
+        ? (assetInflow ? `📈 ${escapeHtml(asset.symbol || asset.name)} → ${escapeHtml(acct?.name || "?")}` : `${escapeHtml(acct?.name || "?")} → 📈 ${escapeHtml(asset.symbol || asset.name)}`)
         : isWithdraw
         ? `🎯 ${escapeHtml(goal?.name || "?")} → ${escapeHtml(acct?.name || "?")}`
         : `${escapeHtml(acct?.name || "?")}${toAcct ? ` → ${escapeHtml(toAcct.name)}` : ""}${goal ? ` → 🎯 ${escapeHtml(goal.name)}` : ""}`}</div>
