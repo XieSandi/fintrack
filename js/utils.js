@@ -71,6 +71,20 @@ export const todayStr = () => toDateStr(new Date());
 export const monthOf = (dateStr) => dateStr.slice(0, 7);
 export const currentMonth = () => todayStr().slice(0, 7);
 
+// Jam SEKARANG "HH:MM" (local time, pola sama todayStr/toDateStr — JANGAN toISOString()).
+// Dipakai buat default field `time` transaksi BARU (TASK-5) — user bisa ubah manual.
+export const nowTimeStr = () => {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
+// Fallback `time` buat transaksi yang belum punya field ini — data lama pra-fitur TASK-5, ATAU
+// jalur tulis transaksi yang sengaja ga punya time picker sendiri (reconcile, dll). Dianggap
+// paling awal hari itu (00:01), BUKAN "sekarang" — biar transaksi baru yang beneran dicatat hari
+// yang sama SELALU muncul di atas data lama pas di-sort (lihat calc.js compareTxDateTime()).
+export const DEFAULT_TX_TIME = "00:01";
+
 // Jumlah hari di suatu bulan (month 1-indexed, kayak dayOfMonth di mana-mana).
 // Dipakai buat clamp dayOfMonth template recurring (tgl 31 di bulan 30 hari, dst).
 export const daysInMonth = (year, month) => new Date(year, month, 0).getDate();

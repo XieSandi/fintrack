@@ -693,5 +693,39 @@ function makeState() {
   assertEqual(calc.netWorthIDR(archived, "2026-01"), calc.netWorthIDR(notArchived, "2026-01"), "goal arsip: netWorthIDR() sama persis terlepas isArchived");
 }
 
+// ================= compareTxDateTime (TASK-5: jam transaksi + sort) =================
+{
+  // Tanggal beda -> menang tanggal lebih baru (desc), terlepas time-nya.
+  const a = { date: "2026-08-10", time: "08:00" };
+  const b = { date: "2026-08-09", time: "23:59" };
+  assertEqual(calc.compareTxDateTime(a, b) < 0, true, "compareTxDateTime: tanggal lebih baru menang walau time lebih pagi");
+}
+{
+  // Tanggal sama -> tie-break by time, lebih malam (lebih baru) menang.
+  const a = { date: "2026-08-10", time: "14:30" };
+  const b = { date: "2026-08-10", time: "09:00" };
+  assertEqual(calc.compareTxDateTime(a, b) < 0, true, "compareTxDateTime: tanggal sama, time lebih besar (lebih baru) menang");
+  assertEqual(calc.compareTxDateTime(b, a) > 0, true, "compareTxDateTime: simetris (b vs a kebalikannya)");
+}
+{
+  // Transaksi tanpa `time` (data lama) fallback ke 00:01 -> KALAH dari transaksi hari yang
+  // sama yang punya time beneran (biar entry baru ga ketiban ke bawah data lama yang belum
+  // di-migrasi).
+  const noTime = { date: "2026-08-10" };
+  const withTime = { date: "2026-08-10", time: "07:00" };
+  assertEqual(calc.compareTxDateTime(withTime, noTime) < 0, true, "compareTxDateTime: entry ber-time (07:00) menang dari entry tanpa time (fallback 00:01)");
+}
+{
+  // Sort array desc (terbaru dulu) end-to-end.
+  const list = [
+    { id: "old-no-time", date: "2026-08-09" },
+    { id: "aug10-morning", date: "2026-08-10", time: "07:00" },
+    { id: "aug10-evening", date: "2026-08-10", time: "20:15" },
+    { id: "aug11", date: "2026-08-11", time: "00:01" },
+  ];
+  const sorted = list.slice().sort(calc.compareTxDateTime).map((t) => t.id);
+  assertEqual(sorted.join(","), "aug11,aug10-evening,aug10-morning,old-no-time", "compareTxDateTime: sort desc end-to-end (tanggal dulu, time tie-break, no-time paling bawah)");
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

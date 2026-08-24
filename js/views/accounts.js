@@ -2,7 +2,7 @@ import { state, accountBalances, activeAccounts, isCreditAccount, creditUsed, cr
 import { add, patch, remove, upsertSnapshot } from "../db.js";
 import {
   fmtNum, fmtMoney, blurNum, escapeHtml, toast, openSheet, closeSheet, sheetHead, confirmDialog,
-  attachThousands, parseAmount, todayStr, monthOf,
+  attachThousands, parseAmount, todayStr, monthOf, nowTimeStr, DEFAULT_TX_TIME,
 } from "../utils.js";
 
 export const ACCT_TYPES = { bank: "Bank", ewallet: "E-Wallet", cash: "Cash", rdn: "RDN Sekuritas", broker: "Broker (Bibit/Pluang)", credit: "Kartu Kredit" };
@@ -178,8 +178,10 @@ function openReconcileSheet(account) {
     <label>Saldo aktual sekarang</label>
     <input id="rc-actual" class="amount-input" inputmode="decimal" placeholder="0" autocomplete="off" />
     <div id="rc-diff" class="sub" style="margin-top:6px; min-height:14px"></div>
-    <label>Tanggal</label>
-    <input id="rc-date" type="date" value="${todayStr()}" />
+    <div class="row">
+      <div><label>Tanggal</label><input id="rc-date" type="date" value="${todayStr()}" /></div>
+      <div><label>Jam</label><input id="rc-time" type="time" value="${nowTimeStr()}" /></div>
+    </div>
     <label>Catatan (opsional)</label>
     <input id="rc-note" type="text" value="Reconcile saldo" />
     <button id="rc-save" class="btn btn-primary btn-block" style="margin-top:18px">Simpan Penyesuaian</button>
@@ -215,6 +217,7 @@ function openReconcileSheet(account) {
   el.querySelector("#rc-save").onclick = async () => {
     if (!actualInput.value) return toast("Isi saldo aktual dulu");
     const date = el.querySelector("#rc-date").value;
+    const time = el.querySelector("#rc-time").value || DEFAULT_TX_TIME;
     if (!date) return toast("Tanggal belum diisi");
     const note = el.querySelector("#rc-note").value.trim() || "Reconcile saldo";
     const diff = parseActual() - recorded;
@@ -228,7 +231,7 @@ function openReconcileSheet(account) {
     await add("transactions", {
       type: diff < 0 ? "expense" : "income",
       amount: Math.abs(diff),
-      date, month: monthOf(date),
+      date, time, month: monthOf(date),
       accountId: account.id,
       categoryId: diff < 0 ? "cat_adjust_out" : "cat_adjust_in",
       note,
@@ -260,8 +263,10 @@ function openPayCreditSheet(ccAccount) {
     <select id="pc-account">
       ${sources.map((a) => `<option value="${a.id}">${escapeHtml(a.name)} (${a.currency})</option>`).join("")}
     </select>
-    <label>Tanggal</label>
-    <input id="pc-date" type="date" value="${todayStr()}" />
+    <div class="row">
+      <div><label>Tanggal</label><input id="pc-date" type="date" value="${todayStr()}" /></div>
+      <div><label>Jam</label><input id="pc-time" type="time" value="${nowTimeStr()}" /></div>
+    </div>
     <div style="margin-top:18px; display:flex; gap:8px;">
       <button id="pc-save" class="btn btn-primary" style="flex:1">Simpan</button>
     </div>
@@ -276,6 +281,7 @@ function openPayCreditSheet(ccAccount) {
     const amount = parseAmount(amountInput.value);
     const accountId = el.querySelector("#pc-account").value;
     const date = el.querySelector("#pc-date").value;
+    const time = el.querySelector("#pc-time").value || DEFAULT_TX_TIME;
     if (!amount || amount <= 0) return toast("Isi nominal bayarnya dulu");
     if (!date) return toast("Tanggal belum diisi");
 
@@ -284,7 +290,7 @@ function openPayCreditSheet(ccAccount) {
 
     closeSheet();
     await add("transactions", {
-      type: "transfer", amount, date, month: monthOf(date),
+      type: "transfer", amount, date, time, month: monthOf(date),
       accountId, toAccountId: ccAccount.id,
       categoryId: null, note: `Bayar Tagihan: ${ccAccount.name}`,
     });

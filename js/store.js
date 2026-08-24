@@ -53,7 +53,14 @@ export function startListeners(uid) {
 
   track("accounts", query(col("accounts")));
   track("categories", query(col("categories")));
-  track("transactions", query(col("transactions"), orderBy("date", "desc")));
+  // orderBy("date","desc") dari Firestore doang ga cukup buat urutan final (ga tau soal `time`,
+  // dan sengaja ga di-orderBy dua field biar dokumen lama tanpa `time` ga ke-exclude query
+  // Firestore — field yang di-orderBy tapi ga ada di dokumen bikin dokumen itu HILANG dari
+  // hasil). Re-sort di client pakai compareTxDateTime() (calc.js, TASK-5) buat tie-break by time
+  // dalam tanggal yang sama, fallback 00:01 buat yang belum punya `time`.
+  track("transactions", query(col("transactions"), orderBy("date", "desc")), () => {
+    state.transactions.sort(calc.compareTxDateTime);
+  });
   track("budgets", query(col("budgets")));
   track("assets", query(col("assets")));
   track("debts", query(col("debts")));

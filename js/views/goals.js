@@ -3,6 +3,7 @@ import { add, patch, remove } from "../db.js";
 import {
   fmtIDR, fmtNum, fmtMoney, escapeHtml, toast, openSheet, closeSheet, sheetHead,
   parseAmount, attachThousands, confirmDialog, monthLabel, todayStr, monthOf,
+  nowTimeStr, DEFAULT_TX_TIME,
 } from "../utils.js";
 
 const COLORS = ["#60a5fa", "#4ade80", "#facc15", "#f87171", "#c084fc", "#fb923c", "#2dd4bf"];
@@ -175,6 +176,9 @@ export function openTopupSheet(goal, existingTx = null) {
     return;
   }
   const t = existingTx || { accountId: accounts[0].id, amount: "", date: todayStr(), note: "" };
+  // Baru -> default jam sekarang. Edit transaksi lama tanpa `time` (pra-TASK-5) -> 00:01, bukan
+  // "sekarang" (lihat utils.js DEFAULT_TX_TIME).
+  const timeValue = existingTx ? (existingTx.time || DEFAULT_TX_TIME) : nowTimeStr();
 
   const el = openSheet(`
     ${sheetHead(existingTx ? "Edit Topup" : `Topup: ${escapeHtml(goal.name)}`)}
@@ -184,8 +188,10 @@ export function openTopupSheet(goal, existingTx = null) {
     <select id="tp-account">
       ${accounts.map((a) => `<option value="${a.id}" ${a.id === t.accountId ? "selected" : ""}>${escapeHtml(a.name)} (${a.currency})</option>`).join("")}
     </select>
-    <label>Tanggal</label>
-    <input id="tp-date" type="date" value="${t.date || todayStr()}" />
+    <div class="row">
+      <div><label>Tanggal</label><input id="tp-date" type="date" value="${t.date || todayStr()}" /></div>
+      <div><label>Jam</label><input id="tp-time" type="time" value="${timeValue}" /></div>
+    </div>
     <label>Catatan (opsional)</label>
     <input id="tp-note" type="text" placeholder="cth: gajian bulan ini" value="${escapeHtml(t.note || "")}" />
     <div style="margin-top:18px; display:flex; gap:8px;">
@@ -201,13 +207,14 @@ export function openTopupSheet(goal, existingTx = null) {
   el.querySelector("#tp-save").onclick = async () => {
     const amount = parseAmount(amountInput.value);
     const date = el.querySelector("#tp-date").value;
+    const time = el.querySelector("#tp-time").value || DEFAULT_TX_TIME;
     const accountId = el.querySelector("#tp-account").value;
     const note = el.querySelector("#tp-note").value.trim();
     if (!amount || amount <= 0) return toast("Isi nominal topup");
     if (!date) return toast("Tanggal belum diisi");
 
     const data = {
-      type: "transfer", amount, date, month: monthOf(date),
+      type: "transfer", amount, date, time, month: monthOf(date),
       accountId, toAccountId: null, toGoalId: goal.id,
       categoryId: null, note: note || `Topup: ${goal.name}`,
     };
@@ -249,6 +256,7 @@ export function openWithdrawSheet(goal, existingTx = null) {
   if (!existingTx && availableIDR <= 0) return toast("Goal ini belum punya saldo buat dicairkan");
 
   const t = existingTx || { accountId: accounts[0].id, amount: "", date: todayStr(), note: "" };
+  const timeValue = existingTx ? (existingTx.time || DEFAULT_TX_TIME) : nowTimeStr();
 
   const el = openSheet(`
     ${sheetHead(existingTx ? "Edit Pencairan" : `Cairkan: ${escapeHtml(goal.name)}`)}
@@ -259,8 +267,10 @@ export function openWithdrawSheet(goal, existingTx = null) {
     <select id="wd-account">
       ${accounts.map((a) => `<option value="${a.id}" ${a.id === t.accountId ? "selected" : ""}>${escapeHtml(a.name)} (${a.currency})</option>`).join("")}
     </select>
-    <label>Tanggal</label>
-    <input id="wd-date" type="date" value="${t.date || todayStr()}" />
+    <div class="row">
+      <div><label>Tanggal</label><input id="wd-date" type="date" value="${t.date || todayStr()}" /></div>
+      <div><label>Jam</label><input id="wd-time" type="time" value="${timeValue}" /></div>
+    </div>
     <label>Catatan (opsional)</label>
     <input id="wd-note" type="text" placeholder="cth: butuh dana darurat" value="${escapeHtml(t.note || "")}" />
     <div style="margin-top:18px; display:flex; gap:8px;">
@@ -295,6 +305,7 @@ export function openWithdrawSheet(goal, existingTx = null) {
   el.querySelector("#wd-save").onclick = async () => {
     const amount = parseAmount(amountInput.value);
     const date = el.querySelector("#wd-date").value;
+    const time = el.querySelector("#wd-time").value || DEFAULT_TX_TIME;
     const accountId = acctSelect.value;
     const note = el.querySelector("#wd-note").value.trim();
     if (!amount || amount <= 0) return toast("Isi nominal pencairan");
@@ -302,7 +313,7 @@ export function openWithdrawSheet(goal, existingTx = null) {
     if (amount > maxInCurrency() + 0.5) return toast("Nominal ngelebihin saldo goal");
 
     const data = {
-      type: "transfer", amount, date, month: monthOf(date),
+      type: "transfer", amount, date, time, month: monthOf(date),
       accountId, toAccountId: null, fromGoalId: goal.id,
       categoryId: null, note: note || `Pencairan: ${goal.name}`,
     };
