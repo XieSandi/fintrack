@@ -10,6 +10,7 @@ import {
   fmtIDR, fmtMoney, fmtNum, fmtIDRPlain, escapeHtml, toast, openSheet, closeSheet, sheetHead,
   parseAmount, attachThousands, lastNMonths, monthLabel, todayStr, confirmDialog, monthOf,
   fmtShort, milestonePaceLine, currentMonth, addMonths, isBlurred, blurNum,
+  nowTimeStr, DEFAULT_TX_TIME,
 } from "../utils.js";
 import { refreshPrices, refreshableAssets } from "../prices.js";
 import { openAcctSheet } from "./accounts.js";
@@ -699,8 +700,10 @@ function openBondCouponSheet(asset) {
     <select id="bc-account">
       ${accounts.map((a) => `<option value="${a.id}" ${a.id === defaultAcctId ? "selected" : ""}>${escapeHtml(a.name)} (${a.currency})</option>`).join("")}
     </select>
-    <label>Tanggal</label>
-    <input id="bc-date" type="date" value="${todayStr()}" />
+    <div class="row">
+      <div><label>Tanggal</label><input id="bc-date" type="date" value="${todayStr()}" /></div>
+      <div><label>Jam</label><input id="bc-time" type="time" value="${nowTimeStr()}" /></div>
+    </div>
     <label>Catatan (opsional)</label>
     <input id="bc-note" type="text" value="Kupon ${escapeHtml(asset.symbol || asset.name)}" />
     <button id="bc-save" class="btn btn-primary btn-block" style="margin-top:18px">Simpan</button>
@@ -714,6 +717,7 @@ function openBondCouponSheet(asset) {
     const amount = parseAmount(amountInput.value);
     const accountId = el.querySelector("#bc-account").value;
     const date = el.querySelector("#bc-date").value;
+    const time = el.querySelector("#bc-time").value || DEFAULT_TX_TIME;
     const note = el.querySelector("#bc-note").value.trim();
     if (!amount || amount <= 0) return toast("Isi nominal kupon");
     if (!date) return toast("Tanggal belum diisi");
@@ -721,7 +725,7 @@ function openBondCouponSheet(asset) {
     // categoryId "cat_bunga" ("Bunga & Dividen") — preset category, udah ada dari seedIfNeeded()
     // sejak awal, ga perlu ensurePresetCategories() baru.
     await add("transactions", {
-      type: "income", amount, date, month: monthOf(date),
+      type: "income", amount, date, time, month: monthOf(date),
       accountId, categoryId: "cat_bunga",
       note: note || `Kupon ${asset.symbol || asset.name}`,
     });
@@ -776,8 +780,10 @@ export function openBondRedeemSheet(asset, existingTx = null) {
     <select id="br-account">
       ${accounts.map((a) => `<option value="${a.id}" ${a.id === defaultAcctId ? "selected" : ""}>${escapeHtml(a.name)} (${a.currency})</option>`).join("")}
     </select>
-    <label>Tanggal</label>
-    <input id="br-date" type="date" value="${isPastMaturity ? todayStr() : (asset.maturityDate || todayStr())}" />
+    <div class="row">
+      <div><label>Tanggal</label><input id="br-date" type="date" value="${isPastMaturity ? todayStr() : (asset.maturityDate || todayStr())}" /></div>
+      <div><label>Jam</label><input id="br-time" type="time" value="${nowTimeStr()}" /></div>
+    </div>
     <label>Catatan (opsional)</label>
     <input id="br-note" type="text" placeholder="cth: jatuh tempo" />
     <button id="br-save" class="btn btn-primary btn-block" style="margin-top:18px">Konfirmasi Cairkan Pokok</button>
@@ -790,6 +796,7 @@ export function openBondRedeemSheet(asset, existingTx = null) {
     const amount = parseAmount(amountInput.value);
     const accountId = el.querySelector("#br-account").value;
     const date = el.querySelector("#br-date").value;
+    const time = el.querySelector("#br-time").value || DEFAULT_TX_TIME;
     const note = el.querySelector("#br-note").value.trim();
     if (!amount || amount <= 0) return toast("Isi nominal pokok");
     if (!date) return toast("Tanggal belum diisi");
@@ -797,7 +804,7 @@ export function openBondRedeemSheet(asset, existingTx = null) {
     closeSheet();
     await patch("assets", asset.id, { redeemed: true });
     await add("transactions", {
-      type: "transfer", amount, date, month: monthOf(date),
+      type: "transfer", amount, date, time, month: monthOf(date),
       accountId, toAccountId: null, categoryId: null,
       assetId: asset.id, assetDir: "redeem",
       note: note || `Cairkan pokok ${asset.symbol || asset.name}`,
@@ -888,8 +895,10 @@ function openAssetTradeSheet(asset, dir, existingTx, opts = {}) {
     <select id="at-account">
       ${accounts.map((a) => `<option value="${a.id}" ${a.id === (opts.prefillAccountId || accounts[0].id) ? "selected" : ""}>${escapeHtml(a.name)} (${a.currency})</option>`).join("")}
     </select>
-    <label>Tanggal</label>
-    <input id="at-date" type="date" value="${opts.prefillDate || todayStr()}" />
+    <div class="row">
+      <div><label>Tanggal</label><input id="at-date" type="date" value="${opts.prefillDate || todayStr()}" /></div>
+      <div><label>Jam</label><input id="at-time" type="time" value="${nowTimeStr()}" /></div>
+    </div>
     <label>Catatan (opsional)</label>
     <input id="at-note" type="text" placeholder="${isBuy ? "cth: nambah posisi" : "cth: profit taking"}" />
     <button id="at-save" class="btn btn-primary btn-block" style="margin-top:18px">Simpan</button>
@@ -949,6 +958,7 @@ function openAssetTradeSheet(asset, dir, existingTx, opts = {}) {
     const price = parseDec(priceInput.value);
     const accountId = el.querySelector("#at-account").value;
     const date = el.querySelector("#at-date").value;
+    const time = el.querySelector("#at-time").value || DEFAULT_TX_TIME;
     const note = el.querySelector("#at-note").value.trim();
 
     if (!qty || qty <= 0) return toast("Isi jumlah unit");
@@ -969,7 +979,7 @@ function openAssetTradeSheet(asset, dir, existingTx, opts = {}) {
       avgBuyPrice: isBuy ? Math.round(newAvg * 100) / 100 : curAvg,
     });
     await add("transactions", {
-      type: "transfer", amount, date, month: monthOf(date),
+      type: "transfer", amount, date, time, month: monthOf(date),
       accountId, toAccountId: null, categoryId: null,
       assetId: asset.id, assetDir: dir, assetQty: qty, assetPrice: price,
       note: note || `${isBuy ? "Beli" : "Jual"} ${asset.symbol || asset.name}`,

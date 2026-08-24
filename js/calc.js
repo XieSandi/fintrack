@@ -452,6 +452,22 @@ export function milestoneProgress(state, nowMonth) {
   return result;
 }
 
+// Fallback `time` transaksi yang belum punya field ini (data lama, atau jalur tulis yang ga
+// punya time picker sendiri) — dianggap paling awal hari itu, BUKAN "sekarang". SAMA persis
+// kayak `DEFAULT_TX_TIME` di utils.js — didup di sini biar calc.js TETAP TIDAK import dari
+// utils.js (pure, ga butuh DOM/state di luar `state`/param eksplisit, ditest tanpa browser).
+const DEFAULT_TX_TIME = "00:01";
+
+// Comparator buat sort transaksi TERBARU DULU (desc): tanggal duluan, time jadi tie-breaker
+// dalam tanggal yang sama (TASK-5). Transaksi tanpa `time` fallback ke `DEFAULT_TX_TIME` (00:01)
+// — biar entry lama/tanpa time picker ga nyerobot ke atas entry baru hari yang sama.
+export function compareTxDateTime(a, b) {
+  if (a.date !== b.date) return a.date < b.date ? 1 : -1;
+  const ta = a.time || DEFAULT_TX_TIME, tb = b.time || DEFAULT_TX_TIME;
+  if (ta !== tb) return ta < tb ? 1 : -1;
+  return 0;
+}
+
 // Ringkasan cashflow satu bulan (transfer tidak dihitung)
 export function monthSummary(state, month) {
   let income = 0, expense = 0;

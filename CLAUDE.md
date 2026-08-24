@@ -155,9 +155,31 @@ tick callback (`wealth.js`, balikin literal `"***"`). State toggle di localStora
   (sekali doang, first-run); preset baru buat user lama via `ensurePresetCategories()` (tiap
   sesi, idempotent) — lihat Known Quirks. Ga bisa dihapus kalau masih dipakai transaksi
   (guard di `categories.js`).
-- `transactions` — {date, month:"YYYY-MM", amount, type: expense|income|transfer, accountId,
+- `transactions` — {date, time?, month:"YYYY-MM", amount, type: expense|income|transfer, accountId,
   toAccountId?, toGoalId?, fromGoalId?, categoryId, debtId?, assetId?, assetDir?, assetQty?,
   assetPrice?, note}. Transfer = 1 record, BUKAN expense.
+  **`time`** ("HH:MM", TASK-5) — opsional/additive, field baru buat break-tie urutan transaksi
+  dalam tanggal yang sama (sebelumnya cuma `date`, transaksi hari yang sama urutannya ga
+  predictable). Entry BARU lewat sheet manapun (`tx-sheet.js`, `openTopupSheet()`/
+  `openWithdrawSheet()`, `openAssetBuySheet()`/`openAssetSellSheet()`, bond coupon/redeem,
+  reconcile, bayar tagihan CC) default **jam sekarang** (`nowTimeStr()`, utils.js) tapi BISA
+  diubah manual — input `<input type="time">` di samping field Tanggal. Transaksi LAMA yang
+  ga punya field ini (data pra-fitur) ATAU jalur tulis yang sengaja ga expose time picker
+  (**recurring** "Catat Semua", lihat bullet `recurring` di bawah) fallback ke
+  **`DEFAULT_TX_TIME` = "00:01"** (utils.js) — dianggap paling awal hari itu, BUKAN "sekarang",
+  biar transaksi baru yang beneran dicatat hari yang sama selalu keurut di ATAS data lama/auto-
+  post pas di-sort. Comparator-nya `compareTxDateTime(a, b)` (calc.js, pure, ditest) — desc by
+  `date` dulu, `time || DEFAULT_TX_TIME` jadi tie-breaker. **Firestore query TETAP cuma
+  `orderBy("date","desc")`** (store.js) — SENGAJA TIDAK ditambah `orderBy("time")` juga, karena
+  Firestore nge-EXCLUDE dokumen yang ga punya field yang di-`orderBy` dari hasil query (bukan
+  treat sebagai "kosong"/paling awal) — nambah `time` ke `orderBy` bakal bikin SEMUA transaksi
+  lama (belum punya `time`) HILANG dari `state.transactions`. Sort final-nya jadi CLIENT-SIDE:
+  `track()` transactions (store.js) pakai parameter `mapFn` buat `state.transactions.sort(calc.
+  compareTxDateTime)` abis snapshot ke-assign — pola ini (bukan Firestore composite orderBy)
+  WAJIB dipakai lagi kalau nambah secondary sort key baru ke depan yang ga dijamin ada di semua
+  dokumen lama. `home.js` `txRow()` nampilin `t.time` di baris note (`· HH:MM`) KALAU field-nya
+  ada — legacy tanpa `time` ga nampilin apa-apa di situ (bukan "00:01" yang bisa disangka data
+  asli).
   **Topup goal** = transfer, `toGoalId` diisi (bukan `toAccountId`) — `accountId` = akun SUMBER
   (ke-debit), ga ada akun yang ke-kredit. **Pencairan goal** = kebalikannya, `fromGoalId` diisi
   — `accountId` di sini malah jadi akun TUJUAN (ke-kredit), ga ada akun yang ke-debit (lihat
@@ -400,7 +422,10 @@ tick callback (`wealth.js`, balikin literal `"***"`). State toggle di localStora
   AUTO-POST** — transaksi non-asset baru dibuat pas user klik "Catat Semua". Tanggal transaksi
   yang di-post (baik lewat "Catat Semua" maupun DCA asset) pakai `dayOfMonth` template di bulan
   berjalan (bukan tanggal user konfirmasi) — representasi kejadian riil, bukan kapan usernya
-  buka app. Edit template TIDAK reset `lastPostedMonth` (biar ga dobel post bulan yang sama).
+  buka app. `time`-nya (TASK-5) ikut prinsip yang SAMA — `DEFAULT_TX_TIME` ("00:01"), BUKAN
+  `nowTimeStr()`, karena jam asli kejadiannya ga diketahui dan "Catat Semua" bisa diklik kapan
+  aja (pagi/malam) — beda dari sheet lain yang punya time picker sendiri (lihat bullet
+  `transactions`). Edit template TIDAK reset `lastPostedMonth` (biar ga dobel post bulan yang sama).
   Sheet muncul maks 1x/hari kalau di-"Nanti"-in (flag tanggal di localStorage, key
   `fintrack_recurring_dismissed_date`), dipanggil sekali per sesi dari app.js. `dayOfMonth`
   di-clamp ke hari terakhir bulan berjalan (`daysInMonth()` di utils.js) — template tgl 31 tetep

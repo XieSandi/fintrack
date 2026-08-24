@@ -292,7 +292,7 @@ export function txRow(t) {
         : goal
         ? `${isWithdraw ? "Pencairan" : "Topup"}: ${escapeHtml(goal.name)}`
         : t.type === "transfer" ? `Transfer` : escapeHtml(cat?.name || "—")}</div>
-      <div class="tx-note">${escapeHtml(t.note || dateLabel(t.date))}</div>
+      <div class="tx-note">${escapeHtml(t.note || dateLabel(t.date))}${t.time ? ` · ${escapeHtml(t.time)}` : ""}</div>
     </div>
     <div>
       <div class="tx-amt ${t.type}">${sign} ${fmtMoney(t.amount, acct?.currency)}</div>

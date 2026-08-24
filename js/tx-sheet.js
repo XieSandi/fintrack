@@ -3,7 +3,7 @@ import { state, activeAccounts, accountBalances, isCreditAccount, creditUsed } f
 import { add, patch, remove } from "./db.js";
 import {
   openSheet, closeSheet, sheetHead, toast, escapeHtml,
-  parseAmount, attachThousands, todayStr, monthOf, confirmDialog, fmtNum, fmtMoneyPlain,
+  parseAmount, attachThousands, todayStr, nowTimeStr, DEFAULT_TX_TIME, monthOf, confirmDialog, fmtNum, fmtMoneyPlain,
 } from "./utils.js";
 
 const LAST_KEY = "fintrack_last_input"; // {accountId, categoryId}
@@ -29,6 +29,10 @@ export function openTxSheet(existing = null) {
   };
   let type = tx.type;
   let categoryId = tx.categoryId;
+  // Transaksi baru default jam SEKARANG (bisa diubah). Transaksi lama yang belum punya field
+  // `time` (data pra-fitur ini) default 00:01 — BUKAN "sekarang" — biar entry lama ga
+  // nyerobot ke atas transaksi baru hari itu pas di-sort (lihat calc.js compareTxDateTime()).
+  const timeValue = existing ? (existing.time || DEFAULT_TX_TIME) : nowTimeStr();
 
   const el = openSheet(`
     ${sheetHead(existing ? "Edit Transaksi" : "Tambah Transaksi")}
@@ -74,10 +78,12 @@ export function openTxSheet(existing = null) {
         <input id="tx-date" type="date" value="${tx.date}" />
       </div>
       <div>
-        <label>Catatan (opsional)</label>
-        <input id="tx-note" type="text" placeholder="cth: makan siang" value="${escapeHtml(tx.note || "")}" />
+        <label>Jam</label>
+        <input id="tx-time" type="time" value="${timeValue}" />
       </div>
     </div>
+    <label>Catatan (opsional)</label>
+    <input id="tx-note" type="text" placeholder="cth: makan siang" value="${escapeHtml(tx.note || "")}" />
 
     <div style="margin-top:18px; display:flex; gap:8px;">
       ${existing ? `<button id="tx-delete" class="btn btn-danger">Hapus</button>` : ""}
@@ -122,6 +128,7 @@ export function openTxSheet(existing = null) {
   el.querySelector("#tx-save").onclick = async () => {
     const amount = parseAmount(amountInput.value);
     const date = el.querySelector("#tx-date").value;
+    const time = el.querySelector("#tx-time").value || DEFAULT_TX_TIME;
     const accountId = el.querySelector("#tx-account").value;
     const toAccountId = el.querySelector("#tx-to-account").value;
     const note = el.querySelector("#tx-note").value.trim();
@@ -132,7 +139,7 @@ export function openTxSheet(existing = null) {
     if (type === "transfer" && accountId === toAccountId) return toast("Akun asal & tujuan sama");
 
     const data = {
-      type, amount, date, month: monthOf(date),
+      type, amount, date, time, month: monthOf(date),
       accountId, note,
       categoryId: type === "transfer" ? null : categoryId,
       toAccountId: type === "transfer" ? toAccountId : null,

@@ -7,7 +7,7 @@ import { copyBudgetFromLastMonth } from "./views/budget.js";
 import { openAssetBuySheet } from "./views/wealth.js";
 import {
   openSheet, closeSheet, sheetHead, toast, escapeHtml, fmtMoney,
-  todayStr, toDateStr, currentMonth, daysInMonth,
+  todayStr, toDateStr, currentMonth, daysInMonth, DEFAULT_TX_TIME,
 } from "./utils.js";
 
 const DISMISS_KEY = "fintrack_recurring_dismissed_date"; // tanggal terakhir user klik "Nanti"/tutup
@@ -168,8 +168,12 @@ function openRitualSheet(due) {
 
       for (const r of toPost) {
         const date = dateForDay(r.dayOfMonth);
+        // Time SENGAJA 00:01 (bukan nowTimeStr()) — pola sama alasan `date` pakai dayOfMonth
+        // template, bukan tanggal user konfirmasi: recurring representasi kejadian riil yang
+        // "seharusnya" udah kejadian dari awal hari itu, bukan kapan usernya sempet klik "Catat
+        // Semua" (bisa siang/malam, ga relevan sama jam aslinya yang emang ga diketahui).
         await add("transactions", {
-          type: r.type, amount: r.amount, date, month: date.slice(0, 7),
+          type: r.type, amount: r.amount, date, time: DEFAULT_TX_TIME, month: date.slice(0, 7),
           accountId: r.accountId,
           toAccountId: r.type === "transfer" && !r.toGoalId ? r.toAccountId : null,
           toGoalId: r.type === "transfer" ? (r.toGoalId || null) : null,
