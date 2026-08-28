@@ -118,6 +118,9 @@ function buildPosition(month, isCurrentMonth) {
       principal: a.type === "bond" ? (Number(a.principal) || 0) : null,
       maturityDate: a.type === "bond" ? (a.maturityDate || null) : null,
       couponRatePA: a.type === "bond" ? (Number(a.couponRatePA) || 0) : null,
+      // qtyless ("Jumlah N/A") — boolean lintas-tipe (bukan field khusus satu tipe), pola sama
+      // db.js upsertSnapshot() (`false` buat non-qtyless, bukan `null`).
+      qtyless: a.qtyless === true,
       valueIDR: assetValueIDR(a), costIDR: assetCostIDR(a),
     })),
     debts: state.debts.map((d) => ({
@@ -302,7 +305,9 @@ export function buildMonthlyReport(month) {
       const pPct = cost > 0 ? (p / cost) * 100 : 0;
       assetRows.push([
         a.symbol, ASSET_TYPES[a.type] || a.type,
-        a.type === "stock_id" ? `${fmtNum(a.quantity)} lot` : String(a.quantity),
+        // Qtyless ("Jumlah N/A") — quantity SELALU 1 di data tapi ga ada artinya buat
+        // ditampilin, "N/A" polos (pola sama Qty bond, NA constant yang sama).
+        a.qtyless ? NA : a.type === "stock_id" ? `${fmtNum(a.quantity)} lot` : String(a.quantity),
         fmtMoneyPlain(a.avgBuyPrice, a.currency),
         `${fmtMoneyPlain(a.price, a.currency)} (${a.priceDate || "?"})`,
         fmtIDRPlain(val), `${p >= 0 ? "+" : ""}${fmtIDRPlain(p)}`, `${pPct >= 0 ? "+" : ""}${pPct.toFixed(1)}%`,

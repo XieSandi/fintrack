@@ -59,24 +59,21 @@ export function render(root) {
 
     <div class="card">
       <div class="card-title">Integrasi Harga (API Keys)</div>
-      <div class="sub" style="margin-bottom:4px">Auto-refresh harga asset. Saham IDX (TradingView) & Crypto (CoinGecko) gratis tanpa key. Key disimpan di database lo sendiri (per akun, terproteksi rules).</div>
-      <label>Finnhub key — saham/ETF US <a href="https://finnhub.io" target="_blank" rel="noopener" style="color:var(--blue)">daftar gratis ↗</a></label>
+      <label>Finnhub key — saham/ETF US <a href="https://finnhub.io" target="_blank" rel="noopener" style="color:var(--blue)">↗</a></label>
       <input id="s-finnhub" type="text" autocomplete="off" placeholder="belum diisi = saham US manual" value="${escapeHtml(state.settings.apiKeys?.finnhub || "")}" />
       <button id="btn-save-keys" class="btn btn-primary btn-sm" style="margin-top:12px">Simpan Keys</button>
     </div>
 
     <div class="card">
       <div class="card-title">🏆 Main Milestone & Kurs</div>
-      <div class="sub" style="margin-bottom:4px">Main Milestone = benchmark net worth jangka panjang lo, satu angka besar (beda dari Short Term Goals yang bisa banyak & topup-based). Progress-nya otomatis dari net worth keseluruhan — muncul di card Total Balance (Home) & banner Net Worth (Assets).</div>
-      ${milestone.achieved ? `<div class="sub" style="color:#facc15; margin-bottom:8px">🏆 Tercapai! Set milestone berikutnya biar progress lo lanjut ke target baru — angkanya ga kami ubah otomatis.</div>` : ""}
-      <label>Target Net Worth — Main Milestone (Rp)</label>
+      ${milestone.achieved ? `<div class="sub" style="color:#facc15; margin-bottom:8px">🏆 Tercapai! Set milestone berikutnya.</div>` : ""}
+      <label>Target Net Worth (Rp)</label>
       <input id="s-target" inputmode="numeric" value="${fmtNum(state.settings.targetNetWorth || 100000000)}" />
-      <label>Target Bulan (opsional — biar progress bisa jawab "on-track atau enggak")</label>
+      <label>Target Bulan (opsional)</label>
       <input id="s-target-date" type="month" value="${state.settings.targetDate || ""}" />
-      <label>Kurs USD/IDR manual (kosongkan = auto)</label>
+      <label>Kurs USD/IDR manual (kosong = auto)</label>
       <input id="s-kurs" inputmode="numeric" placeholder="auto: ${fmtNum(state.usdIdr?.rate || 0)} ${state.usdIdr ? `(per ${state.usdIdr.date})` : ""}" value="${state.settings.usdIdrManual ? fmtNum(state.settings.usdIdrManual) : ""}" />
       <div class="sub">Kurs efektif sekarang: ${fmtNum(effectiveRate())}</div>
-      <div class="sub" style="margin-top:12px">Dua rate pembanding buat 🚀 Proyeksi (Wealth) — skenario "kalau duit lo tumbuh X%/tahun". Boleh 0.</div>
       <div class="row">
         <div><label>Rate A (%/th)</label><input id="s-proj-rate-a" type="number" inputmode="decimal" step="0.5" min="0" max="100" value="${((Number(state.settings.projectionRateA ?? 0.05)) * 100).toFixed(1)}" /></div>
         <div><label>Rate B (%/th)</label><input id="s-proj-rate-b" type="number" inputmode="decimal" step="0.5" min="0" max="100" value="${((Number(state.settings.projectionRateB ?? 0.07)) * 100).toFixed(1)}" /></div>
@@ -86,7 +83,6 @@ export function render(root) {
 
     <div class="card">
       <div class="card-title">Snapshot Historis</div>
-      <div class="sub" style="margin-bottom:10px">Buat isi data net worth dari sebelum mulai pakai app (misal dari catatan manual lama), biar grafik tren di Assets lengkap. Cuma bisa buat bulan SEBELUM bulan berjalan — bulan berjalan otomatis ke-update sendiri tiap app dibuka.</div>
       <label>Bulan</label>
       <input id="snap-month" type="month" max="${addMonths(currentMonth(), -1)}" />
       <label>Net Worth (Rp)</label>
@@ -97,7 +93,7 @@ export function render(root) {
     ${capexBackfillRows.length > 0 ? `
     <div class="card">
       <div class="card-title">🏗️ Backfill CAPEX ke Snapshot Lama</div>
-      <div class="sub" style="margin-bottom:10px">Snapshot dari sebelum fitur CAPEX ada belum misahin nilai CAPEX dari total Assets — chart Tren Net Worth & laporan .md buat bulan lama jadinya nunjukin garis/angka "+ CAPEX" dan "tanpa CAPEX" yang sama persis. Backfill ini nyocokin nama asset CAPEX SEKARANG ke breakdown snapshot lama, isi field totalCapex-nya pakai nilai ASLI yang udah kesimpen waktu itu (ga ngarang angka baru).</div>
+      <div class="sub" style="margin-bottom:10px">${capexBackfillRows.length} snapshot lama belum misahin CAPEX dari Assets.</div>
       <div class="table-like">
         ${capexBackfillRows.map((r) => `
           <div style="display:flex; justify-content:space-between; padding:6px 0; font-size:12px">
@@ -120,7 +116,6 @@ export function render(root) {
 
     <div class="card">
       <div class="card-title">📄 Export Laporan (.md)</div>
-      <div class="sub" style="margin-bottom:10px">Laporan finansial satu bulan format Markdown — siap paste ke chat AI (ChatGPT/Claude/dll) buat dianalisis. Beda dari backup JSON di atas (itu buat restore data, ini buat dibaca).</div>
       <label>Bulan</label>
       <select id="rep-month">
         ${availableReportMonths().map((m) => `<option value="${m}" ${m === currentMonth() ? "selected" : ""}>${monthLabel(m)}</option>`).join("")}
@@ -133,15 +128,13 @@ export function render(root) {
 
     <div class="card">
       <div class="card-title">App</div>
-      <div class="sub" style="margin-bottom:10px">Tampilan aneh / kerasa nyangkut di versi lama? Hard refresh bersihin cache & service worker, terus reload dari awal. Data lo aman, ga kehapus (kesimpen di cloud).</div>
       <button id="btn-hard-refresh" class="btn btn-block">🔄 Hard Refresh</button>
-      <div class="sub" style="margin:14px 0 10px">Curiga ada transaksi/budget yang nunjuk ke akun/kategori/goal/hutang/asset yang udah kehapus (biasanya gara-gara hapus data langsung lewat Firestore console, bukan lewat app)? Cek di bawah — read-only, ga ada yang diubah otomatis.</div>
+      <div style="height:10px"></div>
       <button id="btn-integrity" class="btn btn-block">🩺 Cek Integritas Data</button>
     </div>
 
     <div class="card" style="border-color:#7f1d1d; background:#1c0a0a">
       <div class="card-title" style="color:var(--red)">⚠️ Zona Bahaya</div>
-      <div class="sub" style="margin-bottom:10px">Hapus data dalam jumlah besar (per bulan/tahun/total). Ga bisa dibatalkan.</div>
       <a href="#/danger" class="btn btn-danger btn-block" style="text-decoration:none; display:flex; align-items:center; justify-content:center">🗑️ Reset Data</a>
     </div>
 
@@ -187,7 +180,7 @@ export function render(root) {
     const month = root.querySelector("#snap-month").value;
     const nwInput = root.querySelector("#snap-nw").value.trim();
     if (!month) return toast("Pilih bulan dulu");
-    if (month >= currentMonth()) return toast("Cuma bisa buat bulan sebelum bulan ini — bulan berjalan ke-update otomatis");
+    if (month >= currentMonth()) return toast("Cuma bisa buat bulan sebelum bulan ini");
     if (!nwInput) return toast("Isi net worth-nya");
     const netWorth = parseAmount(nwInput);
 
@@ -201,7 +194,7 @@ export function render(root) {
 
   root.querySelector("#btn-capex-backfill")?.addEventListener("click", async () => {
     if (!navigator.onLine) return toast("Lagi offline — coba lagi kalau udah online");
-    if (!confirmDialog(`Backfill totalCapex ke ${capexBackfillRows.length} snapshot lama? Ini nambah 1 field baru ke dokumen snapshot itu, ga menghapus/menimpa data lain.`)) return;
+    if (!confirmDialog(`Backfill totalCapex ke ${capexBackfillRows.length} snapshot lama?`)) return;
     const n = await backfillCapexToSnapshots();
     toast(`Backfill selesai — ${n} snapshot terupdate ✓`);
   });
@@ -273,7 +266,7 @@ export function render(root) {
   };
 
   root.querySelector("#btn-hard-refresh").onclick = async () => {
-    if (!confirmDialog("Hard refresh app? Cache & service worker lama bakal dibersihin, app reload dari awal. Data lo aman (tersimpan di cloud).")) return;
+    if (!confirmDialog("Hard refresh? Cache & service worker dibersihin, app reload.")) return;
     toast("Membersihkan cache...");
     await hardRefresh();
   };
@@ -289,8 +282,8 @@ function openIntegritySheet() {
   const el = openSheet(`
     ${sheetHead("🩺 Integritas Data")}
     ${issues.length === 0
-      ? `<div class="empty">Semua rapi ✓<br/>Ga ada referensi yatim atau data aneh ke-deteksi.</div>`
-      : `<div class="sub" style="margin-bottom:10px">${issues.length} item butuh perhatian — read-only, ga ada yang diubah otomatis.</div><div id="ig-list"></div>`}
+      ? `<div class="empty">Semua rapi ✓</div>`
+      : `<div class="sub" style="margin-bottom:10px">${issues.length} item butuh perhatian</div><div id="ig-list"></div>`}
   `);
   el.querySelector("[data-close]").onclick = closeSheet;
 

@@ -11,9 +11,8 @@ export function render(root) {
   root.innerHTML = `
     <div class="card">
       <div class="card-title">Transaksi Berulang</div>
-      <div class="sub" style="margin-bottom:4px">Template kost, transfer bulanan, dll. Pas app dibuka dan tanggalnya udah lewat, muncul sheet konfirmasi "Awal Bulan" — ga bakal auto-post tanpa lo cek dulu.</div>
       <div id="rc-list"></div>
-      ${items.length === 0 ? `<div class="empty">Belum ada template.<br/>Tap tombol di bawah buat bikin yang pertama.</div>` : ""}
+      ${items.length === 0 ? `<div class="empty">Belum ada template.</div>` : ""}
     </div>
     <button id="btn-add-rc" class="btn btn-primary btn-block">＋ Tambah Recurring</button>
   `;
@@ -113,7 +112,6 @@ function openRecurringSheet(existing) {
           <select id="rc-to-asset">
             ${state.assets.map((a) => `<option value="${a.id}" ${a.id === (r.assetId || "") ? "selected" : ""}>📈 ${escapeHtml(a.symbol || a.name)}</option>`).join("")}
           </select>
-          <div class="sub" style="margin-top:4px">Nominal jadi target budget DCA — harga beli beda tiap bulan, diisi manual pas konfirmasi bulanan (ga auto-post).</div>
         </div>` : ""}
       </div>
     </div>

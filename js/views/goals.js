@@ -53,9 +53,8 @@ export function render(root) {
   root.innerHTML = `
     <div class="card">
       <div class="card-title">🎯 Short Term Goals</div>
-      <div class="sub" style="margin-bottom:4px">Target jangka pendek yang bisa lebih dari satu — beda dari Main Milestone (satu angka besar di Setting). Sistem topup: transfer saldo dari akun ke goal buat nabung. Uang yang udah ke-topup tetep dihitung sebagai bagian net worth lo (masuk kategori assets). Bisa juga di-link ke asset yang udah ada (nilainya ikut ditampilin di progress, TANPA nambah net worth dua kali).</div>
       <div id="goal-list"></div>
-      ${goals.length === 0 ? `<div class="empty">Belum ada goals.<br/>Tap tombol di bawah buat bikin target pertama.</div>` : ""}
+      ${goals.length === 0 ? `<div class="empty">Belum ada goals.</div>` : ""}
     </div>
     <button id="btn-add-goal" class="btn btn-primary btn-block">＋ Tambah Goal</button>
   `;
@@ -76,7 +75,7 @@ export function render(root) {
       </div>
       ${linkedValue > 0 ? `
       <div class="sub">💰 Ditabung (tunai): ${fmtIDR(saved)} · 📈 Dari ${(g.linkedAssetIds || []).length} asset ter-link: ${fmtIDR(linkedValue)}</div>
-      <div class="sub" style="color:var(--muted2)">⚠️ Sebagian progress dari nilai aset (naik-turun ngikutin pasar) — bukan semuanya tunai yang bisa langsung dicairkan</div>` : ""}
+      <div class="sub" style="color:var(--muted2)">⚠️ Sebagian dari nilai aset, bukan tunai siap cair</div>` : ""}
       <div style="margin-top:8px; display:flex; gap:8px;">
         ${g.isArchived ? "" : `<button class="btn btn-sm" data-topup style="flex:1">💰 Topup</button>`}
         ${saved > 0 ? `<button class="btn btn-sm" data-withdraw style="flex:1">💸 Cairkan</button>` : ""}
@@ -108,7 +107,6 @@ export function openGoalSheet(existing) {
     </div>
     ${state.assets.length > 0 ? `
     <label style="margin-top:14px">Asset ter-link (opsional)</label>
-    <div class="sub" style="margin-bottom:6px">Nilai asset yang dipilih ikut ditampilin sebagai progress goal ini — asset-nya TETAP kehitung normal di Assets/Net Worth (BUKAN ditambah dua kali), cuma direferensiin di sini buat tracking. Boleh pilih lebih dari satu, dan satu asset boleh di-link ke lebih dari satu goal.</div>
     <div id="g-asset-list" style="display:flex; flex-direction:column; gap:8px; max-height:220px; overflow-y:auto">
       ${state.assets.map((a) => `
         <label style="display:flex; align-items:center; gap:8px; font-size:13px; text-transform:none; letter-spacing:0; font-weight:400; color:var(--text)">
@@ -117,8 +115,8 @@ export function openGoalSheet(existing) {
           <span class="sub">${fmtIDR(assetValueIDR(a))}</span>
         </label>`).join("")}
     </div>` : ""}
-    ${existing ? `<label style="margin-top:14px"><input type="checkbox" id="g-arch" style="width:auto" ${g.isArchived ? "checked" : ""}/> Arsipkan goal (sembunyikan dari Home, ga bisa di-topup lagi)</label>
-    <div class="sub" style="margin-top:2px">Uang yang udah ke-topup TETAP kehitung di net worth — arsip cuma nyembunyiin dari tampilan sehari-hari, bukan ngapus saldo. Bisa di-un-arsip lagi kapan aja.</div>` : ""}
+    ${existing ? `<label style="margin-top:14px"><input type="checkbox" id="g-arch" style="width:auto" ${g.isArchived ? "checked" : ""}/> Arsipkan goal</label>
+` : ""}
     <div style="margin-top:18px; display:flex; gap:8px;">
       ${existing ? `<button id="g-delete" class="btn btn-danger">Hapus</button>` : ""}
       <button id="g-save" class="btn btn-primary" style="flex:1">Simpan</button>
@@ -156,7 +154,7 @@ export function openGoalSheet(existing) {
   if (existing) {
     el.querySelector("#g-delete").onclick = async () => {
       const used = state.transactions.some((t) => t.toGoalId === existing.id || t.fromGoalId === existing.id);
-      if (used) return toast("Goal ini punya riwayat topup/pencairan — hapus dulu transaksinya di History, baru hapus goal-nya");
+      if (used) return toast("Masih ada riwayat topup/pencairan — hapus transaksinya dulu");
       if (!confirmDialog("Hapus goal ini?")) return;
       closeSheet();
       await remove("goals", existing.id);

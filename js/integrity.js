@@ -21,12 +21,15 @@ export function scanIntegrity(state) {
       if (t.toGoalId && !state.goals.find((g) => g.id === t.toGoalId)) problems.push("goal (topup) ga ketemu");
       if (t.fromGoalId && !state.goals.find((g) => g.id === t.fromGoalId)) problems.push("goal (pencairan) ga ketemu");
       if (t.assetId) {
-        if (!state.assets.find((a) => a.id === t.assetId)) problems.push("asset ga ketemu");
-        // "redeem" (TASK-4, bond) BEDA validasi dari buy/sell — bond ga pakai assetQty/assetPrice
-        // sama sekali (ga ada qty/harga-per-unit yang berarti buat instrumen lump-sum), cukup
-        // assetId + assetDir aja.
-        if (t.assetDir === "redeem") {
-          // valid, ga butuh assetQty/assetPrice
+        const refAsset = state.assets.find((a) => a.id === t.assetId);
+        if (!refAsset) problems.push("asset ga ketemu");
+        // "redeem" (TASK-4, bond) DAN asset qtyless ("Jumlah N/A") BEDA validasi dari buy/sell
+        // biasa — dua-duanya ga pakai assetQty/assetPrice sama sekali (ga ada qty/harga-per-unit
+        // yang berarti buat instrumen lump-sum), cukup assetId + assetDir aja.
+        if (t.assetDir === "redeem" || refAsset?.qtyless === true) {
+          if (t.assetDir !== "redeem" && t.assetDir !== "buy" && t.assetDir !== "sell") {
+            problems.push("assetDir invalid");
+          }
         } else if (!(Number(t.assetQty) > 0) || !(Number(t.assetPrice) > 0) || (t.assetDir !== "buy" && t.assetDir !== "sell")) {
           problems.push("assetQty/assetPrice/assetDir kosong atau invalid");
         }
@@ -56,7 +59,12 @@ export function scanIntegrity(state) {
   // Konsistensi assets.quantity vs jejak transaksi ber-assetId. Asset TANPA transaksi sama
   // sekali TIDAK di-flag — itu posisi lama pra-fitur beli/jual yang legit manual. Finding-nya
   // informatif, bukan tuduhan: selisih bisa sengaja (posisi lama + transaksi baru bercampur).
+  // Asset `qtyless` DI-SKIP total — quantity-nya SENGAJA statis (selalu 1, ga pernah diturunin
+  // dari jejak transaksi kayak tipe lain), transaksi beli/jualnya nyentuh manualPrice/avgBuyPrice
+  // bukan assetQty (yang emang sengaja kosong buat qtyless) — bandingin bakal selalu "selisih 1"
+  // palsu buat SETIAP asset qtyless yang punya transaksi, ga informatif sama sekali.
   for (const a of state.assets) {
+    if (a.qtyless === true) continue;
     const assetTxs = state.transactions.filter((t) => t.type === "transfer" && t.assetId === a.id);
     if (assetTxs.length === 0) continue;
     const netQty = assetTxs.reduce((sum, t) => {
@@ -91,6 +99,15 @@ export function scanIntegrity(state) {
     if (!(Number(a.principal) > 0)) problems.push("principal ≤ 0");
     if (a.maturityDate && a.purchaseDate && a.maturityDate < a.purchaseDate) problems.push("maturityDate sebelum purchaseDate — salah input");
     if (problems.length > 0) issues.push({ kind: "asset", ref: a, problems });
+  }
+
+  // Qtyless ("Jumlah N/A") — quantity WAJIB selalu persis 1 (dipaksa di semua jalur tulis: form
+  // Edit Asset, openQtylessTradeSheet, reversal-nya di db.js). Kalau ketemu beda, itu tanda ada
+  // penulisan langsung yang bypass app (mis. Firestore console) — read-only info, bukan auto-fix.
+  for (const a of state.assets) {
+    if (a.qtyless === true && Number(a.quantity) !== 1) {
+      issues.push({ kind: "asset", ref: a, problems: [`asset qtyless tapi quantity = ${a.quantity} (harusnya selalu 1)`] });
+    }
   }
 
   // Kartu kredit: over-limit / saldo plus tak terduga. Read-only INFO, BUKAN error — over-limit

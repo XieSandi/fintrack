@@ -85,15 +85,15 @@ function openRitualSheet(due) {
 
   const el = openSheet(`
     ${sheetHead("Awal Bulan 📅")}
-    <div class="sub" style="margin-bottom:10px">${due.length} transaksi rutin udah jatuh tempo.${checklistItems.length > 0 ? " Uncheck yang mau di-skip bulan ini." : ""}</div>
+    <div class="sub" style="margin-bottom:10px">${due.length} transaksi rutin jatuh tempo</div>
     ${checklistItems.length > 0 ? `<div id="ritual-list"></div>` : ""}
     ${assetItems.length > 0 ? `
-    <div class="sub" style="margin:${checklistItems.length > 0 ? "14px" : "0"} 0 6px">📈 DCA beli asset — harga beda tiap bulan, catat manual satu-satu:</div>
+    <div class="sub" style="margin:${checklistItems.length > 0 ? "14px" : "0"} 0 6px">📈 DCA asset — catat manual:</div>
     <div id="ritual-asset-list"></div>` : ""}
     ${budgetEmpty ? `
     <label style="margin-top:14px; display:flex; align-items:center; gap:8px; text-transform:none; letter-spacing:0; font-size:13px; color:var(--text)">
       <input type="checkbox" id="ritual-copy-budget" style="width:auto" checked />
-      Salin budget bulan lalu (budget bulan ini masih kosong)
+      Salin budget bulan lalu
     </label>` : ""}
     <div style="margin-top:18px; display:flex; gap:8px;">
       <button id="ritual-later" class="btn" style="flex:1">Nanti</button>
@@ -113,7 +113,7 @@ function openRitualSheet(due) {
         <input type="checkbox" data-id="${r.id}" style="width:auto" ${reason ? "disabled" : "checked"} />
         <div style="flex:1">
           <div style="font-size:13px; font-weight:600">${escapeHtml(r.name)}</div>
-          <div class="sub" style="${reason ? "color:var(--yellow)" : ""}">${reason ? `⚠️ ${reason} — benerin dulu di #/recurring` : `tgl ${r.dayOfMonth} · ${escapeHtml(acct?.name || "?")}${goal ? ` → 🎯 ${escapeHtml(goal.name)}` : ""}`}</div>
+          <div class="sub" style="${reason ? "color:var(--yellow)" : ""}">${reason ? `⚠️ ${reason}` : `tgl ${r.dayOfMonth} · ${escapeHtml(acct?.name || "?")}${goal ? ` → 🎯 ${escapeHtml(goal.name)}` : ""}`}</div>
         </div>
         <div style="font-size:13px; font-weight:700">${fmtMoney(r.amount, acct?.currency)}</div>`;
       list.appendChild(label);
@@ -131,7 +131,7 @@ function openRitualSheet(due) {
       row.innerHTML = `
         <div style="flex:1">
           <div style="font-size:13px; font-weight:600">${escapeHtml(r.name)}</div>
-          <div class="sub" style="${reason ? "color:var(--yellow)" : ""}">${reason ? `⚠️ ${reason} — benerin dulu di #/recurring` : `${escapeHtml(asset?.symbol || asset?.name || "?")} · ${escapeHtml(acct?.name || "?")} · harga beli beda tiap bulan, jadi diisi manual`}</div>
+          <div class="sub" style="${reason ? "color:var(--yellow)" : ""}">${reason ? `⚠️ ${reason}` : `${escapeHtml(asset?.symbol || asset?.name || "?")} · ${escapeHtml(acct?.name || "?")}`}</div>
         </div>
         <div style="font-size:13px; font-weight:700">${fmtMoney(r.amount, acct?.currency)}</div>
         ${reason ? "" : `<button class="btn" style="white-space:nowrap">Catat pembelian →</button>`}`;
