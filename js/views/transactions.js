@@ -49,7 +49,7 @@ export function render(root) {
     );
 
     if (rows.length === 0) {
-      list.innerHTML = `<div class="empty">Ga ada transaksi di filter/bulan ini.<br/>Ganti bulan lewat tombol di kanan atas.</div>`;
+      list.innerHTML = `<div class="empty">Ga ada transaksi.</div>`;
       return;
     }
 

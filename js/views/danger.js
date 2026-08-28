@@ -51,11 +51,11 @@ export function render(root) {
   root.innerHTML = `
     <div class="card" style="border-color:#7f1d1d; background:#1c0a0a">
       <div class="card-title" style="color:var(--red)">⚠️ Zona Bahaya</div>
-      <div class="sub">Hapus data dalam jumlah besar. Ga ada undo — pastikan lo udah backup dulu.</div>
+      <div class="sub">Ga ada undo. Backup dulu.</div>
     </div>
 
     ${!online ? `<div class="card" style="border-color:#a16207; background:#1c1400">
-      <div style="font-size:13px">📡 Reset data butuh koneksi — biar ga ada operasi hapus yang ngegantung di antrian offline. Sambungin internet dulu.</div>
+      <div style="font-size:13px">📡 Butuh koneksi. Sambungin internet dulu.</div>
     </div>` : ""}
 
     <div class="card">
@@ -82,15 +82,15 @@ export function render(root) {
         <div style="margin-top:10px; display:flex; flex-direction:column; gap:8px">
           <label style="display:flex; align-items:flex-start; gap:8px; text-transform:none; letter-spacing:0; font-size:13px; color:var(--text); border:1px solid var(--border); border-radius:8px; padding:10px; margin:0">
             <input type="radio" name="dg-totalsub" value="c1" style="width:auto; margin-top:3px" ${totalSub === "c1" ? "checked" : ""} />
-            <span><b>Hapus Semua Histori</b><br/><span class="sub">Semua transaksi, budget, snapshot. Akun/kategori/asset/hutang/goal/recurring TETAP ada.</span></span>
+            <span><b>Hapus Semua Histori</b><br/><span class="sub">Transaksi, budget, snapshot. Master data tetap ada.</span></span>
           </label>
           <label style="display:flex; align-items:flex-start; gap:8px; text-transform:none; letter-spacing:0; font-size:13px; color:var(--red); border:1px solid #7f1d1d; border-radius:8px; padding:10px; margin:0">
             <input type="radio" name="dg-totalsub" value="c2" style="width:auto; margin-top:3px" ${totalSub === "c2" ? "checked" : ""} />
-            <span><b>Reset Total</b><br/><span class="sub" style="color:var(--red)">SEMUA data termasuk akun/kategori/asset/hutang/goal/recurring — kembali ke kondisi baru install.</span></span>
+            <span><b>Reset Total</b><br/><span class="sub" style="color:var(--red)">SEMUA data + master data — balik ke kondisi baru install.</span></span>
           </label>
           ${totalSub === "c2" ? `
           <label style="display:flex; align-items:center; gap:8px; text-transform:none; letter-spacing:0; font-size:12px; color:var(--muted2); margin:0">
-            <input type="checkbox" id="dg-keepkeys" style="width:auto" ${keepApiKeys ? "checked" : ""} /> Pertahankan API keys (Finnhub) — ga usah setup ulang
+            <input type="checkbox" id="dg-keepkeys" style="width:auto" ${keepApiKeys ? "checked" : ""} /> Pertahankan API keys
           </label>` : ""}
         </div>` : ""}
     </div>
@@ -103,14 +103,14 @@ export function render(root) {
           ${preview.dateFrom ? `<br/>Rentang tanggal: ${preview.dateFrom} s/d ${preview.dateTo}` : ""}
         </div>
         <div class="sub">Total expense: ${fmtIDR(preview.totalExpense)} · Total income: ${fmtIDR(preview.totalIncome)}</div>
-        ${!includeMaster && preview.assetTxCount > 0 ? `<div class="sub" style="color:var(--yellow); margin-top:6px">⚠️ ${preview.assetTxCount} transaksi beli/jual asset ikut terhapus (${preview.affectedAssetNames.join(", ")}). Quantity disesuaikan otomatis, tapi avg buy price TIDAK bisa dikembalikan — cek & koreksi manual di tab Assets setelah ini.</div>` : ""}
+        ${!includeMaster && preview.assetTxCount > 0 ? `<div class="sub" style="color:var(--yellow); margin-top:6px">⚠️ ${preview.assetTxCount} transaksi asset ikut terhapus (${preview.affectedAssetNames.join(", ")}) — qty disesuaikan, avg buy price TIDAK.</div>` : ""}
         ${masterCounts ? `<div class="sub" style="color:var(--red); margin-top:6px">+ master data ikut kehapus: ${masterCounts}</div>` : ""}
       `}
     </div>
 
     ${backupStale() ? `
     <div class="card" style="border-color:#a16207; background:#1c1400">
-      <div style="font-size:13px; margin-bottom:8px">⚠️ ${state.settings.lastBackupAt ? "Backup terakhir lebih dari 24 jam lalu" : "Lo belum pernah backup"}. Export dulu sebelum hapus data.</div>
+      <div style="font-size:13px; margin-bottom:8px">⚠️ ${state.settings.lastBackupAt ? "Backup terakhir >24 jam lalu" : "Belum pernah backup"}</div>
       <button id="dg-backup-now" class="btn btn-block">⬇️ Export Backup Dulu</button>
     </div>` : ""}
 
@@ -185,7 +185,7 @@ export function render(root) {
           progressBar.style.width = total > 0 ? `${Math.round((done / total) * 100)}%` : "0%";
         },
       });
-      toast(`Terhapus: ${deleted.transactions} transaksi, ${deleted.budgets} budget, ${deleted.snapshots} snapshot. Saldo akun ikut berubah (dihitung dari transaksi) — cek Setting → Akun → ⚖️ Sesuaikan Saldo kalau perlu.`, 6000);
+      toast(`Terhapus: ${deleted.transactions} transaksi · ${deleted.budgets} budget · ${deleted.snapshots} snapshot`, 4000);
       mode = "month"; selMonth = currentMonth(); confirmInput = ""; ackChecked = false;
       location.hash = "#/settings";
     } catch (e) {

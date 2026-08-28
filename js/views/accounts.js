@@ -14,7 +14,7 @@ export function render(root) {
     <div class="card">
       <div class="card-title">Akun / Kantong Uang</div>
       <div id="acct-list">
-        ${accounts.length === 0 ? `<div class="empty">Belum ada akun.<br/>Akun = tempat uang lo (bank, e-wallet, cash, RDN, broker, kartu kredit).</div>` : ""}
+        ${accounts.length === 0 ? `<div class="empty">Belum ada akun.</div>` : ""}
       </div>
     </div>
     <button id="btn-add-acct" class="btn btn-primary btn-block">＋ Tambah Akun</button>
@@ -80,7 +80,7 @@ export function openAcctSheet(existing) {
   const el = openSheet(`
     ${sheetHead(existing ? "Edit Akun" : "Tambah Akun")}
     <label>Nama</label>
-    <input id="ac-name" placeholder="cth: Bank Digital, BCA, Cash" value="${escapeHtml(a.name)}" />
+    <input id="ac-name" placeholder="cth: BCA" value="${escapeHtml(a.name)}" />
     <div class="row">
       <div><label>Tipe</label>
         <select id="ac-type">${Object.entries(ACCT_TYPES).map(([k, v]) => `<option value="${k}" ${k === a.type ? "selected" : ""}>${v}</option>`).join("")}</select>
@@ -93,18 +93,17 @@ export function openAcctSheet(existing) {
       </div>
     </div>
     <label id="ac-init-label">Saldo awal</label>
-    <input id="ac-init" inputmode="decimal" value="${a.initialBalance !== "" ? a.initialBalance : ""}" placeholder="Saldo saat mulai pakai app" />
+    <input id="ac-init" inputmode="decimal" value="${a.initialBalance !== "" ? a.initialBalance : ""}" placeholder="0" />
     <div class="row hidden" id="ac-credit-wrap">
       <div><label>Limit Kartu (Rp)</label>
         <input id="ac-limit" inputmode="numeric" placeholder="0 = tanpa limit" value="${a.creditLimit ? fmtNum(a.creditLimit) : ""}" />
       </div>
     </div>
-    <div class="sub hidden" id="ac-credit-hint">💳 Saldo awal 0 = belum ada tagihan berjalan. Isi negatif (mis. -500000) kalau udah ada tagihan saat mulai pakai app.</div>
     <label>Warna</label>
     <div style="display:flex; gap:8px; margin-top:4px">
       ${COLORS.map((c) => `<span class="color-dot" data-color="${c}" style="width:26px;height:26px;border-radius:50%;background:${c};cursor:pointer;border:2px solid ${c === a.color ? "#fff" : "transparent"}"></span>`).join("")}
     </div>
-    ${existing ? `<label style="margin-top:14px"><input type="checkbox" id="ac-arch" style="width:auto" ${a.isArchived ? "checked" : ""}/> Arsipkan akun (sembunyikan)</label>` : ""}
+    ${existing ? `<label style="margin-top:14px"><input type="checkbox" id="ac-arch" style="width:auto" ${a.isArchived ? "checked" : ""}/> Arsipkan akun</label>` : ""}
     ${existing ? `<button id="ac-reconcile" class="btn btn-block" style="margin-top:14px">⚖️ Sesuaikan Saldo</button>` : ""}
     <div style="margin-top:18px; display:flex; gap:8px;">
       ${existing ? `<button id="ac-delete" class="btn btn-danger">Hapus</button>` : ""}
@@ -116,8 +115,7 @@ export function openAcctSheet(existing) {
   const syncType = () => {
     const isCredit = typeSel.value === "credit";
     el.querySelector("#ac-credit-wrap").classList.toggle("hidden", !isCredit);
-    el.querySelector("#ac-credit-hint").classList.toggle("hidden", !isCredit);
-    el.querySelector("#ac-init-label").textContent = isCredit ? "Saldo awal (utang berjalan, biasanya 0)" : "Saldo awal";
+    el.querySelector("#ac-init-label").textContent = isCredit ? "Saldo awal (utang berjalan)" : "Saldo awal";
   };
   typeSel.onchange = syncType;
   syncType();

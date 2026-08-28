@@ -42,7 +42,7 @@ export async function remove(name, id) {
     await applyDebtEffect(before.debtId, Number(before.amount) || 0, true, 1);
   }
   if (name === "transactions" && before?.assetId) {
-    await applyAssetQtyEffect(before.assetId, before.assetDir, Number(before.assetQty) || 0);
+    await applyAssetQtyEffect(before);
   }
 }
 
@@ -93,16 +93,40 @@ async function handleDebtPatch(before, data) {
 // buy/sell: bond ga pakai qty-tracking sama sekali (`quantity` dipaksa 1, GA PERNAH berubah),
 // efek "cairkan pokok" itu flag `redeemed`, BUKAN quantity — hapus transaksi redeem = un-redeem
 // (bond aktif lagi, belum dicairkan), bukan nambah qty balik.
-async function applyAssetQtyEffect(assetId, dir, qty) {
-  const asset = state.assets.find((a) => a.id === assetId);
+//
+// Asset `qtyless === true` (lump-sum, "Jumlah N/A" — `openQtylessTradeSheet()` wealth.js) JUGA
+// BEDA POLA: `quantity` SELALU 1, GA PERNAH disentuh sama sekali (bukan cuma "ga di-reverse" kayak
+// avgBuyPrice tipe lain — beneran ga pernah berubah). Reversal-nya nyentuh NILAI: beli nambah
+// `manualPrice` (nilai) DAN `avgBuyPrice` (modal) pas dicatat, jadi reverse-nya ngurangin dua-
+// duanya balik sejumlah `amount` transaksi. Jual/tarik cuma ngurangin `manualPrice` pas dicatat
+// (modal TETAP, pola sama sell tipe lain) → reverse-nya nambahin `manualPrice` balik doang.
+// `amount` (bukan `assetQty`/`assetPrice`, yang SENGAJA ga diisi buat qtyless) yang jadi basis
+// hitungnya — makanya function ini butuh transaksinya, bukan cuma qty mentah.
+async function applyAssetQtyEffect(t) {
+  const asset = state.assets.find((a) => a.id === t.assetId);
   if (!asset) return; // asset-nya udah kehapus duluan — ga ada yang bisa disesuaikan
-  if (dir === "redeem") {
-    await patch("assets", assetId, { redeemed: false });
+  if (t.assetDir === "redeem") {
+    await patch("assets", t.assetId, { redeemed: false });
     return;
   }
-  const delta = dir === "buy" ? -qty : qty;
+  if (asset.qtyless === true) {
+    const amt = Number(t.amount) || 0;
+    const curValue = Number(asset.manualPrice) || 0;
+    const curCost = Number(asset.avgBuyPrice) || 0;
+    if (t.assetDir === "buy") {
+      await patch("assets", t.assetId, {
+        manualPrice: Math.max(0, curValue - amt),
+        avgBuyPrice: Math.max(0, curCost - amt),
+      });
+    } else if (t.assetDir === "sell") {
+      await patch("assets", t.assetId, { manualPrice: curValue + amt });
+    }
+    return;
+  }
+  const qty = Number(t.assetQty) || 0;
+  const delta = t.assetDir === "buy" ? -qty : qty;
   const newQty = Math.max(0, (Number(asset.quantity) || 0) + delta);
-  await patch("assets", assetId, { quantity: newQty });
+  await patch("assets", t.assetId, { quantity: newQty });
 }
 
 // ================= Seeding (first run) =================
@@ -204,6 +228,10 @@ export async function upsertSnapshot() {
       maturityDate: a.type === "bond" ? (a.maturityDate || null) : null,
       couponRatePA: a.type === "bond" ? (Number(a.couponRatePA) || 0) : null,
       redeemed: a.type === "bond" ? (a.redeemed === true) : null,
+      // qtyless ("Jumlah N/A") — additive/opsional, `false` buat asset non-qtyless (bukan
+      // `null` kayak field khusus bond/capex, karena ini boolean flag lintas-tipe, bukan
+      // sekumpulan field yang cuma relevan buat SATU tipe tertentu).
+      qtyless: a.qtyless === true,
       valueIDR: Math.round(assetValueIDR(a)),
       costIDR: Math.round(assetCostIDR(a)),
     })),
@@ -465,22 +493,41 @@ export async function bulkDelete({ mode, month, year, includeMaster, keepApiKeys
     }
   }
 
-  // Efek qty asset dari transaksi beli/jual — pola sama debt: agregasi per
-  // asset dulu (netQty = Σ beli − Σ jual), baru SATU patch() di akhir, bukan hook per transaksi.
-  // avgBuyPrice SENGAJA GA di-reverse (sama seperti hapus 1 transaksi via remove(), lihat
-  // applyAssetQtyEffect). Skip total kalau includeMaster — assets-nya sendiri toh ikut kehapus.
+  // Efek asset dari transaksi beli/jual/redeem — pola sama debt: agregasi per asset dulu,
+  // baru SATU patch() di akhir, bukan hook per transaksi. avgBuyPrice (tipe qty-based) SENGAJA
+  // GA di-reverse (sama seperti hapus 1 transaksi via remove(), lihat applyAssetQtyEffect). Skip
+  // total kalau includeMaster — assets-nya sendiri toh ikut kehapus.
   if (!includeMaster) {
-    const assetAgg = {}; // assetId -> netQty (Σ beli − Σ jual)
+    // assetId -> { netQty: Σbeli−Σjual (tipe qty-based), buyAmount: Σamount beli (tipe qtyless,
+    // buat reverse modal), netValueAmount: Σbeli−Σjual amount (tipe qtyless, buat reverse nilai),
+    // hasRedeem: ada transaksi assetDir:"redeem" di scope (bond) }
+    const assetAgg = {};
     for (const t of scope.transactions) {
       if (!t.assetId) continue;
+      if (!assetAgg[t.assetId]) assetAgg[t.assetId] = { netQty: 0, buyAmount: 0, netValueAmount: 0, hasRedeem: false };
+      const agg = assetAgg[t.assetId];
+      if (t.assetDir === "redeem") { agg.hasRedeem = true; continue; }
       const qty = Number(t.assetQty) || 0;
-      assetAgg[t.assetId] = (assetAgg[t.assetId] || 0) + (t.assetDir === "buy" ? qty : -qty);
+      const amt = Number(t.amount) || 0;
+      agg.netQty += t.assetDir === "buy" ? qty : -qty;
+      agg.netValueAmount += t.assetDir === "buy" ? amt : -amt;
+      if (t.assetDir === "buy") agg.buyAmount += amt;
     }
-    for (const [assetId, netQty] of Object.entries(assetAgg)) {
+    for (const [assetId, agg] of Object.entries(assetAgg)) {
       const asset = state.assets.find((a) => a.id === assetId);
       if (!asset) continue; // asset-nya udah kehapus duluan
-      const newQty = Math.max(0, (Number(asset.quantity) || 0) - netQty);
-      await patch("assets", assetId, { quantity: newQty });
+      const data = {};
+      // Bond ke-redeem di periode yang lagi dihapus -> un-redeem (transaksi bukti pencairannya
+      // toh ikut lenyap). Pola sama applyAssetQtyEffect dir:"redeem", cuma diagregasi jadi flag
+      // doang (redeem cuma bisa kejadian sekali per bond, ga ada "netRedeem" yang berarti).
+      if (agg.hasRedeem) data.redeemed = false;
+      if (asset.qtyless === true) {
+        data.manualPrice = Math.max(0, (Number(asset.manualPrice) || 0) - agg.netValueAmount);
+        data.avgBuyPrice = Math.max(0, (Number(asset.avgBuyPrice) || 0) - agg.buyAmount);
+      } else {
+        data.quantity = Math.max(0, (Number(asset.quantity) || 0) - agg.netQty);
+      }
+      await patch("assets", assetId, data);
     }
   }
 

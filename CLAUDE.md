@@ -136,7 +136,7 @@ tick callback (`wealth.js`, balikin literal `"***"`). State toggle di localStora
   (limit > 0 DAN creditUsed sesudah expense > limit) di-cek di `openTxSheet()` (tx-sheet.js)
   SETELAH transaksi tersimpan (toast, bukan `confirm()` yang blocking — transaksi TETAP kesimpen).
   Breakdown Total tab Wealth: "💧 Liquid" = `totalCashIDR()` apa adanya (udah bersih dari CC,
-  ga perlu koreksi lagi), "💳 Debt (cicilan)" dipisah dari "🪪 Kartu Kredit (terpakai)" —
+  ga perlu koreksi lagi), "💳 Cicilan" dipisah dari "🪪 Kartu Kredit" —
   `debtsOnly = totalDebtIDR() − totalCreditDebtIDR()`, dua-duanya sum PERSIS ke net worth (pola
   SAMA kayak CAPEX misahin `investAssets` dari baris CAPEX). Tab **Liquid** (Wealth) SEKARANG
   TIDAK nampilin akun credit SAMA SEKALI (bukan cuma dikelompokkan terpisah — pindah total ke
@@ -258,7 +258,7 @@ tick callback (`wealth.js`, balikin literal `"***"`). State toggle di localStora
   ini pakai live totals. `totalAssetsIDR()` SENDIRI TETAP SELALU termasuk CAPEX apa adanya
   (dipakai tab Assets Wealth — itu "semua yang lo punya", bukan konsep net worth); exclude-nya
   CUMA lewat `netWorthFromParts()`, BUKAN filter ulang di tempat lain. Efeknya: breakdown Total
-  tab Wealth ("📈 Assets (investasi)") SELALU nampilin nilai EXCLUDE CAPEX (biar rows-nya tetap
+  tab Wealth ("📈 Assets") SELALU nampilin nilai EXCLUDE CAPEX (biar rows-nya tetap
   sum persis ke NET WORTH baik toggle ON/OFF) + baris "🏗️ CAPEX" terpisah CUMA muncul di situ
   kalau toggle ON; kalau OFF, nilainya tetep kelihatan tapi sebagai catatan `.sub` di luar
   tabel breakdown (bukan salah satu row yang di-sum). `report-md.js` section 1 & 10 nunjukin
@@ -322,6 +322,47 @@ tick callback (`wealth.js`, balikin literal `"***"`). State toggle di localStora
   `principal` ≤ 0, `couponRatePA` di luar 0–100%, `maturityDate` sebelum `purchaseDate`. Field
   semuanya additive/opsional (`null` kecuali tipe bond, pola sama CAPEX) — **schemaVersion TIDAK
   naik**, backup lama tetap valid restore.
+  **`qtyless`** (bool, "Jumlah N/A" — TASK-6) BEDA dari CAPEX/Bond di atas: BUKAN tipe baru,
+  melainkan TOGGLE lintas-tipe (checkbox di form Edit Asset, cuma muncul buat tipe
+  `mutual_fund`/`deposito`/`gold`/`other` — saham/US/crypto DIKELUARIN karena auto-refresh butuh
+  qty×harga/unit, ga cocok sama konsep lump-sum) buat posisi TUNGGAL yang dilacak lewat NILAI
+  langsung, bukan qty×harga/unit (mis. 1 rekening deposito, 1 investasi bisnis, emas dilebur jadi
+  1 posisi). `quantity` DIPAKSA 1 SELAMANYA (hidden di form, GA PERNAH berubah lewat jalur
+  manapun — beda dari tipe qty-based yang `quantity`-nya emang berubah tiap beli/jual) —
+  `assetValueIDR()`/`assetCostIDR()` (calc.js) **TIDAK PUNYA cabang khusus buat ini** (beda dari
+  capex/bond yang punya fungsi `*LocalValue`/`*ValueIDR` sendiri) karena formula generik `qty ×
+  manualPrice`/`qty × avgBuyPrice` OTOMATIS jadi `= manualPrice`/`= avgBuyPrice` pas `qty` selalu
+  1 — `manualPrice` jadi NILAI TOTAL (bukan per-unit) dan `avgBuyPrice` jadi MODAL TOTAL, tanpa
+  kode kalkulasi baru sama sekali. **Catat Pembelian/Penjualan** TETAP ada (beda dari capex/bond
+  yang di-hide) tapi routing ke sheet KHUSUS (`openQtylessTradeSheet()`, wealth.js — dispatch
+  otomatis dari `openAssetBuySheet()`/`openAssetSellSheet()` berdasar `asset.qtyless`, BUKAN
+  `openAssetTradeSheet()` biasa) — form-nya cuma SATU nominal (bukan qty+harga/unit terpisah).
+  Beli: nominal nambah `manualPrice` (nilai) DAN `avgBuyPrice` (modal) sekaligus — asumsi wajar
+  "abis nambah duit, nilai hari itu minimal segitu" (user tetap bisa koreksi manual lewat form
+  Edit Asset kalau nilai pasarnya beda, mis. harga emas naik/turun). Jual/tarik: nominal
+  ngurangin `manualPrice` DOANG, `avgBuyPrice` TETAP — pola SAMA persis kayak konvensi jual asset
+  qty-based (cost basis ga di-reverse pas jual). Transaksinya **TANPA** `assetQty`/`assetPrice`
+  (field itu ga ada artinya buat lump-sum, sama kayak `assetDir:"redeem"` bond) — `integrity.js`
+  validasi assetId+assetDir punya cabang KHUSUS buat qtyless (skip syarat assetQty/assetPrice,
+  pola sama redeem) DAN skip total dari check konsistensi qty-vs-jejak-transaksi (yang itu emang
+  cuma valid buat tipe qty-based) + check baru: qtyless tapi `quantity !== 1` → info corruption.
+  **Reversal** (hapus transaksi) DIPUSATKAN di db.js `applyAssetQtyEffect()` — signature-nya
+  SEKARANG nerima transaksi utuh (bukan `assetId, dir, qty` terpisah lagi) karena cabang qtyless
+  butuh `t.amount`, bukan `t.assetQty`; cabang qtyless-nya ngurangin `manualPrice`+`avgBuyPrice`
+  (buy) atau nambahin `manualPrice` doang (sell) — BUKAN nyentuh `quantity` sama sekali.
+  `bulkDelete()` (Zona Bahaya) punya agregasi TERPISAH buat qtyless (`netValueAmount`/
+  `buyAmount` per asset, bukan `netQty`) di loop yang sama — sekalian NGEBENERIN gap lama:
+  transaksi `assetDir:"redeem"` (bond) yang ikut kehapus lewat bulk delete SEBELUMNYA ga
+  ngebalikin flag `redeemed`, sekarang di-track (`hasRedeem`) dan di-reverse juga. Toggle ON
+  dari asset yang sebelumnya beneran punya `quantity > 1` (form Edit Asset) AUTO-KONVERSI
+  avg/harga per-unit jadi TOTAL (dikali qty lama) sebelum field-nya disembunyikan — jaga2 biar
+  angka ga kesalahartikan diam-diam jadi "per unit doang" pas direinterpretasi sebagai total;
+  toggle OFF SENGAJA GA di-reverse (user emang harus isi ulang qty+harga manual, ga ada "1 unit"
+  yang valid buat dibagi balik). `assetRow()`/list Assets nampilin "Jumlah: N/A" (bukan angka 1
+  yang bisa disalahartikan sebagai qty asli) + "Modal Rp X" (bukan "avg Rp X/unit").
+  `report-md.js` section 6 kolom Qty juga "N/A" buat baris ini (konstanta `NA` yang sama kayak
+  bond). Field `qtyless` additive (`false` default, bukan `null` — ini boolean lintas-tipe, beda
+  dari field bond/capex yang emang cuma relevan buat satu tipe) — **schemaVersion TIDAK naik**.
 - `debts` — outstanding, monthlyInstalment, dueDay, remainingMonths. Mengurangi net worth.
   Transaksi expense bisa opsional bawa `debtId` (dropdown "Potong hutang?" di `openTxSheet()`
   kalau ada ≥1 debt, dan di form `recurring`) — CREATE/EDIT/DELETE transaksi ber-`debtId`

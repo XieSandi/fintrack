@@ -112,7 +112,7 @@ export function render(root) {
           <div class="bal">${fmtMoney(bal[a.id] || 0, a.currency)}</div>
           <div class="cur">${a.currency}${a.currency === "USD" ? ` · ≈ ${fmtIDR((bal[a.id] || 0) * effectiveRate())}` : ""}</div>
         </div>`).join("")}
-      ${accounts.length === 0 ? `<div class="empty" style="flex:1">Belum ada akun.<br/>Buat di <a href="#/settings" style="color:var(--blue)">Settings</a></div>` : ""}
+      ${accounts.length === 0 ? `<div class="empty" style="flex:1">Belum ada akun.</div>` : ""}
     </div>
 
     <div style="display:flex; justify-content:space-between; align-items:baseline; margin:2px 2px 8px">
@@ -132,7 +132,7 @@ export function render(root) {
       ${recent.length > 0 ? `<a href="#/transactions" class="gear-link" style="font-size:11px">Lihat semua →</a>` : ""}
     </div>
     <div id="recent-list">
-      ${recent.length === 0 ? `<div class="empty">Belum ada transaksi.<br/>Tap tombol ＋ untuk mulai catat.</div>` : ""}
+      ${recent.length === 0 ? `<div class="empty">Belum ada transaksi.</div>` : ""}
     </div>
   `;
 
