@@ -29,12 +29,30 @@ Jangan gabungin dua konsep ini atau rename salah satunya tanpa sadar bedanya —
   HTTP-referrer restriction).
 - **Semua path relative (`./`)** karena hosting di subpath `/fintrack/`. Jangan pakai absolute path.
 - Bahasa UI: Indonesia santai (lo/gue). Format uang: `Intl id-ID` → "Rp 1.500.000".
+- **Copy UI sengaja MINIM.** App satu user (owner) yang udah hafal semua fitur — JANGAN nambah
+  teks tutorial/penjelasan cara kerja fitur ("nilai dihitung otomatis tiap bulan pakai...", "pilih
+  X di dropdown Y biar Z"). Yang BOLEH panjang cuma teks yang isinya KONDISI/INSIGHT data
+  finansial: angka + konteksnya (pace milestone, estimasi kupon, sisa limit, preview sebelum
+  aksi destruktif, hasil cek integritas, peringatan state kayak "⚠️ Belum jatuh tempo").
+- **Tema: calm dark.** Base slate desaturated (`--bg #101318`, bukan hitam pekat), aksen diredam
+  (`--green #8fbe9f`, `--red #d99494`, `--blue #8bacd0`, `--yellow #d9bc7f`) — JANGAN balikin ke
+  warna neon/saturated. Pola var: `--x` (teks/garis aksen), `--x-dim` (background state aktif &
+  badge), `--x-edge` (border state aktif). Warna di inline style JS pakai `var(--x)`; warna buat
+  Chart.js WAJIB literal hex (canvas ga bisa resolve CSS var) — kalau ganti palet, dua-duanya
+  harus diupdate bareng biar chart ga beda sendiri.
+- **Layout: mobile-first + satu breakpoint desktop `@media (min-width: 860px)`** (`css/style.css`,
+  blok paling bawah). Di desktop: kolom `.view` melebar ke `--maxw` (940px), header pakai wrapper
+  `.header-inner` biar konten sejajar sama kolom (background tetap full-width), bottom nav jadi
+  pill mengambang (bukan bar full-width yang ke-stretch di monitor lebar), bottom sheet jadi
+  modal tengah (`popin`, bukan `slideup`), dan slider horizontal (akun/budget/goals) wrap jadi
+  grid. Hover state dikurung `@media (hover:hover) and (pointer:fine)` biar di HP ga ada state
+  nyangkut sehabis tap.
 
 ## Arsitektur
 
 ```
 index.html            shell: header, #view, FAB, bottom nav, sheet, toast
-css/style.css         dark theme, mobile-first, CSS vars di :root
+css/style.css         dark theme (calm/desaturated), mobile-first + breakpoint desktop 860px
 js/app.js             entry: auth flow, hash router (ROUTES), month picker, SW register + auto-update
 js/firebase.js        init SDK via CDN gstatic + offline persistence
 js/store.js           state global + onSnapshot listeners; wrapper tipis ke js/calc.js buat

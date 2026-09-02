@@ -86,8 +86,8 @@ export function render(root) {
           <button class="blur-toggle" data-blur-toggle aria-label="${isBlurred() ? "Tampilkan" : "Sembunyikan"} saldo">${isBlurred() ? "🙈" : "👁️"}</button>
         </div>
       </div>
-      <div class="big-amount" style="color:#93c5fd">${fmtIDR(totalBalance)}</div>
-      <div class="sub" style="color:#7da3d8">${periodRangeLabel(from, to)}</div>
+      <div class="big-amount" style="color:var(--blue)">${fmtIDR(totalBalance)}</div>
+      <div class="sub" style="color:var(--muted2)">${periodRangeLabel(from, to)}</div>
       <div class="summary3" style="margin-top:14px">
         <div><div class="label">Income</div><div class="v" style="color:var(--green)">${fmtIDR(sum.income)}</div></div>
         <div><div class="label">Expense</div><div class="v" style="color:var(--red)">${fmtIDR(sum.expense)}</div></div>
@@ -96,9 +96,9 @@ export function render(root) {
       </div>
       ${milestone.hidden ? "" : `
       <div class="progress" style="margin-top:14px; height:6px">
-        <div style="width:${milestone.achieved ? 100 : milestone.pct}%; background:${milestone.achieved ? "linear-gradient(90deg,#eab308,#facc15)" : "linear-gradient(90deg,#3b82f6,#60a5fa)"}"></div>
+        <div style="width:${milestone.achieved ? 100 : milestone.pct}%; background:${milestone.achieved ? "linear-gradient(90deg,#b08f57,#d9bc7f)" : "linear-gradient(90deg,#5f7fa3,#8bacd0)"}"></div>
       </div>
-      <div class="sub" style="color:${milestone.achieved ? "#facc15" : "#7da3d8"}; margin-top:4px">${milestone.achieved
+      <div class="sub" style="color:${milestone.achieved ? "#d9bc7f" : "var(--muted2)"}; margin-top:4px">${milestone.achieved
         ? `🏆 Tercapai! Net worth ${fmtIDR(milestone.nw)} ≥ target ${fmtIDR(milestone.target)}`
         : `🏆 Main Milestone: ${milestone.pct.toFixed(1)}% menuju ${fmtIDR(milestone.target)}`}</div>
       ${paceLine ? `<div class="sub" style="margin-top:2px">${escapeHtml(paceLine)}</div>` : ""}`}
@@ -107,7 +107,7 @@ export function render(root) {
     <div class="card-title" style="margin:2px 2px 8px">Akun</div>
     <div class="acct-scroll">
       ${accounts.map((a) => `
-        <div class="acct-card" style="border-top-color:${a.color || "#60a5fa"}">
+        <div class="acct-card" style="border-top-color:${a.color || "#8bacd0"}">
           <div class="name">${escapeHtml(a.name)}</div>
           <div class="bal">${fmtMoney(bal[a.id] || 0, a.currency)}</div>
           <div class="cur">${a.currency}${a.currency === "USD" ? ` · ≈ ${fmtIDR((bal[a.id] || 0) * effectiveRate())}` : ""}</div>

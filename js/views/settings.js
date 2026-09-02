@@ -25,7 +25,7 @@ export function render(root) {
   const capexBackfillRows = previewCapexBackfill();
 
   root.innerHTML = `
-    ${backupOld ? `<div class="card" style="border-color:#a16207; background:#1c1400">
+    ${backupOld ? `<div class="card" style="border-color:#6a5833; background:#211d16">
       <div style="font-size:13px">⚠️ ${lastBackup ? "Backup terakhir > 30 hari" : "Belum pernah backup"}. Export data lo di bawah biar aman.</div>
     </div>` : ""}
 
@@ -66,7 +66,7 @@ export function render(root) {
 
     <div class="card">
       <div class="card-title">🏆 Main Milestone & Kurs</div>
-      ${milestone.achieved ? `<div class="sub" style="color:#facc15; margin-bottom:8px">🏆 Tercapai! Set milestone berikutnya.</div>` : ""}
+      ${milestone.achieved ? `<div class="sub" style="color:#d9bc7f; margin-bottom:8px">🏆 Tercapai! Set milestone berikutnya.</div>` : ""}
       <label>Target Net Worth (Rp)</label>
       <input id="s-target" inputmode="numeric" value="${fmtNum(state.settings.targetNetWorth || 100000000)}" />
       <label>Target Bulan (opsional)</label>
@@ -133,7 +133,7 @@ export function render(root) {
       <button id="btn-integrity" class="btn btn-block">🩺 Cek Integritas Data</button>
     </div>
 
-    <div class="card" style="border-color:#7f1d1d; background:#1c0a0a">
+    <div class="card" style="border-color:#6a4444; background:#201a1a">
       <div class="card-title" style="color:var(--red)">⚠️ Zona Bahaya</div>
       <a href="#/danger" class="btn btn-danger btn-block" style="text-decoration:none; display:flex; align-items:center; justify-content:center">🗑️ Reset Data</a>
     </div>

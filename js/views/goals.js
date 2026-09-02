@@ -6,7 +6,7 @@ import {
   nowTimeStr, DEFAULT_TX_TIME,
 } from "../utils.js";
 
-const COLORS = ["#60a5fa", "#4ade80", "#facc15", "#f87171", "#c084fc", "#fb923c", "#2dd4bf"];
+const COLORS = ["#8bacd0", "#8fbe9f", "#d9bc7f", "#d99494", "#b09ac9", "#d3a17f", "#7fbfba"];
 
 // Stats tampilan SATU goal — SATU tempat, dipakai bareng goals.js (list) DAN home.js (preview)
 // biar dua UI ga divergen (pola sama copyBudgetFromLastMonth()). `progress` (dipakai buat
@@ -66,7 +66,7 @@ export function render(root) {
     div.className = "budget-item";
     div.innerHTML = `
       <div class="budget-top">
-        <span class="budget-name" style="color:${g.color || "#60a5fa"}">● ${escapeHtml(g.name)} ${g.isArchived ? '<span class="badge badge-yellow">arsip</span>' : ""}</span>
+        <span class="budget-name" style="color:${g.color || "#8bacd0"}">● ${escapeHtml(g.name)} ${g.isArchived ? '<span class="badge badge-yellow">arsip</span>' : ""}</span>
         <span class="budget-nums">${pct.toFixed(0)}%</span>
       </div>
       <div class="progress"><div class="${cls}" style="width:${pct}%"></div></div>

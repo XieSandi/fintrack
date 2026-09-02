@@ -1,22 +1,31 @@
+/* Calm dark — base slate desaturated (bukan hitam pekat), aksen diredam biar ga neon.
+   *-dim = background badge/state aktif, *-edge = border state aktif. */
 :root {
-  --bg: #0a0a0f;
-  --bg2: #0d1117;
-  --card: #111827;
-  --card2: #0f172a;
-  --border: #1e293b;
-  --text: #e2e8f0;
-  --muted: #64748b;
-  --muted2: #94a3b8;
-  --green: #4ade80;
-  --green-dim: #14532d;
-  --red: #f87171;
-  --red-dim: #450a0a;
-  --yellow: #facc15;
-  --yellow-dim: #422006;
-  --blue: #60a5fa;
-  --blue-dim: #172554;
+  --bg: #101318;
+  --bg2: #141821;
+  --card: #181d26;
+  --card2: #1c212c;
+  --border: #272e3a;
+  --border-hi: #333c4a;
+  --text: #d6dbe3;
+  --muted: #78828f;
+  --muted2: #99a3b1;
+  --green: #8fbe9f;
+  --green-dim: #1c2b23;
+  --green-edge: #3d6650;
+  --red: #d99494;
+  --red-dim: #2c1f1f;
+  --red-edge: #6a4444;
+  --yellow: #d9bc7f;
+  --yellow-dim: #2b2618;
+  --yellow-edge: #6a5833;
+  --blue: #8bacd0;
+  --blue-dim: #1d2634;
+  --blue-edge: #3e5570;
+  --purple: #b09ac9;
   --radius: 12px;
   --nav-h: 62px;
+  --maxw: 940px;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -43,7 +52,7 @@ label { display: block; font-size: 11px; color: var(--muted); text-transform: up
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* ---------- Login ---------- */
-.login-screen { position: fixed; inset: 0; background: linear-gradient(160deg, #0d1117, #101a2e); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 24px; }
+.login-screen { position: fixed; inset: 0; background: linear-gradient(160deg, #141821, #1a2432); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 24px; }
 .login-box { text-align: center; max-width: 320px; }
 .login-box h1 { margin: 14px 0 6px; font-size: 26px; }
 .login-box p { color: var(--muted2); font-size: 13px; line-height: 1.6; margin-bottom: 24px; }
@@ -52,11 +61,11 @@ label { display: block; font-size: 11px; color: var(--muted); text-transform: up
 /* ---------- Header ---------- */
 .header {
   position: sticky; top: 0; z-index: 20;
-  display: flex; justify-content: space-between; align-items: center;
   padding: 12px 16px; padding-top: max(12px, env(safe-area-inset-top));
-  background: rgba(13,17,23,.92); backdrop-filter: blur(8px);
+  background: rgba(20,24,33,.92); backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--border);
 }
+.header-inner { display: flex; justify-content: space-between; align-items: center; max-width: 680px; margin: 0 auto; }
 .header-title { font-weight: 700; font-size: 17px; letter-spacing: .3px; }
 .header-right { display: flex; align-items: center; gap: 10px; }
 .sync-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); display: inline-block; }
@@ -78,7 +87,7 @@ label { display: block; font-size: 11px; color: var(--muted); text-transform: up
 .bottomnav {
   position: fixed; bottom: 0; left: 0; right: 0; z-index: 30;
   display: flex; align-items: stretch;
-  background: rgba(13,17,23,.96); backdrop-filter: blur(8px);
+  background: rgba(20,24,33,.94); backdrop-filter: blur(10px);
   border-top: 1px solid var(--border);
   height: calc(var(--nav-h) + env(safe-area-inset-bottom));
   padding-bottom: env(safe-area-inset-bottom);
@@ -95,9 +104,9 @@ label { display: block; font-size: 11px; color: var(--muted); text-transform: up
   left: 50%; transform: translateX(-50%);
   bottom: calc(var(--nav-h) - 26px + env(safe-area-inset-bottom));
   width: 56px; height: 56px; border-radius: 50%;
-  background: linear-gradient(135deg, #16a34a, #4ade80); color: #052e16;
+  background: linear-gradient(135deg, #4f7d62, #8fbe9f); color: #0f1a13;
   border: none; font-size: 28px; font-weight: 700;
-  box-shadow: 0 4px 18px rgba(74,222,128,.35);
+  box-shadow: 0 4px 16px rgba(143,190,159,.20);
 }
 .fab:active { transform: translateX(-50%) scale(.94); }
 
@@ -107,8 +116,8 @@ label { display: block; font-size: 11px; color: var(--muted); text-transform: up
   border: 1px solid var(--border); background: var(--card2); color: var(--text);
   border-radius: 10px; padding: 10px 16px; font-size: 14px; font-weight: 600;
 }
-.btn-primary { background: #166534; border-color: #16a34a; color: #dcfce7; }
-.btn-danger { background: var(--red-dim); border-color: #7f1d1d; color: var(--red); }
+.btn-primary { background: #2c4436; border-color: var(--green-edge); color: #cfe6d8; }
+.btn-danger { background: var(--red-dim); border-color: var(--red-edge); color: var(--red); }
 .btn-ghost { background: transparent; }
 .btn-lg { padding: 13px 20px; font-size: 15px; width: 100%; }
 .btn-sm { padding: 6px 10px; font-size: 12px; border-radius: 8px; }
@@ -116,18 +125,18 @@ label { display: block; font-size: 11px; color: var(--muted); text-transform: up
 
 /* ---------- Home ---------- */
 .networth-banner {
-  background: linear-gradient(135deg, #172554, #1e3a5f);
-  border: 1px solid #1e40af; border-radius: 14px; padding: 18px; margin-bottom: 14px;
+  background: linear-gradient(135deg, #1a2432, #1f2c3d);
+  border: 1px solid var(--blue-edge); border-radius: 14px; padding: 18px; margin-bottom: 14px;
 }
 .big-amount { font-size: 28px; font-weight: 800; letter-spacing: -.5px; }
 .nw-head { display: flex; justify-content: space-between; align-items: center; }
-.blur-toggle { background: none; border: none; color: #93c5fd; font-size: 16px; padding: 2px 4px; line-height: 1; opacity: .85; }
+.blur-toggle { background: none; border: none; color: var(--blue); font-size: 16px; padding: 2px 4px; line-height: 1; opacity: .85; }
 .blur-toggle:active { opacity: 1; }
 .asset-toggle {
-  background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.15); color: #93c5fd;
+  background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); color: var(--blue);
   font-size: 10px; font-weight: 700; padding: 4px 9px; border-radius: 20px; letter-spacing: .3px;
 }
-.asset-toggle.active { background: #3b82f6; border-color: #60a5fa; color: #fff; }
+.asset-toggle.active { background: var(--blue-edge); border-color: var(--blue); color: #e8eef6; }
 
 /* Blur mode — mask angka nominal jadi asterisk (toggle mata di Home). Teks asli disembunyikan
    lewat visibility:hidden (bukan display:none, biar box tetap ambil ruang sesuai panjang teks
@@ -197,7 +206,7 @@ body.blur-mode .blur-num::after {
   flex: 1; background: var(--card); border: 1px solid var(--border); color: var(--muted2);
   padding: 9px; border-radius: 10px; font-size: 13px; font-weight: 600;
 }
-.tabs button.active { background: var(--blue-dim); border-color: #1e40af; color: var(--blue); }
+.tabs button.active { background: var(--blue-dim); border-color: var(--blue-edge); color: var(--blue); }
 .asset-item { display: flex; align-items: center; gap: 10px; padding: 11px 0; border-bottom: 1px solid var(--border); cursor: pointer; }
 .asset-item:last-child { border-bottom: none; }
 .asset-sym { font-weight: 800; font-size: 14px; }
@@ -239,9 +248,9 @@ canvas { max-width: 100%; }
 .amount-input:focus { border-bottom-color: var(--green); }
 .type-toggle { display: flex; gap: 6px; margin: 12px 0 4px; }
 .type-toggle button { flex: 1; padding: 9px; border-radius: 10px; border: 1px solid var(--border); background: var(--card2); color: var(--muted2); font-size: 13px; font-weight: 700; }
-.type-toggle button.active.t-expense { background: var(--red-dim); border-color: #7f1d1d; color: var(--red); }
-.type-toggle button.active.t-income { background: var(--green-dim); border-color: #166534; color: var(--green); }
-.type-toggle button.active.t-transfer { background: var(--blue-dim); border-color: #1e40af; color: var(--blue); }
+.type-toggle button.active.t-expense { background: var(--red-dim); border-color: var(--red-edge); color: var(--red); }
+.type-toggle button.active.t-income { background: var(--green-dim); border-color: var(--green-edge); color: var(--green); }
+.type-toggle button.active.t-transfer { background: var(--blue-dim); border-color: var(--blue-edge); color: var(--blue); }
 
 .cat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 6px; }
 .cat-cell {
@@ -250,7 +259,7 @@ canvas { max-width: 100%; }
   display: flex; flex-direction: column; gap: 4px; align-items: center;
 }
 .cat-cell .em { font-size: 19px; }
-.cat-cell.active { border-color: var(--green); background: #0c1f13; color: var(--green); }
+.cat-cell.active { border-color: var(--green-edge); background: var(--green-dim); color: var(--green); }
 
 /* ---------- Settings ---------- */
 .set-item { display: flex; align-items: center; justify-content: space-between; padding: 12px 2px; border-bottom: 1px solid var(--border); font-size: 14px; }
@@ -263,7 +272,7 @@ canvas { max-width: 100%; }
 /* ---------- Toast ---------- */
 .toast {
   position: fixed; bottom: calc(var(--nav-h) + 74px); left: 50%; transform: translateX(-50%);
-  background: #1e293b; color: var(--text); border: 1px solid #334155;
+  background: #202733; color: var(--text); border: 1px solid var(--border-hi);
   padding: 10px 18px; border-radius: 24px; font-size: 13px; z-index: 60;
   max-width: 88vw; text-align: center;
   animation: slideup .2s ease;
@@ -272,6 +281,71 @@ canvas { max-width: 100%; }
 @media (min-width: 700px) {
   html { font-size: 16px; }
   .cat-grid { grid-template-columns: repeat(6, 1fr); }
+}
+
+/* ---------- Desktop / web (>= 860px) ----------
+   Mobile-first tetep jadi basis; blok ini cuma "melebarin" buat browser desktop:
+   kolom konten lebih lebar, bottom nav jadi pill mengambang (bukan bar full-width yang
+   ke-stretch di monitor lebar), sheet jadi modal tengah, dan slider horizontal (akun/budget/
+   goals) wrap jadi grid karena ruangnya udah cukup. */
+@media (min-width: 860px) {
+  .view { max-width: var(--maxw); padding: 22px 20px calc(var(--nav-h) + 56px); }
+
+  /* Konten header ikut lebar + padding kolom .view (biar judul sejajar sama isi halaman),
+     background-nya tetap full-width. Padding pindah ke -inner biar box-nya persis sama
+     kayak .view: max-width var(--maxw) TERMASUK padding 20px. */
+  .header { padding: 14px 0; padding-top: max(14px, env(safe-area-inset-top)); }
+  .header-inner { max-width: var(--maxw); padding: 0 20px; }
+
+  .bottomnav {
+    left: 50%; right: auto; transform: translateX(-50%);
+    bottom: 18px; width: auto; min-width: 440px;
+    height: var(--nav-h); padding-bottom: 0;
+    border: 1px solid var(--border); border-radius: 18px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.45);
+  }
+  .bottomnav a { padding: 0 26px; }
+  .nav-spacer { flex: 0 0 78px; }
+  .fab { bottom: 32px; }
+
+  /* Bottom sheet -> modal tengah */
+  .sheet {
+    top: 50%; bottom: auto; left: 50%; right: auto;
+    transform: translate(-50%, -50%);
+    width: min(720px, 92vw); max-width: none; max-height: 86dvh;
+    border: 1px solid var(--border); border-radius: 16px;
+    padding: 22px 22px 24px;
+    box-shadow: 0 24px 60px rgba(0,0,0,.5);
+    animation: popin .18s ease;
+  }
+  .toast { bottom: 100px; }
+
+  /* Slider horizontal -> grid (ruang udah cukup, ga perlu scroll samping) */
+  .acct-scroll, .budget-scroll { flex-wrap: wrap; overflow-x: visible; }
+  .acct-card { flex: 1 1 calc(25% - 8px); min-width: 150px; }
+  .budget-mini { flex: 1 1 calc(25% - 8px); min-width: 155px; }
+
+  .cat-grid { grid-template-columns: repeat(8, 1fr); }
+  .amount-input { font-size: 34px; }
+}
+
+@keyframes popin {
+  from { transform: translate(-50%, -46%); opacity: 0; }
+  to { transform: translate(-50%, -50%); opacity: 1; }
+}
+
+/* Hover state cuma buat device yang emang punya pointer (desktop), biar di HP ga ada
+   state "nyangkut" setelah tap. */
+@media (hover: hover) and (pointer: fine) {
+  .tx-item:hover, .acct-card:hover, .budget-mini:hover,
+  .list-item:hover, .menu-item:hover, .asset-item:hover,
+  .btn:hover, .month-btn:hover { border-color: var(--border-hi); }
+  .btn-primary:hover { background: #33503f; }
+  .btn-danger:hover { background: #3a2727; }
+  .bottomnav a:hover { color: var(--muted2); }
+  .fab:hover { filter: brightness(1.06); }
+  .sheet-close:hover, .gear-link:hover { color: var(--text); }
+  .cat-cell:hover { border-color: var(--border-hi); }
 }
 
 /* ---------- v1.1 additions ---------- */
@@ -299,7 +373,7 @@ canvas { max-width: 100%; }
 }
 .sumtabs button .st-label { display: block; font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 3px; }
 .sumtabs button .st-val { display: block; font-size: 11px; font-weight: 800; }
-.sumtabs button.active { border-color: var(--blue); background: var(--blue-dim); }
+.sumtabs button.active { border-color: var(--blue-edge); background: var(--blue-dim); }
 .sumtabs button.active .st-label { color: var(--blue); }
 
 /* Chart tabs */
@@ -308,7 +382,7 @@ canvas { max-width: 100%; }
   background: var(--card2); border: 1px solid var(--border); color: var(--muted2);
   padding: 6px 12px; border-radius: 20px; font-size: 11px; font-weight: 700;
 }
-.chart-tabs button.active { background: var(--blue-dim); border-color: #1e40af; color: var(--blue); }
+.chart-tabs button.active { background: var(--blue-dim); border-color: var(--blue-edge); color: var(--blue); }
 
 /* Period tabs (Home) — horizontal scroll biar ga wrap di layar sempit */
 .period-tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }

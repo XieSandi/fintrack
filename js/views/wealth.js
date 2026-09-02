@@ -49,9 +49,9 @@ export function render(root) {
 
   root.innerHTML = `
     <div class="sumtabs">
-      ${sumBtn("total", "Total", blurNum(fmtShort(nw)), nw >= 0 ? "#93c5fd" : "var(--red)")}
+      ${sumBtn("total", "Total", blurNum(fmtShort(nw)), nw >= 0 ? "var(--blue)" : "var(--red)")}
       ${sumBtn("assets", "Assets", blurNum(fmtShort(assets)), "var(--green)")}
-      ${sumBtn("liquid", "Liquid", blurNum(fmtShort(cash)), "#93c5fd")}
+      ${sumBtn("liquid", "Liquid", blurNum(fmtShort(cash)), "var(--blue)")}
       ${sumBtn("debt", "Debt", blurNum(fmtShort(debt)), "var(--red)")}
     </div>
     <div id="group-content"></div>
@@ -102,29 +102,29 @@ function renderTotal(root) {
   root.innerHTML = `
     <div class="networth-banner">
       <div class="label">Net Worth</div>
-      <div class="big-amount" style="color:#93c5fd">${fmtIDR(nw)}</div>
+      <div class="big-amount" style="color:var(--blue)">${fmtIDR(nw)}</div>
       ${milestone.hidden ? "" : `
       <div class="progress" style="margin-top:12px; height:8px;">
-        <div style="width:${milestone.achieved ? 100 : milestone.pct}%; background:${milestone.achieved ? "linear-gradient(90deg,#eab308,#facc15)" : "linear-gradient(90deg,#3b82f6,#60a5fa)"}"></div>
+        <div style="width:${milestone.achieved ? 100 : milestone.pct}%; background:${milestone.achieved ? "linear-gradient(90deg,#b08f57,#d9bc7f)" : "linear-gradient(90deg,#5f7fa3,#8bacd0)"}"></div>
       </div>
-      <div class="sub" style="color:${milestone.achieved ? "#facc15" : "#7da3d8"}">${milestone.achieved
+      <div class="sub" style="color:${milestone.achieved ? "#d9bc7f" : "var(--muted2)"}">${milestone.achieved
         ? `🏆 Tercapai! Net worth ${fmtIDR(milestone.nw)} ≥ target ${fmtIDR(milestone.target)}`
         : `🏆 Main Milestone: ${milestone.pct.toFixed(1)}% menuju ${fmtIDR(milestone.target)}`}</div>
       ${paceLine ? `<div class="sub" style="margin-top:2px">${escapeHtml(paceLine)}</div>` : ""}`}
-      <div class="sub" style="color:#5a789f">Kurs USD ${fmtNum(rate)}${state.settings.usdIdrManual ? " (manual)" : state.usdIdr ? ` · auto per ${state.usdIdr.date}` : ""}</div>
+      <div class="sub" style="color:var(--muted)">Kurs USD ${fmtNum(rate)}${state.settings.usdIdrManual ? " (manual)" : state.usdIdr ? ` · auto per ${state.usdIdr.date}` : ""}</div>
     </div>
 
     <div class="card">
       <div class="table-like">
-        ${totalRow("💧 Liquid", cash, "#93c5fd")}
+        ${totalRow("💧 Liquid", cash, "var(--blue)")}
         ${totalRow("📈 Assets", investAssets, "var(--green)")}
-        ${capex > 0 && includeCapex ? totalRow("🏗️ CAPEX", capex, "#fbbf24") : ""}
-        ${goalSavings > 0 ? totalRow("🎯 Goals", goalSavings, "#c084fc") : ""}
+        ${capex > 0 && includeCapex ? totalRow("🏗️ CAPEX", capex, "#d9bc7f") : ""}
+        ${goalSavings > 0 ? totalRow("🎯 Goals", goalSavings, "#b09ac9") : ""}
         ${hasCreditAccounts ? totalRow("🪪 Kartu Kredit", -totalCreditDebt, "var(--red)") : ""}
         ${totalRow(hasCreditAccounts ? "💳 Cicilan" : "💳 Debt", -debtsOnly, "var(--red)")}
         <div style="border-top:1px solid var(--border); margin-top:8px; padding-top:10px; display:flex; justify-content:space-between">
           <span style="font-weight:800; font-size:13px">NET WORTH</span>
-          <span style="font-weight:800; font-size:13px; color:#93c5fd">${fmtIDR(nw)}</span>
+          <span style="font-weight:800; font-size:13px; color:var(--blue)">${fmtIDR(nw)}</span>
         </div>
       </div>
       ${hasCapexAssets ? `
@@ -175,8 +175,8 @@ function renderChart(root, milestone) {
     root.querySelector("#chart-wrap").innerHTML = `<div class="empty">Chart library belum ke-load (butuh online sekali).</div>`;
     return;
   }
-  const gridColor = "#1e293b";
-  Chart.defaults.color = "#64748b";
+  const gridColor = "#272e3a";
+  Chart.defaults.color = "#78828f";
   Chart.defaults.font.size = 10;
   const canvas = root.querySelector("#chart-main");
 
@@ -200,11 +200,11 @@ function renderChart(root, milestone) {
       data: {
         labels: snaps.map((s) => monthLabel(s.month || s.id)),
         datasets: [
-          { label: "Net Worth (+ CAPEX)", data: snaps.map((s) => snapshotNetWorth(s, true)), borderColor: "#60a5fa",
-            backgroundColor: "rgba(96,165,250,.12)", fill: true, tension: .3, pointRadius: 3 },
-          { label: "Net Worth (tanpa CAPEX)", data: snaps.map((s) => snapshotNetWorth(s, false)), borderColor: "#fbbf24",
+          { label: "Net Worth (+ CAPEX)", data: snaps.map((s) => snapshotNetWorth(s, true)), borderColor: "#8bacd0",
+            backgroundColor: "rgba(139,172,208,.12)", fill: true, tension: .3, pointRadius: 3 },
+          { label: "Net Worth (tanpa CAPEX)", data: snaps.map((s) => snapshotNetWorth(s, false)), borderColor: "#d9bc7f",
             fill: false, tension: .3, pointRadius: 2 },
-          { label: "Target", data: snaps.map(() => target), borderColor: "#4ade80",
+          { label: "Target", data: snaps.map(() => target), borderColor: "#8fbe9f",
             borderDash: [6, 5], pointRadius: 0, fill: false },
         ],
       },
@@ -224,8 +224,8 @@ function renderChart(root, milestone) {
       data: {
         labels: months.map(monthLabel),
         datasets: [
-          { label: "Income", data: sums.map((s) => s.income), backgroundColor: "#4ade80", borderRadius: 4 },
-          { label: "Expense", data: sums.map((s) => s.expense), backgroundColor: "#f87171", borderRadius: 4 },
+          { label: "Income", data: sums.map((s) => s.income), backgroundColor: "#8fbe9f", borderRadius: 4 },
+          { label: "Expense", data: sums.map((s) => s.expense), backgroundColor: "#d99494", borderRadius: 4 },
         ],
       },
       options: {
@@ -293,16 +293,16 @@ function renderProjectionChart(root, canvas, gridColor, milestone) {
     data: {
       labels: allMonths.map(monthLabel),
       datasets: [
-        { label: "Aktual", data: dataFor(actualMap), borderColor: "#60a5fa",
-          backgroundColor: "rgba(96,165,250,.12)", fill: true, tension: .3, pointRadius: 2, spanGaps: false },
-        { label: "Proyeksi (nabung)", data: dataFor(projSavingsMap), borderColor: "#64748b",
+        { label: "Aktual", data: dataFor(actualMap), borderColor: "#8bacd0",
+          backgroundColor: "rgba(139,172,208,.12)", fill: true, tension: .3, pointRadius: 2, spanGaps: false },
+        { label: "Proyeksi (nabung)", data: dataFor(projSavingsMap), borderColor: "#78828f",
           borderDash: [5, 4], pointRadius: 0, fill: false, spanGaps: false },
-        { label: `Proyeksi ${(rateA * 100).toFixed(0)}%/th`, data: dataFor(projAMap), borderColor: "#86efac",
+        { label: `Proyeksi ${(rateA * 100).toFixed(0)}%/th`, data: dataFor(projAMap), borderColor: "#a9d4b8",
           borderDash: [5, 4], pointRadius: 0, fill: false, spanGaps: false },
-        { label: `Proyeksi ${(rateB * 100).toFixed(0)}%/th`, data: dataFor(projBMap), borderColor: "#16a34a",
+        { label: `Proyeksi ${(rateB * 100).toFixed(0)}%/th`, data: dataFor(projBMap), borderColor: "#5f9678",
           borderDash: [5, 4], pointRadius: 0, fill: false, spanGaps: false },
         ...(milestone.hidden ? [] : [{ label: "Target", data: allMonths.map(() => milestone.target),
-          borderColor: "#facc15", borderDash: [2, 4], pointRadius: 0, fill: false }]),
+          borderColor: "#d9bc7f", borderDash: [2, 4], pointRadius: 0, fill: false }]),
       ],
     },
     options: {
@@ -1170,7 +1170,7 @@ function renderLiquid(root) {
 
   root.innerHTML = `
     <div class="card">
-      <div class="sub" style="margin-bottom:6px">Total liquid: <b style="color:#93c5fd">${fmtIDR(total)}</b></div>
+      <div class="sub" style="margin-bottom:6px">Total liquid: <b style="color:var(--blue)">${fmtIDR(total)}</b></div>
       <div id="liq-list">
         ${accounts.length === 0 ? `<div class="empty">Belum ada akun cash.</div>` : ""}
       </div>
@@ -1192,7 +1192,7 @@ function renderLiquid(root) {
       div.className = "asset-item";
       div.style.cursor = "default";
       div.innerHTML = `
-        <span style="width:10px;height:10px;border-radius:50%;background:${a.color || "#60a5fa"};flex-shrink:0"></span>
+        <span style="width:10px;height:10px;border-radius:50%;background:${a.color || "#8bacd0"};flex-shrink:0"></span>
         <div>
           <div class="asset-sym" style="font-size:13px">${escapeHtml(a.name)}</div>
           <div class="asset-meta">${a.currency}</div>

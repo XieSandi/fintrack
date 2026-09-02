@@ -6,7 +6,7 @@ import {
 } from "../utils.js";
 
 export const ACCT_TYPES = { bank: "Bank", ewallet: "E-Wallet", cash: "Cash", rdn: "RDN Sekuritas", broker: "Broker (Bibit/Pluang)", credit: "Kartu Kredit" };
-const COLORS = ["#60a5fa", "#4ade80", "#facc15", "#f87171", "#c084fc", "#fb923c", "#2dd4bf"];
+const COLORS = ["#8bacd0", "#8fbe9f", "#d9bc7f", "#d99494", "#b09ac9", "#d3a17f", "#7fbfba"];
 
 export function render(root) {
   const accounts = state.accounts;
@@ -30,7 +30,7 @@ export function render(root) {
     const div = document.createElement("div");
     div.className = "list-item";
     div.innerHTML = `
-      <span style="width:10px;height:10px;border-radius:50%;background:${a.color || "#60a5fa"};flex-shrink:0"></span>
+      <span style="width:10px;height:10px;border-radius:50%;background:${a.color || "#8bacd0"};flex-shrink:0"></span>
       <div style="flex:1">
         <div style="font-size:13px;font-weight:600">${escapeHtml(a.name)} ${a.isArchived ? '<span class="badge badge-yellow">arsip</span>' : ""}</div>
         <div class="set-sub">${ACCT_TYPES[a.type] || a.type} · ${a.currency} · saldo awal ${blurNum(fmtNum(a.initialBalance || 0))}</div>
@@ -57,7 +57,7 @@ function creditAcctRow(a, bal) {
   div.className = "budget-item";
   div.innerHTML = `
     <div class="budget-top">
-      <span class="budget-name" style="color:${a.color || "#60a5fa"}">💳 ${escapeHtml(a.name)} ${a.isArchived ? '<span class="badge badge-yellow">arsip</span>' : ""}</span>
+      <span class="budget-name" style="color:${a.color || "#8bacd0"}">💳 ${escapeHtml(a.name)} ${a.isArchived ? '<span class="badge badge-yellow">arsip</span>' : ""}</span>
       <span class="budget-nums">${limit > 0 ? `${pct.toFixed(0)}%` : ""}</span>
     </div>
     ${limit > 0 ? `<div class="progress"><div class="${cls}" style="width:${pct}%"></div></div>` : ""}

@@ -12,8 +12,8 @@ let catChart = null;
 // di-drop karena var(--red) di app ini udah reserved buat makna "danger/over
 // budget/expense" (badge, progress bar, tx amount) — kalau dipakai sebagai warna
 // kategori acak bisa kebaca salah sebagai status, bukan identitas kategori.
-const CAT_COLORS = ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#008300", "#9085e9"];
-const NEUTRAL_COLOR = "#64748b"; // Penyesuaian Saldo + bucket "Lainnya" — sengaja netral, bukan identitas
+const CAT_COLORS = ["#7a9cc6", "#c98b6b", "#6fa892", "#c2a266", "#c2879f", "#7a9e78", "#9b93cf"];
+const NEUTRAL_COLOR = "#78828f"; // Penyesuaian Saldo + bucket "Lainnya" — sengaja netral, bukan identitas
 const MAX_CAT_SLICES = CAT_COLORS.length;
 
 export function render(root) {
@@ -133,7 +133,7 @@ function renderCategoryChart(root, month) {
     wrap.querySelector("#cat-legend").innerHTML = `<div class="empty">Chart library belum ke-load (butuh online sekali).</div>`;
     return;
   }
-  Chart.defaults.color = "#64748b";
+  Chart.defaults.color = "#78828f";
   Chart.defaults.font.size = 10;
 
   catChart = new Chart(wrap.querySelector("#chart-cat"), {
@@ -143,7 +143,7 @@ function renderCategoryChart(root, month) {
       datasets: [{
         data: slices.map((s) => s.amount),
         backgroundColor: slices.map((s) => s.color),
-        borderColor: "#111827",
+        borderColor: "#181d26",
         borderWidth: 2,
         borderRadius: 4,
       }],

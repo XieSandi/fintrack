@@ -49,12 +49,12 @@ export function render(root) {
     && ackChecked && confirmInput.trim() === required;
 
   root.innerHTML = `
-    <div class="card" style="border-color:#7f1d1d; background:#1c0a0a">
+    <div class="card" style="border-color:#6a4444; background:#201a1a">
       <div class="card-title" style="color:var(--red)">⚠️ Zona Bahaya</div>
       <div class="sub">Ga ada undo. Backup dulu.</div>
     </div>
 
-    ${!online ? `<div class="card" style="border-color:#a16207; background:#1c1400">
+    ${!online ? `<div class="card" style="border-color:#6a5833; background:#211d16">
       <div style="font-size:13px">📡 Butuh koneksi. Sambungin internet dulu.</div>
     </div>` : ""}
 
@@ -84,7 +84,7 @@ export function render(root) {
             <input type="radio" name="dg-totalsub" value="c1" style="width:auto; margin-top:3px" ${totalSub === "c1" ? "checked" : ""} />
             <span><b>Hapus Semua Histori</b><br/><span class="sub">Transaksi, budget, snapshot. Master data tetap ada.</span></span>
           </label>
-          <label style="display:flex; align-items:flex-start; gap:8px; text-transform:none; letter-spacing:0; font-size:13px; color:var(--red); border:1px solid #7f1d1d; border-radius:8px; padding:10px; margin:0">
+          <label style="display:flex; align-items:flex-start; gap:8px; text-transform:none; letter-spacing:0; font-size:13px; color:var(--red); border:1px solid #6a4444; border-radius:8px; padding:10px; margin:0">
             <input type="radio" name="dg-totalsub" value="c2" style="width:auto; margin-top:3px" ${totalSub === "c2" ? "checked" : ""} />
             <span><b>Reset Total</b><br/><span class="sub" style="color:var(--red)">SEMUA data + master data — balik ke kondisi baru install.</span></span>
           </label>
@@ -109,7 +109,7 @@ export function render(root) {
     </div>
 
     ${backupStale() ? `
-    <div class="card" style="border-color:#a16207; background:#1c1400">
+    <div class="card" style="border-color:#6a5833; background:#211d16">
       <div style="font-size:13px; margin-bottom:8px">⚠️ ${state.settings.lastBackupAt ? "Backup terakhir >24 jam lalu" : "Belum pernah backup"}</div>
       <button id="dg-backup-now" class="btn btn-block">⬇️ Export Backup Dulu</button>
     </div>` : ""}
