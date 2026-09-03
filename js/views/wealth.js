@@ -9,7 +9,7 @@ import { add, patch, remove, updateSettings } from "../db.js";
 import {
   fmtIDR, fmtMoney, fmtNum, fmtIDRPlain, fmtMoneyPlain, escapeHtml, toast, openSheet, closeSheet, sheetHead,
   parseAmount, attachThousands, lastNMonths, monthLabel, todayStr, confirmDialog, monthOf,
-  fmtShort, milestonePaceLine, currentMonth, addMonths, isBlurred, blurNum,
+  fmtShort, milestonePaceLine, currentMonth, addMonths, isBlurred, blurNum, BLUR_MASK,
   nowTimeStr, DEFAULT_TX_TIME,
 } from "../utils.js";
 import { refreshPrices, refreshableAssets } from "../prices.js";
@@ -308,7 +308,7 @@ function renderProjectionChart(root, canvas, gridColor, milestone) {
     options: {
       plugins: { legend: { labels: { boxWidth: 10, font: { size: 9 } } } },
       scales: {
-        y: { grid: { color: gridColor }, ticks: { callback: (v) => isBlurred() ? "***" : fmtShort(v) } },
+        y: { grid: { color: gridColor }, ticks: { callback: (v) => isBlurred() ? BLUR_MASK : fmtShort(v) } },
         x: { grid: { display: false }, ticks: { maxTicksLimit: 8 } },
       },
     },
