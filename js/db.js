@@ -44,6 +44,17 @@ export async function remove(name, id) {
   if (name === "transactions" && before?.assetId) {
     await applyAssetQtyEffect(before);
   }
+  // Biaya tambahan (transaksi expense ber-`feeOfTxId`) ikut kehapus bareng induknya — biar ga
+  // nyisain biaya yatim yang transaksi aslinya udah ga ada. DIPUSATKAN di sini (pola sama
+  // applyDebtEffect/applyAssetQtyEffect) biar jalur hapus manapun otomatis konsisten.
+  // Rekursi aman: transaksi biaya sendiri ga punya anak (nesting diblok di tx-sheet.js).
+  // bulkDelete() SENGAJA ga butuh handling khusus — biaya selalu se-tanggal sama induknya, jadi
+  // pasti masuk scope periode yang sama & ikut kehapus.
+  if (name === "transactions" && !before?.feeOfTxId) {
+    for (const fee of state.transactions.filter((t) => t.feeOfTxId === id)) {
+      await remove("transactions", fee.id);
+    }
+  }
 }
 
 // ================= Efek cicilan ke debt (TASK-4) =================
@@ -173,13 +184,17 @@ export async function seedIfNeeded() {
 // ================= Kategori preset tambahan (migrasi idempotent) =================
 // Dipanggil tiap sesi (bukan cuma first-run kayak seedIfNeeded) — put() pakai id
 // deterministik + merge, jadi aman dipanggil berkali-kali, ga bakal duplikat.
-const RECONCILE_CATEGORIES = [
+const EXTRA_PRESET_CATEGORIES = [
   { id: "cat_adjust_out", name: "Penyesuaian Saldo", icon: "⚖️", type: "expense", isPreset: true },
   { id: "cat_adjust_in",  name: "Penyesuaian Saldo", icon: "⚖️", type: "income",  isPreset: true },
+  // Default kategori buat "biaya tambahan" (admin transfer, parkir, dll) — lihat bullet
+  // `transactions` (feeOfTxId) di CLAUDE.md. Tetap kategori expense BIASA, user boleh milih
+  // kategori lain pas nyatet.
+  { id: "cat_fee",        name: "Biaya & Admin",     icon: "🧾", type: "expense", isPreset: true },
 ];
 
 export async function ensurePresetCategories() {
-  await Promise.all(RECONCILE_CATEGORIES.map(({ id, ...data }) => put("categories", id, data)));
+  await Promise.all(EXTRA_PRESET_CATEGORIES.map(({ id, ...data }) => put("categories", id, data)));
 }
 
 // ================= Snapshot bulanan =================
