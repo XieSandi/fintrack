@@ -39,6 +39,11 @@ export function scanIntegrity(state) {
     }
 
     if (t.debtId && !state.debts.find((d) => d.id === t.debtId)) problems.push("debt ga ketemu");
+    // Biaya tambahan yang induknya udah ga ada — normalnya mustahil (hapus induk = biaya ikut
+    // kehapus lewat hook remove() di db.js), jadi ini nandain hapus manual lewat luar app.
+    if (t.feeOfTxId && !state.transactions.find((x) => x.id === t.feeOfTxId)) {
+      problems.push("transaksi induk biaya ga ketemu");
+    }
     if (!(Number(t.amount) > 0)) problems.push("nominal ≤ 0");
 
     if (t.date) {

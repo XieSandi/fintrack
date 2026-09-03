@@ -291,7 +291,12 @@ export function txRow(t) {
         ? `${isRedeem ? "Cairkan Pokok" : isSell ? "Jual" : "Beli"}: ${escapeHtml(asset.symbol || asset.name)}`
         : goal
         ? `${isWithdraw ? "Pencairan" : "Topup"}: ${escapeHtml(goal.name)}`
-        : t.type === "transfer" ? `Transfer` : escapeHtml(cat?.name || "—")}</div>
+        : t.type === "transfer" ? `Transfer` : escapeHtml(cat?.name || "—")}${
+        // Transaksi biaya tambahan (ber-feeOfTxId) dikasih badge biar kelihatan dia nempel ke
+        // transaksi lain, bukan expense berdiri sendiri — induknya persis di sebelahnya di list
+        // (tanggal & jam-nya sama). Sengaja badge doang, ga lookup induknya per baris (O(n) per
+        // row = O(n²) buat list panjang).
+        t.feeOfTxId ? ` <span class="badge badge-yellow">biaya</span>` : ""}</div>
       <div class="tx-note">${escapeHtml(t.note || dateLabel(t.date))}${t.time ? ` · ${escapeHtml(t.time)}` : ""}</div>
     </div>
     <div>

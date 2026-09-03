@@ -175,7 +175,31 @@ tick callback (`wealth.js`, balikin literal `"***"`). State toggle di localStora
   (guard di `categories.js`).
 - `transactions` — {date, time?, month:"YYYY-MM", amount, type: expense|income|transfer, accountId,
   toAccountId?, toGoalId?, fromGoalId?, categoryId, debtId?, assetId?, assetDir?, assetQty?,
-  assetPrice?, note}. Transfer = 1 record, BUKAN expense.
+  assetPrice?, feeOfTxId?, note}. Transfer = 1 record, BUKAN expense.
+  **Biaya tambahan** (`feeOfTxId`, biaya admin transfer / parkir / dll) — biaya dimodelkan
+  sebagai **transaksi `expense` TERPISAH** yang nunjuk ke transaksi induknya lewat `feeOfTxId`,
+  **BUKAN field `fee` di transaksi induk**. Ini KEPUTUSAN SADAR: kalau biaya cuma jadi field,
+  SEMUA yang ngagregasi uang (`accountBalances()`, `monthSummary()`, `spentByCategory()`, budget,
+  report-md, integrity) harus diajarin satu-satu soal field itu — persis jebakan yang
+  diperingatkan di bullet "Peringatan buat fitur masa depan" di bawah. Sebagai expense beneran,
+  semuanya jalan TANPA perubahan kalkulasi apapun: saldo akun kepotong, masuk cashflow bulan itu,
+  kehitung di budget kategorinya. **JANGAN refactor jadi field.** Aturannya: `accountId`/`date`/
+  `time` biaya SELALU ngikut induknya (di-sync tiap induknya di-edit lewat `openTxSheet()`),
+  nominal & kategori berdiri sendiri (default kategori `cat_fee` "Biaya & Admin", preset baru
+  lewat `ensurePresetCategories()` — user boleh milih kategori expense lain). UI-nya checkbox
+  "🧾 Ada biaya tambahan" di `openTxSheet()`, **cuma buat tipe expense & transfer** (income ga
+  ada konsep biaya yang motong akun yang sama — catat nominal bersihnya aja). Transaksi yang
+  DIRINYA biaya ga bisa punya biaya lagi (nesting diblok: section-nya ga dirender kalau
+  `existing.feeOfTxId` keisi) — ini yang bikin cascade delete-nya dijamin cuma 1 level.
+  **Hapus induk → biaya ikut kehapus**, di-hook di `remove()` generik (db.js, pola sama
+  `applyDebtEffect()`/`applyAssetQtyEffect()`) biar jalur hapus manapun konsisten; `bulkDelete()`
+  SENGAJA ga butuh handling khusus karena biaya selalu se-tanggal sama induknya → pasti masuk
+  scope periode yang sama. Warning over-limit CC di `openTxSheet()` ikut ngitung biaya (motong
+  akun yang sama — kalau ngga, warningnya meleset persis sebesar biayanya). `txRow()` (home.js)
+  ngasih badge "biaya" di baris ini, TANPA lookup induk per-baris (O(n) per row = O(n²) buat list
+  panjang) — induknya toh persis di sebelahnya karena tanggal+jam-nya sama. `integrity.js`
+  nge-flag biaya yang induknya ilang (normalnya mustahil lewat app, cuma bisa dari hapus manual
+  di Firestore console). Field additive — **schemaVersion TIDAK naik**.
   **`time`** ("HH:MM", TASK-5) — opsional/additive, field baru buat break-tie urutan transaksi
   dalam tanggal yang sama (sebelumnya cuma `date`, transaksi hari yang sama urutannya ga
   predictable). Entry BARU lewat sheet manapun (`tx-sheet.js`, `openTopupSheet()`/
