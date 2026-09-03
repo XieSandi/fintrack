@@ -8,11 +8,16 @@ export const fmtUSDPlain = (n) =>
   `$${(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 export const fmtMoneyPlain = (n, cur = "IDR") => (cur === "USD" ? fmtUSDPlain(n) : fmtIDRPlain(n));
 
-// Blur mode nge-mask pakai asterisk (bukan CSS filter:blur lagi) — `data-mask` diisi "*" sepanjang
-// teks aslinya, CSS (body.blur-mode .blur-num::after, style.css) yang nampilinnya nutupin teks
-// asli. Selalu lewat blurNum() biar mask-nya match panjang teks — JANGAN bikin span.blur-num
-// manual tanpa data-mask (lihat js/views/accounts.js buat contoh pemakaian di luar fmtIDR/fmtUSD).
-export const blurNum = (text) => `<span class="blur-num" data-mask="${"*".repeat(String(text).length)}">${text}</span>`;
+// Blur mode nge-mask pakai asterisk (bukan CSS filter:blur lagi). Mask-nya **PANJANG TETAP**
+// (`BLUR_MASK`), BUKAN sepanjang teks asli kayak dulu — panjang yang ngikutin nominal itu sendiri
+// udah bocorin ordo angkanya (Rp 50.000 vs Rp 1.500.000 beda jumlah asterisk = ketebak). Teks
+// aslinya dibungkus `<span class="bn-real">` supaya CSS bisa `display:none`-in dia pas blur
+// (lebar box ikut collapse ke lebar mask — kalau cuma visibility:hidden, lebarnya masih selebar
+// angka asli dan tetep ketebak, apalagi di kolom rata-kanan). Mask-nya sendiri di-hardcode di CSS
+// (`body.blur-mode .blur-num::after`, style.css), jadi mustahil ada span yang panjangnya beda.
+// BLUR_MASK di sini cuma buat konteks NON-DOM yang ga kena CSS (tick Chart.js di wealth.js).
+export const BLUR_MASK = "******";
+export const blurNum = (text) => `<span class="blur-num"><span class="bn-real">${text}</span></span>`;
 export const fmtIDR = (n) => blurNum(fmtIDRPlain(n));
 export const fmtUSD = (n) => blurNum(fmtUSDPlain(n));
 export const fmtMoney = (n, cur = "IDR") => (cur === "USD" ? fmtUSD(n) : fmtIDR(n));

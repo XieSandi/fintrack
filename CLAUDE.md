@@ -95,13 +95,19 @@ Akun/Goals/Budget — bukan section terpisah yang punya card sendiri; 3 terbaru,
 di-share ke `transactions.js`).
 
 Blur mode (toggle 👁️ di card Total Balance) nge-mask semua `<span class="blur-num">` jadi asterisk
-(BUKAN CSS `filter:blur()` lagi) — teks asli `visibility:hidden`, `::after` nampilin
-`attr(data-mask)` ("*" sepanjang teks asli) nimpa di atasnya lewat `position:absolute`, warna
-semantik (hijau/merah/dll) tetep kebawa karena `color` cuma inherit, ga di-override (lihat
-`body.blur-mode .blur-num` di `css/style.css`). `data-mask`-nya diisi `blurNum()` (`utils.js`) —
-`fmtIDR`/`fmtUSD` udah lewat situ otomatis, tapi kalau ada view yang bikin `span.blur-num` manual
-(bukan lewat `fmtIDR`/`fmtUSD`, kayak saldo awal akun di `accounts.js`) WAJIB bungkus pakai
-`blurNum(text)` juga — span tanpa `data-mask` matching-length bakal nampilin mask kosong/kepanjangan.
+(BUKAN CSS `filter:blur()` lagi). **Mask-nya PANJANG TETAP buat SEMUA nominal** (`content:"******"`
+di-hardcode di `body.blur-mode .blur-num::after`, `css/style.css`) — dulu panjangnya ngikutin teks
+asli lewat `attr(data-mask)`, dan itu BOCOR: jumlah asterisk-nya sendiri udah ngasih tau ordo
+angkanya (Rp 50.000 vs Rp 1.500.000 beda lebar = ketebak). Mask di CSS, BUKAN di-generate JS,
+supaya mustahil ada span yang panjangnya beda. Teks aslinya dibungkus `<span class="bn-real">`
+(dibikin otomatis sama `blurNum()`) dan pas blur di-**`display:none`** — BUKAN `visibility:hidden`
+kayak dulu — biar lebar box-nya ikut collapse ke lebar mask; kalau box-nya masih selebar angka
+asli, ordo-nya tetep ketebak dari lebar/posisi asterisk (paling kelihatan di kolom rata-kanan
+`.tx-amt`/`.asset-right`). Warna semantik (hijau/merah/dll) tetep kebawa ke asterisk karena
+`color` cuma inherit, ga di-override. `fmtIDR`/`fmtUSD` udah lewat `blurNum()` otomatis; kalau ada
+view yang mau nge-blur teks lain (bukan lewat `fmtIDR`/`fmtUSD`, kayak saldo awal akun di
+`accounts.js`) WAJIB bungkus pakai `blurNum(text)` juga — JANGAN nulis `<span class="blur-num">`
+manual, karena yang bikin lebarnya collapse itu `.bn-real` di dalamnya.
 `fmtShort()` (angka ringkas "2.1jt") KHUSUSNYA **TIDAK** auto-blur kayak `fmtIDR`/`fmtUSD` — dia
 juga dipakai buat teks non-DOM (`milestonePaceLine()`, ikut ke laporan .md), jadi caller yang
 nampilin hasilnya di DOM (mis. sumtabs Total/Assets/Liquid/Debt di `wealth.js`) WAJIB bungkus
@@ -110,7 +116,8 @@ breakdown card di bawahnya udah kena). Jumlah unit asset (qty lot/lembar/share, 
 Rp-nya) juga WAJIB kena blur di tampilan read-only (`assetRow()`/detail transaksi asset/hint
 Catat Pembelian-Penjualan di `wealth.js`) — "berapa banyak yang lo punya" sama sensitifnya kayak
 nilainya. Chart.js (canvas, ga bisa kena CSS) pakai jalur terpisah: cek `isBlurred()` langsung di
-tick callback (`wealth.js`, balikin literal `"***"`). State toggle di localStorage — bukan re-render.
+tick callback (`wealth.js`, balikin `BLUR_MASK` dari utils.js — konstanta yang SAMA dipakai CSS,
+biar mask di chart & di teks DOM ga beda panjang). State toggle di localStorage — bukan re-render.
 
 ## Data Model (Firestore `users/{uid}/`)
 
