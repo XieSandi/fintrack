@@ -1,6 +1,6 @@
 // FinTrack Service Worker — offline app shell
 // Naikin CACHE_VERSION setiap deploy perubahan file, biar user dapet versi baru.
-const CACHE_VERSION = "fintrack-v66";
+const CACHE_VERSION = "fintrack-v67";
 const RUNTIME_CACHE = "fintrack-runtime-v2";
 
 const PRECACHE = [
@@ -35,10 +35,19 @@ const PRECACHE = [
 ];
 
 self.addEventListener("install", (e) => {
-  // Sengaja TIDAK skipWaiting() — SW baru nunggu di state "waiting" sampe semua tab
-  // ke-close, atau user trigger manual lewat tombol Hard Refresh di Setting.
-  // (skipWaiting otomatis + clients.claim() + auto-reload = riskan infinite-reload-loop.)
+  // Sengaja TIDAK skipWaiting() DI SINI — SW baru nunggu di state "waiting".
+  // (skipWaiting otomatis di install + clients.claim() + auto-reload = infinite-reload-loop,
+  // lihat DECISIONS.md.) Activate-nya lewat message SKIP_WAITING di bawah, yang cuma dikirim
+  // app SETELAH user nge-tap tombol di banner "Versi baru siap".
   e.waitUntil(caches.open(CACHE_VERSION).then((c) => c.addAll(PRECACHE)));
+});
+
+// Satu-satunya jalan SW waiting boleh nyalip: diminta EKSPLISIT sama app (app.js, hasil tap
+// user). Dibutuhin karena PWA mobile praktis ga pernah nutup semua client-nya sendiri —
+// di-resume dari app switcher, bukan reload — jadi SW waiting bisa nyangkut selamanya dan user
+// stuck di versi lama walau udah deploy (persis kejadian pas fitur mask asterisk).
+self.addEventListener("message", (e) => {
+  if (e.data?.type === "SKIP_WAITING") self.skipWaiting();
 });
 
 self.addEventListener("activate", (e) => {
