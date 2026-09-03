@@ -187,13 +187,50 @@ on(() => {
 });
 
 // ================= PWA =================
-// Update SW pasif: sw.js baru cuma masuk state "waiting", TIDAK auto-activate/reload.
-// (skipWaiting() udah dilepas dari sw.js — auto-activate + auto-reload kombinasi itu
-// riskan infinite-reload-loop. User yang trigger update via tombol Hard Refresh di Setting.)
+// Update SW: sw.js baru masuk state "waiting", dan app nampilin banner "Versi baru siap".
+// Activate + reload CUMA jalan kalau USER nge-tap tombolnya — JANGAN pernah dibikin otomatis:
+// auto-skipWaiting + auto-reload on controllerchange itu yang dulu bikin infinite-reload-loop
+// (lihat DECISIONS.md). Kunci anti-loop-nya `userAccepted`: handler controllerchange di bawah
+// diam aja kalau flag itu false, jadi reload MUSTAHIL kejadian tanpa tap.
+//
+// Kenapa banner ini perlu (bukan cukup ngandelin "nanti juga ke-activate sendiri"): PWA mobile
+// praktis ga pernah nutup semua client-nya — di-resume dari app switcher, bukan reload — jadi SW
+// lama bisa nyangkut selamanya dan user stuck di versi lama walau udah deploy. Di browser desktop
+// ga kelihatan karena tab-nya beneran ke-close. Tombol Hard Refresh di Setting tetap ada sebagai
+// palu darurat (unregister semua SW + hapus semua cache).
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {
     try {
       const reg = await navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" });
+      const bar = document.getElementById("update-bar");
+      let userAccepted = false;
+
+      const offerUpdate = (worker) => {
+        // `controller` null = install PERTAMA (belum pernah ada versi lama) — itu bukan "update",
+        // jangan tawarin reload buat sesuatu yang emang lagi kepasang pertama kali.
+        if (!worker || !navigator.serviceWorker.controller) return;
+        bar.classList.remove("hidden");
+        document.getElementById("btn-update-now").onclick = () => {
+          userAccepted = true;
+          bar.classList.add("hidden");
+          worker.postMessage({ type: "SKIP_WAITING" });
+        };
+      };
+
+      navigator.serviceWorker.addEventListener("controllerchange", () => {
+        if (!userAccepted) return;
+        userAccepted = false; // one-shot: tiap reload wajib didahului tap baru
+        location.reload();
+      });
+
+      if (reg.waiting) offerUpdate(reg.waiting);
+      reg.addEventListener("updatefound", () => {
+        const nw = reg.installing;
+        nw?.addEventListener("statechange", () => {
+          if (nw.state === "installed") offerUpdate(nw);
+        });
+      });
+
       reg.update();
       document.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "visible") reg.update();

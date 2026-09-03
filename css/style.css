@@ -270,6 +270,18 @@ canvas { max-width: 100%; }
 .list-item:last-child { border-bottom: none; }
 .gear-link { color: var(--muted2); text-decoration: none; font-size: 13px; }
 
+/* Banner "Versi baru siap" — muncul kalau ada SW waiting (app.js). Ditaruh di ATAS (bukan
+   bawah kayak toast) biar ga rebutan tempat sama bottom nav + FAB + toast. */
+.update-bar {
+  position: fixed; z-index: 50; left: 50%; transform: translateX(-50%);
+  top: calc(env(safe-area-inset-top) + 58px);
+  display: flex; align-items: center; gap: 10px; max-width: 92vw;
+  background: var(--card); border: 1px solid var(--blue-edge);
+  padding: 7px 8px 7px 14px; border-radius: 24px;
+  font-size: 12px; font-weight: 600;
+  box-shadow: 0 8px 24px rgba(0,0,0,.45);
+}
+
 /* ---------- Toast ---------- */
 .toast {
   position: fixed; bottom: calc(var(--nav-h) + 74px); left: 50%; transform: translateX(-50%);

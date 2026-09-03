@@ -737,10 +737,26 @@ tampilan progress goal.
   **JANGAN** pasang query string cache-buster (`?v=${Date.now()}`) di URL registrasi SW dan
   **JANGAN** panggil `self.skipWaiting()` otomatis di `install` — kombinasi itu + `clients.claim()`
   + auto-`location.reload()` on `controllerchange` pernah bikin app kejebak infinite-reload-loop
-  di HP (mekanisme lengkap kenapa loop-nya kejadian: lihat `DECISIONS.md`). Sekarang SW baru
-  sengaja nunggu pasif ("waiting") sampe user trigger sendiri lewat tombol **Hard Refresh** di
+  di HP (mekanisme lengkap kenapa loop-nya kejadian: lihat `DECISIONS.md`).
+  **Update flow sekarang: banner "Versi baru siap" + tap user** (`#update-bar` di index.html,
+  logic di `js/app.js` blok PWA). SW baru tetap nunggu di "waiting"; app deteksi `reg.waiting`/
+  `updatefound`→`installed`, munculin banner, dan BARU pas user nge-tap tombolnya app
+  `postMessage({type:"SKIP_WAITING"})` ke worker itu (sw.js punya listener `message` buat ini —
+  satu-satunya jalan `skipWaiting()` kepanggil, TETAP ga ada di `install`). Reload-nya di handler
+  `controllerchange`, DIKUNCI flag `userAccepted` yang cuma true sepersekian detik setelah tap
+  (di-reset lagi jadi false abis reload di-trigger) — jadi reload MUSTAHIL kejadian tanpa tap
+  user, dan itu yang bikin pola ini beda dari yang dulu bikin loop. Banner SENGAJA ga muncul
+  kalau `navigator.serviceWorker.controller` null (install PERTAMA, bukan update).
+  **Kenapa pasif doang ga cukup** (dan kenapa ini ketauan telat): PWA mobile praktis ga pernah
+  nutup semua client-nya — dibuka lagi dari app switcher itu RESUME, bukan reload — jadi SW
+  waiting bisa nyangkut selamanya dan user stuck di versi lama walau udah deploy, sementara di
+  browser desktop keliatan normal karena tab-nya beneran ke-close (persis gejalanya pas fitur
+  mask asterisk: jalan di desktop, di PWA HP masih perilaku lama). Tombol **Hard Refresh** di
   Setting (`hardRefresh()` di `utils.js`: unregister semua SW + `caches.delete()` semua + reload)
-  — jangan tambahin balik auto-activate/auto-reload tanpa mikir ulang soal loop risk ini.
+  TETAP dipertahankan sebagai palu darurat kalau SW-nya sendiri yang korup/nyangkut — dan itu
+  satu-satunya jalan keluar buat user yang udah terlanjur stuck di versi SEBELUM banner ini ada
+  (SW lama ga punya listener `SKIP_WAITING`, jadi ga bisa disuruh nyalip).
+  Jangan tambahin balik auto-activate/auto-reload tanpa tap — loop risk-nya balik lagi.
 - Transaksi dengan `toGoalId` (topup), `fromGoalId` (pencairan), atau `assetId` (beli/jual asset)
   HARUS selalu dibuka lewat sheet khususnya (`openTopupSheet()`/`openWithdrawSheet()` di
   goals.js, `openAssetBuySheet()`/`openAssetSellSheet()` di wealth.js) — jangan lewat
