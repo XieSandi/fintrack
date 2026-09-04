@@ -2,11 +2,33 @@ import { state, accountBalances, activeAccounts, isCreditAccount, creditUsed, cr
 import { add, patch, remove, upsertSnapshot } from "../db.js";
 import {
   fmtNum, fmtMoney, blurNum, escapeHtml, toast, openSheet, closeSheet, sheetHead, confirmDialog,
-  attachThousands, parseAmount, todayStr, monthOf, nowTimeStr, DEFAULT_TX_TIME,
+  attachThousands, parseAmount, todayStr, monthOf, nowTimeStr, DEFAULT_TX_TIME, copyText,
 } from "../utils.js";
 
 export const ACCT_TYPES = { bank: "Bank", ewallet: "E-Wallet", cash: "Cash", rdn: "RDN Sekuritas", broker: "Broker (Bibit/Pluang)", credit: "Kartu Kredit" };
 const COLORS = ["#8bacd0", "#8fbe9f", "#d9bc7f", "#d99494", "#b09ac9", "#d3a17f", "#7fbfba"];
+
+// Baris "nomor rekening/kartu" + tombol copy. SATU helper dipakai row akun biasa DAN row kartu
+// kredit biar dua tampilan itu ga divergen. Nomornya ikut blur mode (`blurNum()`) — sama
+// sensitifnya kayak nominal kalau layar keliatan orang lain — TAPI yang di-copy SELALU nilai
+// aslinya (diambil dari data, bukan dari teks DOM yang lagi ke-mask).
+// PENTING: nomor ini SENGAJA cuma hidup di dokumen `accounts` + tampilan ini. JANGAN ikutkan ke
+// `breakdown.accounts` snapshot (db.js) atau `buildPosition()` (report-md.js) — laporan .md
+// dibikin buat di-paste ke chat AI, nomor rekening ga boleh ikut ke situ.
+function acctNumberRow(a) {
+  const num = String(a.accountNumber || "").trim();
+  if (!num) return null;
+  const wrap = document.createElement("div");
+  wrap.className = "acct-num";
+  wrap.innerHTML = `
+    <span class="acct-num-val">${blurNum(escapeHtml(num))}</span>
+    <button class="btn btn-sm" data-copy-num aria-label="Salin nomor">📋</button>`;
+  wrap.querySelector("[data-copy-num]").onclick = (e) => {
+    e.stopPropagation(); // row akun biasa itu clickable (buka sheet edit) — jangan ikut ke-trigger
+    copyText(num, "Nomor disalin ✓");
+  };
+  return wrap;
+}
 
 export function render(root) {
   const accounts = state.accounts;
@@ -31,12 +53,15 @@ export function render(root) {
     div.className = "list-item";
     div.innerHTML = `
       <span style="width:10px;height:10px;border-radius:50%;background:${a.color || "#8bacd0"};flex-shrink:0"></span>
-      <div style="flex:1">
+      <div style="flex:1; min-width:0">
         <div style="font-size:13px;font-weight:600">${escapeHtml(a.name)} ${a.isArchived ? '<span class="badge badge-yellow">arsip</span>' : ""}</div>
         <div class="set-sub">${ACCT_TYPES[a.type] || a.type} · ${a.currency} · saldo awal ${blurNum(fmtNum(a.initialBalance || 0))}</div>
+        <div data-num-slot></div>
       </div>
       <span style="color:var(--muted)">›</span>`;
     div.onclick = () => openAcctSheet(a);
+    const numRow = acctNumberRow(a);
+    if (numRow) div.querySelector("[data-num-slot]").replaceWith(numRow);
     list.appendChild(div);
   });
 
@@ -66,21 +91,26 @@ function creditAcctRow(a, bal) {
         ? ` / Limit ${fmtMoney(limit, a.currency)} · sisa ${fmtMoney(Math.max(0, remaining), a.currency)}`
         : " (tanpa limit)"}
     </div>
+    <div data-num-slot></div>
     <div style="margin-top:8px; display:flex; gap:8px;">
       <button class="btn btn-sm" data-pay style="flex:1">💳 Bayar Tagihan</button>
       <button class="btn btn-sm" data-edit style="flex:1">✎ Edit</button>
     </div>`;
   div.querySelector("[data-pay]").onclick = () => openPayCreditSheet(a);
   div.querySelector("[data-edit]").onclick = () => openAcctSheet(a);
+  const numRow = acctNumberRow(a);
+  if (numRow) div.querySelector("[data-num-slot]").replaceWith(numRow);
   return div;
 }
 
 export function openAcctSheet(existing) {
-  const a = existing || { name: "", type: "bank", currency: "IDR", initialBalance: "", creditLimit: "", color: COLORS[state.accounts.length % COLORS.length], isArchived: false };
+  const a = existing || { name: "", type: "bank", currency: "IDR", initialBalance: "", creditLimit: "", accountNumber: "", color: COLORS[state.accounts.length % COLORS.length], isArchived: false };
   const el = openSheet(`
     ${sheetHead(existing ? "Edit Akun" : "Tambah Akun")}
     <label>Nama</label>
     <input id="ac-name" placeholder="cth: BCA" value="${escapeHtml(a.name)}" />
+    <label id="ac-num-label">No. Rekening (opsional)</label>
+    <input id="ac-num" type="text" inputmode="numeric" autocomplete="off" placeholder="kosongin kalau ga perlu" value="${escapeHtml(a.accountNumber || "")}" />
     <div class="row">
       <div><label>Tipe</label>
         <select id="ac-type">${Object.entries(ACCT_TYPES).map(([k, v]) => `<option value="${k}" ${k === a.type ? "selected" : ""}>${v}</option>`).join("")}</select>
@@ -116,6 +146,7 @@ export function openAcctSheet(existing) {
     const isCredit = typeSel.value === "credit";
     el.querySelector("#ac-credit-wrap").classList.toggle("hidden", !isCredit);
     el.querySelector("#ac-init-label").textContent = isCredit ? "Saldo awal (utang berjalan)" : "Saldo awal";
+    el.querySelector("#ac-num-label").textContent = isCredit ? "No. Kartu (opsional)" : "No. Rekening (opsional)";
   };
   typeSel.onchange = syncType;
   syncType();
@@ -139,6 +170,9 @@ export function openAcctSheet(existing) {
       currency: el.querySelector("#ac-cur").value,
       initialBalance: parseFloat(String(el.querySelector("#ac-init").value).replace(/\./g, "").replace(",", ".")) || 0,
       creditLimit: isCredit ? (parseAmount(el.querySelector("#ac-limit").value) || 0) : 0,
+      // Disimpan apa adanya (string) — bisa ada spasi/strip, dan angka depan 0 ga boleh ilang,
+      // jadi JANGAN di-Number()-in atau di-parseAmount().
+      accountNumber: el.querySelector("#ac-num").value.trim(),
       color,
       isArchived: existing ? el.querySelector("#ac-arch").checked : false,
     };

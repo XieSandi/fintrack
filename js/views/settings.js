@@ -4,7 +4,7 @@ import { auth, signOut } from "../firebase.js";
 import {
   fmtNum, fmtIDR, fmtIDRPlain, escapeHtml, toast, parseAmount, attachThousands,
   confirmDialog, todayStr, hardRefresh, currentMonth, monthLabel, addMonths,
-  openSheet, closeSheet, sheetHead,
+  openSheet, closeSheet, sheetHead, copyText,
 } from "../utils.js";
 import { buildMonthlyReport, availableReportMonths } from "../report-md.js";
 import { scanIntegrity } from "../integrity.js";
@@ -249,13 +249,7 @@ export function render(root) {
   root.querySelector("#btn-copy-report").onclick = async () => {
     const month = root.querySelector("#rep-month").value;
     const md = buildMonthlyReport(month);
-    try {
-      await navigator.clipboard.writeText(md);
-      toast("Laporan ke-copy ✓ — paste ke chat AI");
-    } catch (e) {
-      console.error(e);
-      toast("Gagal copy (izin clipboard?) — coba Download aja");
-    }
+    await copyText(md, "Laporan ke-copy ✓ — paste ke chat AI", "Gagal copy — coba Download aja");
   };
 
   root.querySelector("#btn-integrity").onclick = () => openIntegritySheet();

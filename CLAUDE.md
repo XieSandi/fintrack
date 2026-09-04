@@ -67,7 +67,8 @@ js/tx-sheet.js        bottom sheet tambah/edit transaksi (quick-add)
 js/recurring-sheet.js sheet "Awal Bulan": konfirmasi post recurring + opsi salin budget
 js/report-md.js       buildMonthlyReport(month) → laporan finansial .md siap paste ke AI
 js/integrity.js       scanIntegrity(state) → cek referensi yatim, read-only (Setting → "🩺")
-js/utils.js           format, tanggal, toast, openSheet/closeSheet, escapeHtml, blur mode, hardRefresh
+js/utils.js           format, tanggal, toast, openSheet/closeSheet, escapeHtml, blur mode, copyText,
+                       hardRefresh
 js/views/             home, transactions, budget, wealth, settings, accounts, categories, goals,
                        recurring, danger
 tests/calc.test.mjs   smoke test manual buat js/calc.js — BUKAN runtime app, sengaja GA masuk
@@ -122,7 +123,21 @@ biar mask di chart & di teks DOM ga beda panjang). State toggle di localStorage 
 ## Data Model (Firestore `users/{uid}/`)
 
 - `accounts` — kantong uang (bank/ewallet/cash/rdn/broker/**credit**), currency IDR/USD,
-  initialBalance. **Saldo TIDAK disimpan** — dihitung dari jurnal: initialBalance ± transaksi
+  initialBalance, `accountNumber?`.
+  **`accountNumber`** (string opsional, no. rekening / no. kartu) — **SENGAJA cuma hidup di
+  dokumen `accounts` + tampilan `#/accounts`**. DILARANG masuk ke: `breakdown.accounts` snapshot
+  (`upsertSnapshot()`, db.js) dan `buildPosition()` (report-md.js) — dua-duanya nyuapin section 5
+  laporan .md yang emang dibikin buat DI-PASTE KE CHAT AI, jadi nomor rekening ga boleh ikut
+  keluar (keputusan owner eksplisit). Dua mapping itu ambil field satu-satu (bukan spread `...a`)
+  — pertahankan begitu, dan ada komentar guard di dua-duanya. Backup JSON (`exportAll()`) BEDA
+  URUSAN: itu nge-spread dokumen apa adanya jadi `accountNumber` IKUT ke-backup — itu BENAR &
+  perlu (kalau ngga, restore bakal ngilangin nomornya); backup file lokal, bukan buat dikirim ke
+  AI. Disimpan apa adanya sebagai STRING (jangan `Number()`/`parseAmount()` — angka depan 0 bisa
+  ilang, dan formatnya bisa ada spasi/strip). Ditampilin di row akun biasa DAN row kartu kredit
+  lewat SATU helper `acctNumberRow()` (accounts.js) + tombol 📋 copy (`copyText()` utils.js).
+  Nomornya ikut **blur mode** (`blurNum()`) — sama sensitifnya kayak nominal — tapi yang di-copy
+  SELALU nilai asli dari data, bukan teks DOM yang lagi ke-mask. Tombol copy-nya
+  `e.stopPropagation()` (row akun biasa itu clickable → buka sheet edit). **Saldo TIDAK disimpan** — dihitung dari jurnal: initialBalance ± transaksi
   (lihat `accountBalances()`). Reconcile ("⚖️ Sesuaikan Saldo" di sheet edit akun, `accounts.js`)
   TIDAK overwrite saldo — bikin 1 transaksi adjustment (expense/income, kategori
   `cat_adjust_out`/`cat_adjust_in`) sebesar selisih aktual vs tercatat, biar tetap auditable di
