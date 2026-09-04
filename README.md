@@ -7,10 +7,17 @@ Vanilla JS, zero build, Firebase Firestore (offline-first), hosted di GitHub Pag
 
 ## Fitur
 
-- 📒 Catat expense/income/transfer per akun (bank, e-wallet, cash, RDN, broker, kartu kredit)
+- 📒 Catat expense/income/transfer per akun (bank, e-wallet, cash, RDN, broker, kartu kredit),
+  lengkap dengan tanggal + jam, dan opsi 🧾 biaya tambahan (admin transfer, parkir, dll)
+- 🔢 Simpan no. rekening / no. kartu per akun + tombol copy (sengaja TIDAK ikut ke laporan .md)
 - 📊 Budget bulanan per kategori + progress bar + salin dari bulan lalu
-- 💰 Assets (saham IDX per lot, US fractional shares, deposito, emas, crypto, CAPEX/barang susut,
-  dll) dengan harga manual/auto + P&L, plus Catat Pembelian/Penjualan (weighted avg buy price)
+- 💰 Assets (saham IDX per lot, US fractional shares, reksa dana, deposito, emas, crypto,
+  obligasi/SBN ritel, CAPEX/barang susut) dengan harga manual/auto + P&L, plus Catat
+  Pembelian/Penjualan (weighted avg buy price)
+- 🏦 Obligasi/SBN ritel: nilai par (bukan fluktuatif ala saham), hitung mundur jatuh tempo, catat
+  kupon masuk & cairkan pokok — kupon sengaja TIDAK auto-post (pajak & timing mutasi beda-beda)
+- 🔢 Mode "Jumlah N/A" buat posisi lump-sum (deposito, emas, investasi bisnis) — pembelian nambah
+  nilai, bukan jumlah unit
 - 🎯 Short Term Goals (bisa banyak, topup/pencairan aktif) — bisa juga di-link ke asset yang
   sudah ada, terpisah dari 🏆 Main Milestone (satu target net worth jangka panjang)
 - 📈 Net worth otomatis (cash + assets + goal savings − debt), snapshot bulanan, grafik tren &
@@ -18,13 +25,16 @@ Vanilla JS, zero build, Firebase Firestore (offline-first), hosted di GitHub Pag
 - 💳 Kartu kredit sebagai akun biasa (utang derived dari saldo negatif) + Debt tracker terpisah
   buat cicilan tetap (outstanding, cicilan, jatuh tempo)
 - 🔁 Recurring/rutin bulanan (termasuk DCA beli asset) dengan konfirmasi "Awal Bulan"
-- 👁️ Blur mode — mask semua angka finansial jadi asterisk (buat dipakai di tempat umum)
+- 👁️ Blur mode — mask semua angka finansial jadi asterisk **panjang tetap**, jadi ordo angkanya
+  ga ketebak dari jumlah bintang atau lebar teksnya (buat dipakai di tempat umum)
 - 💵 Kurs USD/IDR auto (frankfurter.app) dengan override manual
 - ⚡ Auto price asset: saham IDX (TradingView, tanpa key), saham/ETF US (Finnhub), crypto (CoinGecko, tanpa key) — tombol 🔄 di tab Assets + auto-refresh 1x/hari saat app dibuka; per-asset bisa dikunci manual
 - ⚡ Offline-first: catat transaksi tanpa internet, auto-sync saat online (Firestore persistence)
 - 📄 Export laporan .md siap paste ke AI, plus backup/restore JSON (Replace All / Merge)
 - 🩺 Cek Integritas Data (scan referensi yatim, read-only) + Reset Data (Zona Bahaya)
-- 📱 PWA installable
+- 📱 PWA installable + banner "Versi baru siap" (update service worker cukup satu tap)
+- 🖥️ Tema calm dark, mobile-first tapi adaptif di browser desktop (kolom melebar, nav jadi pill
+  mengambang, bottom sheet jadi modal tengah)
 
 ## Struktur
 
@@ -45,7 +55,7 @@ js/
 ├─ tx-sheet.js        sheet tambah/edit transaksi (quick-add)
 ├─ recurring-sheet.js sheet konfirmasi "Awal Bulan" (post recurring)
 ├─ report-md.js       generate laporan finansial .md
-├─ utils.js           format, tanggal, toast, sheet, blur mode, hard refresh
+├─ utils.js           format, tanggal, toast, sheet, blur mode, copy clipboard, hard refresh
 └─ views/             home, transactions, budget, wealth, settings, accounts, categories,
                        goals, recurring, danger
 icons/
@@ -100,4 +110,10 @@ Buka `http://localhost:8080`. Domain `localhost` sudah authorized by default di 
 
 ## Update / deploy versi baru
 
-Setiap ada perubahan file, naikkan `CACHE_VERSION` di `sw.js` (misal `fintrack-v2`) supaya service worker user ter-refresh.
+Setiap ada perubahan file, naikkan `CACHE_VERSION` di `sw.js` (misal `fintrack-v2`). File baru
+juga wajib masuk array `PRECACHE`.
+
+Di sisi user, SW baru **ga langsung ambil alih** — itu sengaja (auto-activate + auto-reload pernah
+bikin infinite-reload-loop, lihat `DECISIONS.md`). Yang muncul: banner **"Versi baru siap"** →
+user tap **Muat ulang** → SW baru aktif + halaman reload. Kalau SW-nya sendiri yang nyangkut,
+palu daruratnya tombol **Hard Refresh** di Setting.
