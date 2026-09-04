@@ -131,6 +131,40 @@ export const toast = (msg, ms = 2200) => {
   toastTimer = setTimeout(() => el.classList.add("hidden"), ms);
 };
 
+// ---------- Copy ke clipboard ----------
+// SATU tempat buat semua fitur copy (nomor rekening di accounts.js, laporan .md di settings.js) —
+// jangan panggil navigator.clipboard langsung lagi di view. `navigator.clipboard` butuh secure
+// context (app ini HTTPS, aman) TAPI bisa gagal juga karena izin/WebView lama, makanya ada
+// fallback execCommand. WAJIB dipanggil dari dalam handler gesture user (onclick) — dua-duanya
+// ditolak browser kalau dipanggil di luar itu.
+export async function copyText(text, okMsg = "Disalin ✓", failMsg = "Gagal menyalin") {
+  const value = String(text ?? "");
+  if (!value) { toast(failMsg); return false; }
+  try {
+    await navigator.clipboard.writeText(value);
+    toast(okMsg);
+    return true;
+  } catch (e) {
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = value;
+      ta.setAttribute("readonly", "");
+      ta.style.cssText = "position:fixed; top:-1000px; opacity:0";
+      document.body.appendChild(ta);
+      ta.select();
+      ta.setSelectionRange(0, value.length); // iOS: select() doang ga cukup
+      const ok = document.execCommand("copy");
+      ta.remove();
+      toast(ok ? okMsg : failMsg);
+      return ok;
+    } catch (e2) {
+      console.warn("copyText:", e, e2);
+      toast(failMsg);
+      return false;
+    }
+  }
+}
+
 // ---------- Bottom sheet ----------
 const sheetEl = () => document.getElementById("sheet");
 const backdropEl = () => document.getElementById("sheet-backdrop");

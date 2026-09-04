@@ -99,6 +99,9 @@ function buildPosition(month, isCurrentMonth) {
     rate,
     accounts: activeAccounts().map((a) => {
       const b = bal[a.id] || 0;
+      // JANGAN tambahin `accountNumber` ke object ini (atau bikin jadi spread `...a`) — laporan
+      // .md dibikin buat di-paste ke chat AI, nomor rekening/kartu SENGAJA ga pernah ikut ke
+      // sini. Field-nya cuma hidup di dokumen `accounts` + tampilan #/accounts (accounts.js).
       return {
         name: a.name, currency: a.currency, type: a.type, balance: b,
         balanceIDR: a.currency === "USD" ? b * rate : b,

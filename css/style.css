@@ -262,6 +262,16 @@ canvas { max-width: 100%; }
 .cat-cell .em { font-size: 19px; }
 .cat-cell.active { border-color: var(--green-edge); background: var(--green-dim); color: var(--green); }
 
+/* Baris nomor rekening/kartu di #/accounts (accounts.js `acctNumberRow()`) — nomornya
+   `letter-spacing` dikit + monospace biar gampang dibaca/dicocokin digitnya. */
+.acct-num { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+.acct-num-val {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px; color: var(--muted2); letter-spacing: .5px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.acct-num .btn { padding: 2px 8px; font-size: 12px; line-height: 1.5; flex-shrink: 0; }
+
 /* ---------- Settings ---------- */
 .set-item { display: flex; align-items: center; justify-content: space-between; padding: 12px 2px; border-bottom: 1px solid var(--border); font-size: 14px; }
 .set-item:last-child { border-bottom: none; }

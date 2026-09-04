@@ -221,6 +221,10 @@ export async function upsertSnapshot() {
         // Field additive/opsional (cuma relevan buat type "credit") -- snapshot lama fallback
         // aman (undefined), schemaVersion TIDAK naik.
         creditLimit: a.type === "credit" ? (Number(a.creditLimit) || 0) : null,
+        // JANGAN tambahin `accountNumber` di sini. Snapshot ini jadi sumber section 5 laporan .md
+        // (report-md.js `buildPosition()` cabang snapshot), dan laporan itu dibikin buat di-paste
+        // ke chat AI — nomor rekening/kartu ga boleh ikut keluar. Field-nya sengaja cuma hidup di
+        // dokumen `accounts` + tampilan #/accounts.
       };
     }),
     // Bond yang udah redeemed di-exclude dari breakdown (pola sama wealth.js renderAssets() &
