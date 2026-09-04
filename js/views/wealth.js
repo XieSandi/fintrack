@@ -39,6 +39,29 @@ const QTYLESS_TYPES = ["mutual_fund", "deposito", "gold", "other"];
 
 const destroyCharts = () => { charts.forEach((c) => c.destroy()); charts = []; };
 
+// ---- Blur mode buat Chart.js ----
+// Chart digambar di <canvas> — CSS `.blur-num` SAMA SEKALI ga ngaruh ke situ, jadi blur mode
+// WAJIB di-handle manual per-chart lewat callback. Dua helper ini dipakai SEMUA chart di file
+// ini; kalau nambah chart baru, pasang DUA-DUANYA (sumbu Y *dan* tooltip) — kelewat salah satunya
+// = angkanya tetep kebaca pas blur nyala (persis yang kejadian: sumbu-Y chart Tren Net Worth &
+// Income vs Expense kelewat, dan tooltip kelewat di KETIGA chart termasuk Proyeksi).
+const blurTick = (fmt) => (v) => (isBlurred() ? BLUR_MASK : fmt(v));
+const blurMoneyTooltip = {
+  callbacks: {
+    label: (ctx) => {
+      const name = ctx.dataset?.label ? `${ctx.dataset.label}: ` : "";
+      return name + (isBlurred() ? BLUR_MASK : fmtIDRPlain(ctx.parsed?.y ?? ctx.parsed));
+    },
+  },
+};
+
+// Toggle blur SENGAJA ga nge-re-render view (mask-nya murni CSS, lihat CLAUDE.md) — tapi canvas
+// ga kena CSS, jadi chart yang LAGI kebuka harus di-redraw manual pas toggle ditekan. Listener
+// didaftarin SEKALI di module scope (bukan tiap render) biar ga numpuk tiap pindah tab.
+// Tooltip sebenernya ga butuh ini (callback-nya jalan pas hover, jadi selalu baca state terbaru),
+// yang butuh itu tick sumbu-Y — dia dievaluasi pas GAMBAR, jadi basi sampai chart di-update.
+window.addEventListener("blurchange", () => charts.forEach((c) => c.update("none")));
+
 export function render(root) {
   destroyCharts();
 
@@ -209,9 +232,9 @@ function renderChart(root, milestone) {
         ],
       },
       options: {
-        plugins: { legend: { labels: { boxWidth: 10, font: { size: 9 } } } },
+        plugins: { legend: { labels: { boxWidth: 10, font: { size: 9 } } }, tooltip: blurMoneyTooltip },
         scales: {
-          y: { grid: { color: gridColor }, ticks: { callback: (v) => (v / 1e6).toFixed(0) + "JT" } },
+          y: { grid: { color: gridColor }, ticks: { callback: blurTick((v) => (v / 1e6).toFixed(0) + "JT") } },
           x: { grid: { display: false } },
         },
       },
@@ -229,9 +252,9 @@ function renderChart(root, milestone) {
         ],
       },
       options: {
-        plugins: { legend: { labels: { boxWidth: 10 } } },
+        plugins: { legend: { labels: { boxWidth: 10 } }, tooltip: blurMoneyTooltip },
         scales: {
-          y: { grid: { color: gridColor }, ticks: { callback: (v) => (v / 1e6).toFixed(1) + "JT" } },
+          y: { grid: { color: gridColor }, ticks: { callback: blurTick((v) => (v / 1e6).toFixed(1) + "JT") } },
           x: { grid: { display: false } },
         },
       },
@@ -306,9 +329,9 @@ function renderProjectionChart(root, canvas, gridColor, milestone) {
       ],
     },
     options: {
-      plugins: { legend: { labels: { boxWidth: 10, font: { size: 9 } } } },
+      plugins: { legend: { labels: { boxWidth: 10, font: { size: 9 } } }, tooltip: blurMoneyTooltip },
       scales: {
-        y: { grid: { color: gridColor }, ticks: { callback: (v) => isBlurred() ? BLUR_MASK : fmtShort(v) } },
+        y: { grid: { color: gridColor }, ticks: { callback: blurTick(fmtShort) } },
         x: { grid: { display: false }, ticks: { maxTicksLimit: 8 } },
       },
     },

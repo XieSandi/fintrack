@@ -204,6 +204,12 @@ export const applyBlurred = (on) => document.body.classList.toggle("blur-mode", 
 export const setBlurred = (on) => {
   localStorage.setItem(BLUR_KEY, on ? "1" : "0");
   applyBlurred(on);
+  // Toggle blur SENGAJA ga nge-re-render view (mask teks murni CSS lewat class `blur-mode`) —
+  // TAPI canvas Chart.js ga kena CSS sama sekali, jadi chart yang lagi kebuka bakal basi sampai
+  // di-redraw. Event ini yang ngasih tau view ber-chart buat `chart.update()` (lihat listener
+  // "blurchange" di wealth.js). Pakai event, BUKAN import langsung, biar utils.js tetep ga
+  // gantung ke view manapun.
+  window.dispatchEvent(new CustomEvent("blurchange", { detail: { blurred: on } }));
 };
 
 // ---------- Hard refresh (user-triggered) ----------
