@@ -30,6 +30,4 @@ Lihat Roadmap di bawah buat kandidat berikutnya (belum jadi task resmi).
 2. `avgSurplus3m` tahan outlier (median / exclude bonus-THR) — relevan buat pace & proyeksi.
 3. `milestonePaceLine()` blur-mode leak (pisah angka mentah dari string) — pas nyentuh area itu.
 4. CAPEX integrity (purchaseDate masa depan, depreciationPctMonth di luar 0–1).
-5. Chart **Tren Net Worth** & **Income vs Expense** belum ikut blur mode (baru chart Proyeksi yang
-   ikut, lewat tick callback `isBlurred()`) — canvas ga kena CSS `.blur-num`, jadi harus per-chart.
-6. Import CSV mutasi; laporan tahunan; enkripsi backup.
+5. Import CSV mutasi; laporan tahunan; enkripsi backup.

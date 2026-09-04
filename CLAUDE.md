@@ -116,9 +116,20 @@ manual `blurNum(fmtShort(n))` — kelewat sebelumnya (sumtabs sempet ga ke-blur 
 breakdown card di bawahnya udah kena). Jumlah unit asset (qty lot/lembar/share, BUKAN cuma nilai
 Rp-nya) juga WAJIB kena blur di tampilan read-only (`assetRow()`/detail transaksi asset/hint
 Catat Pembelian-Penjualan di `wealth.js`) — "berapa banyak yang lo punya" sama sensitifnya kayak
-nilainya. Chart.js (canvas, ga bisa kena CSS) pakai jalur terpisah: cek `isBlurred()` langsung di
-tick callback (`wealth.js`, balikin `BLUR_MASK` dari utils.js — konstanta yang SAMA dipakai CSS,
-biar mask di chart & di teks DOM ga beda panjang). State toggle di localStorage — bukan re-render.
+nilainya. Chart.js (canvas, ga bisa kena CSS) pakai jalur terpisah: dua helper di `wealth.js` —
+`blurTick(fmt)` buat `ticks.callback` sumbu-Y dan `blurMoneyTooltip` buat
+`plugins.tooltip.callbacks.label` — dua-duanya balikin `BLUR_MASK` (konstanta yang SAMA dipakai
+CSS, biar mask di chart & teks DOM ga beda panjang). **KETIGA chart di Wealth (Tren Net Worth,
+Income vs Expense, Proyeksi) sekarang ikut blur mode**, sumbu-Y MAUPUN tooltip-nya — sebelumnya
+cuma sumbu-Y chart Proyeksi doang yang ikut, dua chart lain + SEMUA tooltip bocor. Kalau nambah
+chart baru: pasang DUA-DUANYA, kelewat salah satu = angkanya tetep kebaca. Chart doughnut di
+`budget.js` polanya beda (ga punya sumbu numerik) — tooltip-nya nampilin persentase doang pas
+blur, legend-nya DOM biasa lewat `fmtIDR()` jadi auto-blur.
+Toggle blur SENGAJA ga nge-re-render view, jadi chart yang LAGI kebuka di-redraw lewat event
+**`blurchange`** yang di-dispatch `setBlurred()` (utils.js) — listener-nya didaftarin sekali di
+module scope `wealth.js` (`charts.forEach(c => c.update("none"))`). Event, bukan import langsung,
+biar utils.js ga gantung ke view. Tooltip sebenernya ga butuh redraw (callback-nya jalan pas
+hover), yang butuh itu tick sumbu-Y — dievaluasi pas gambar, jadi basi sampai di-update. State toggle di localStorage — bukan re-render.
 
 ## Data Model (Firestore `users/{uid}/`)
 

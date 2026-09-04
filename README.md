@@ -69,7 +69,9 @@ ada di `DECISIONS.md`; backlog task ada di `TASKS.md`.
 
 ## Deploy (GitHub Pages)
 
-1. Push semua file ini ke repo. Settings → Pages → Deploy from branch.
+1. Push ke branch **`main`**. GitHub → Settings → Pages → Source: **Deploy from a branch** →
+   branch `main`, folder `/ (root)`. **Bukan** GitHub Actions, bukan branch `gh-pages` — cuma
+   satu jalur ini yang dipakai, push ke `main` = deploy.
 2. Semua path relative (`./`) — aman untuk subpath `xiesandi.cyou/fintrack`.
 
 Config Firebase di `js/firebase.js` memang public (client-side app).

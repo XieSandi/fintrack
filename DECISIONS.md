@@ -82,13 +82,13 @@ me-register ulang SW dengan URL cache-buster yang NILAINYA BEDA tiap kali (karen
 selalu berubah) → browser nganggep ini SW "versi baru" LAGI (URL beda = registrasi beda) →
 siklus di atas ulang dari awal, tanpa henti, bikin app ga bisa dipakai (reload terus-menerus).
 
-**Fix:** hapus ketiga elemen penyebabnya. Registrasi SW sekarang TANPA cache-buster (URL
-registrasi stabil, ga pernah berubah antar reload), `install` handler TIDAK manggil
-`skipWaiting()` (SW baru nunggu pasif di state "waiting", ga langsung ambil alih), dan TIDAK ada
-lagi auto-reload apapun di event `controllerchange`. Update SW sekarang PENUH manual/eksplisit:
-user yang trigger sendiri lewat tombol **Hard Refresh** di Setting (`hardRefresh()` di
-`utils.js`: unregister semua SW terdaftar + `caches.delete()` semua cache + reload — satu kali,
-dipicu tindakan sadar user, bukan otomatis).
+**Fix saat itu (kondisi 2026-07 s/d 2026-08 — SUDAH DIREVISI, lihat "Update (2026-09)" di
+bawah):** hapus ketiga elemen penyebabnya. Registrasi SW TANPA cache-buster (URL registrasi
+stabil, ga pernah berubah antar reload), `install` handler TIDAK manggil `skipWaiting()` (SW baru
+nunggu pasif di state "waiting", ga langsung ambil alih), dan TIDAK ada auto-reload apapun di
+event `controllerchange`. Update SW waktu itu PENUH manual: user trigger sendiri lewat tombol
+**Hard Refresh** di Setting (`hardRefresh()` di `utils.js`: unregister semua SW terdaftar +
+`caches.delete()` semua cache + reload — satu kali, dipicu tindakan sadar user).
 
 **Update (2026-09) — "pasif total" ternyata KEBABLASAN, sekarang ada banner + tap user.**
 Gejalanya: fitur baru (mask asterisk panjang-tetap) jalan normal di browser desktop, tapi di PWA
@@ -115,9 +115,22 @@ Cache-buster di URL registrasi TETAP HARAM (itu penyebab utama loop-nya bisa ber
 itu tetap SATU-SATUNYA jalan keluar buat user yang terlanjur stuck di versi SEBELUM banner ini
 ada (SW lama ga punya listener `SKIP_WAITING`, ga bisa disuruh nyalip).
 
+**Kenapa banner ini AMAN padahal dulu polanya dilarang:** yang bikin loop itu BUKAN
+`skipWaiting()`/reload-nya sendiri, tapi kombinasi tiga hal yang bikin siklusnya bisa
+SELF-SUSTAINING tanpa manusia: SW aktif sendiri → ambil alih → client reload sendiri → registrasi
+ulang dengan URL cache-buster yang selalu beda → dianggap SW baru lagi → ulang. Banner sekarang
+motong siklus itu di dua titik: (1) `skipWaiting()` cuma jalan kalau ada `postMessage` dari klik
+tombol — ga akan pernah kepanggil sendiri, dan (2) URL registrasi stabil, jadi reload ga pernah
+"nyiptain" SW baru palsu. Reload maksimal sekali per tap, dan abis reload ga ada SW waiting lagi
+→ banner ga muncul → ga ada tap berikutnya. Pola user-initiated ini justru jalan tengah yang dulu
+ke-exclude gara-gara fix-nya kelewat keras (langsung buang auto-update SEKALIAN jalur semi-manual).
+
 **State operasional sekarang & aturan yang WAJIB dipatuhi:** lihat CLAUDE.md bullet GitHub
-Pages/Service Worker di Known Quirks — JANGAN tambahin balik cache-buster atau `skipWaiting()`
-otomatis di `install`, dan JANGAN lepas guard `userAccepted` dari handler `controllerchange`.
+Pages/Service Worker di Known Quirks. Tiga hal ini TETAP TERLARANG, terlepas adanya banner:
+1. `self.skipWaiting()` otomatis di event `install` — SW baru WAJIB nunggu di "waiting".
+2. Auto-reload tanpa interaksi user di `controllerchange` — reload WAJIB di belakang guard
+   `userAccepted` yang cuma nyala sesaat setelah tap tombol banner.
+3. Cache-buster (`?v=${Date.now()}` dsb.) di URL registrasi SW — URL-nya WAJIB stabil.
 
 ---
 
