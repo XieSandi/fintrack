@@ -90,9 +90,34 @@ user yang trigger sendiri lewat tombol **Hard Refresh** di Setting (`hardRefresh
 `utils.js`: unregister semua SW terdaftar + `caches.delete()` semua cache + reload — satu kali,
 dipicu tindakan sadar user, bukan otomatis).
 
+**Update (2026-09) — "pasif total" ternyata KEBABLASAN, sekarang ada banner + tap user.**
+Gejalanya: fitur baru (mask asterisk panjang-tetap) jalan normal di browser desktop, tapi di PWA
+HP **tetap perilaku lama** walau udah di-deploy berhari-hari. Penyebabnya bukan kodenya —
+SW baru cuma nangkring di "waiting", dan SW LAMA yang masih pegang kendali nyajiin `fetch`
+cache-first dari cache versi lama. SW waiting baru nyalip kalau SEMUA client ke-close; di
+browser desktop tab beneran ditutup jadi keburu aktif, sedangkan **PWA mobile praktis ga pernah
+nutup client-nya** — dibuka lagi dari app switcher itu RESUME, bukan reload. Jadi user bisa
+stuck di versi lama SELAMANYA, dan satu-satunya jalan keluar (tombol Hard Refresh) cuma jalan
+kalau user inget/tau harus ke situ.
+
+Fix-nya BUKAN balik ke auto-update (loop-nya bakal balik), tapi bikin update-nya **kelihatan +
+satu tap**: app deteksi `reg.waiting`/`updatefound`→`installed` → munculin banner "Versi baru
+siap" (`#update-bar`, index.html) → pas user nge-tap, app `postMessage({type:"SKIP_WAITING"})`
+ke worker itu (`sw.js` sekarang punya listener `message` — satu-satunya jalan `skipWaiting()`
+kepanggil, TETAP ga ada di `install`) → `controllerchange` → reload.
+
+Jadi kalimat "TIDAK ada auto-reload apapun di `controllerchange`" di atas SEKARANG SUDAH TIDAK
+AKURAT: handler-nya ada lagi, TAPI dikunci flag `userAccepted` yang cuma `true` sepersekian
+detik setelah tap dan langsung di-reset — reload MUSTAHIL kejadian tanpa tindakan sadar user.
+Itu bedanya sama versi yang dulu bikin loop (dulu reload tiap `controllerchange`, tanpa syarat).
+Cache-buster di URL registrasi TETAP HARAM (itu penyebab utama loop-nya bisa berulang), dan
+`skipWaiting()` di `install` TETAP HARAM. Hard Refresh dipertahankan sebagai palu darurat — dan
+itu tetap SATU-SATUNYA jalan keluar buat user yang terlanjur stuck di versi SEBELUM banner ini
+ada (SW lama ga punya listener `SKIP_WAITING`, ga bisa disuruh nyalip).
+
 **State operasional sekarang & aturan yang WAJIB dipatuhi:** lihat CLAUDE.md bullet GitHub
-Pages/Service Worker di Known Quirks — JANGAN tambahin balik cache-buster, `skipWaiting()`
-otomatis, atau auto-reload tanpa mikir ulang risiko loop ini.
+Pages/Service Worker di Known Quirks — JANGAN tambahin balik cache-buster atau `skipWaiting()`
+otomatis di `install`, dan JANGAN lepas guard `userAccepted` dari handler `controllerchange`.
 
 ---
 
@@ -642,3 +667,143 @@ kelewat arah baru yang belum ada literal-nya).
 **State operasional sekarang & aturan yang WAJIB dipatuhi:** lihat CLAUDE.md bullet `assets`
 tipe `bond` — dua aksi terpisah (Catat Kupon Masuk = income biasa TANPA assetId; Cairkan Pokok =
 transfer ber-assetId+assetDir:"redeem"), kupon TIDAK PERNAH auto-post.
+---
+
+## Mask blur mode: panjang asterisk yang ngikutin nominal = tetap bocor (2026-09)
+
+**Konteks:** blur mode (toggle 👁️) awalnya nge-mask angka pakai `"*".repeat(text.length)` —
+jumlah asterisk-nya persis sepanjang teks aslinya. Kelihatannya aman (angkanya ga kebaca), tapi
+**panjangnya sendiri itu data**: `Rp 50.000` (9 bintang) vs `Rp 1.500.000` (12 bintang) langsung
+ngasih tau ordo angkanya. Buat use case-nya (buka app pas ada orang di sebelah), "orang tau gue
+punya belasan juta atau puluhan ribu" itu udah bocor — persis yang mau disembunyiin.
+
+**Fix bagian pertama (yang obvious):** mask jadi PANJANG TETAP. Dan mask-nya di-hardcode di CSS
+(`content:"******"` di `body.blur-mode .blur-num::after`), BUKAN di-generate JS lewat
+`attr(data-mask)` kayak dulu — supaya mustahil ada satu span yang panjangnya beda gara-gara
+caller baru yang lupa.
+
+**Fix bagian kedua (yang gampang kelewat):** cuma nyamain jumlah asterisk TERNYATA BELUM CUKUP.
+CSS lama nyembunyiin teks asli pakai `visibility:hidden` — itu SENGAJA dipilih dulu supaya box-nya
+tetap ngambil ruang selebar teks asli — terus asterisk-nya ditempel di atasnya pakai
+`position:absolute`. Efeknya: walau jumlah bintangnya udah sama, **lebar box-nya masih ngikutin
+angka asli**, jadi ordo-nya tetap ketebak dari lebar/posisi — paling kelihatan di kolom rata-kanan
+(`.tx-amt`, `.asset-right`) di mana bintangnya keliatan "kedorong" ke kiri kalau angkanya panjang.
+Jadi teks aslinya sekarang dibungkus `<span class="bn-real">` (dibikin otomatis `blurNum()`) dan
+pas blur di-`display:none` — lebar box ikut collapse ke lebar mask.
+
+**Pelajaran:** buat fitur yang tujuannya NYEMBUNYIIN sesuatu, ngilangin kontennya doang ga cukup —
+cek juga **channel sampingan yang ikut ke-derive dari konten itu**: panjang string, lebar
+elemen, posisi/alignment, jumlah baris. Di sini dua-duanya (jumlah karakter DAN lebar box) harus
+dimatiin bareng, dan yang kedua justru warisan dari keputusan lama yang dulu dianggap fitur
+(`visibility:hidden` biar layout ga geser).
+
+**State operasional sekarang & aturan yang WAJIB dipatuhi:** lihat CLAUDE.md bagian blur mode
+(section Home page) — mask dari CSS (bukan JS), `.bn-real` di-`display:none`, dan `BLUR_MASK` di
+utils.js dipakai buat tick Chart.js (canvas ga kena CSS) biar panjangnya ga beda sendiri.
+
+---
+
+## Biaya tambahan (admin/parkir): transaksi expense terpisah, BUKAN field di transaksi induk (2026-09)
+
+**Konteks:** butuh nyatet biaya tambahan yang nempel ke satu transaksi — biaya admin transfer
+antarbank, parkir pas belanja, dll. Dua opsi model data:
+
+**Opsi A — field `fee` di dokumen transaksi induk.** Kelihatan paling simpel (1 dokumen, 1 baris
+di History). Ditolak, karena arus kas di app ini di-agregasi di BANYAK tempat yang semuanya
+independen: `accountBalances()`, `monthSummary()`, `spentByCategory()`, budget, `report-md.js`,
+`integrity.js`, snapshot. Nambah "uang keluar" yang kesimpen di field baru berarti SEMUA tempat
+itu harus diajarin satu-satu soal field itu — dan yang kelewat bakal diem-diem salah hitung
+(saldo bener tapi cashflow kurang, atau sebaliknya). Ini persis jebakan yang udah ditulis di
+CLAUDE.md sebagai "Peringatan buat fitur masa depan" di bullet `transactions`.
+
+**Opsi B — transaksi `expense` terpisah yang nunjuk induknya lewat `feeOfTxId`.** Dipilih.
+Biayanya emang SECARA FAKTUAL expense beneran dari akun yang sama, jadi begitu dimodelkan sebagai
+expense biasa, SEMUA kalkulasi di atas otomatis bener **tanpa satu baris pun perubahan di
+calc.js/report-md.js/integrity.js**: saldo kepotong, masuk cashflow bulan itu, kehitung di budget
+kategorinya, muncul di laporan per-kategori.
+
+**Yang harus dibayar buat opsi B** (dan udah dikerjain): cascade delete — hapus induk harus ikut
+ngehapus biayanya, dipusatkan sebagai hook di `remove()` generik (db.js, pola sama
+`applyDebtEffect()`/`applyAssetQtyEffect()`), bukan ditulis manual di sheet. Nesting diblok
+(transaksi yang dirinya biaya ga bisa punya biaya lagi) supaya cascade-nya dijamin cuma 1 level.
+
+**Pelajaran:** kalau "hal baru" yang mau dicatat sebenarnya SATU JENIS sama entitas yang udah ada
+(di sini: sama-sama uang keluar dari akun), modelin sebagai entitas itu — jangan bikin field
+khusus yang bikin tiap agregator harus tau kasus spesialnya.
+
+**State operasional sekarang & aturan yang WAJIB dipatuhi:** lihat CLAUDE.md bullet
+`transactions` → "Biaya tambahan (`feeOfTxId`)". **JANGAN refactor jadi field.**
+
+---
+
+## Jam transaksi: kenapa sort-nya CLIENT-SIDE, bukan nambah `orderBy("time")` (2026-08)
+
+**Konteks:** transaksi cuma punya `date` (tanggal), jadi urutan beberapa transaksi di tanggal
+yang sama ga predictable. Ditambahin field `time` ("HH:MM") + input jam di semua sheet.
+
+**Jebakan yang ketemu sebelum sempat kejadian:** cara paling "natural" buat nge-sort-nya adalah
+nambahin ke query Firestore yang udah ada jadi `orderBy("date","desc"), orderBy("time","desc")`.
+Itu BAKAL BIKIN BENCANA: Firestore **nge-EXCLUDE dokumen yang ga punya field yang di-`orderBy`**
+dari hasil query — bukan nganggepnya kosong/paling awal. Karena `time` field BARU, semua
+transaksi LAMA belum punya field itu, jadi query-nya bakal bikin seluruh histori lama **HILANG**
+dari `state.transactions` (dan otomatis dari semua saldo/laporan yang diturunkan dari situ).
+
+**Keputusan:** query Firestore TETAP cuma `orderBy("date","desc")`; sort finalnya client-side di
+`store.js` (parameter `mapFn` di `track()`) pakai `compareTxDateTime()` (calc.js, pure, ditest) —
+`time || DEFAULT_TX_TIME` jadi tie-breaker. Transaksi tanpa `time` fallback ke **"00:01"**, BUKAN
+"sekarang", biar entry lama/auto-post selalu keurut di ATAS-nya... maksudnya di BAWAH entry baru
+hari yang sama (dianggap paling awal hari itu).
+
+**State operasional sekarang & aturan yang WAJIB dipatuhi:** lihat CLAUDE.md bullet
+`transactions` → `time`. Pola client-side sort ini WAJIB dipakai lagi kalau nambah secondary sort
+key baru yang ga dijamin ada di semua dokumen lama.
+
+---
+
+## Nomor rekening/kartu: disimpan di app, DILARANG masuk laporan .md (2026-09)
+
+**Konteks:** field `accountNumber` ditambahin di `accounts` biar nomor rekening/kartu gampang
+di-copy pas butuh. Permintaan owner eksplisit: **jangan sampai ikut ke-export ke laporan**.
+
+**Kenapa ini butuh perhatian khusus:** laporan `.md` (`report-md.js`) itu SATU-SATUNYA output app
+yang emang dibikin buat dikirim KELUAR — di-paste ke chat AI pihak ketiga. Jadi apapun yang masuk
+ke situ otomatis keluar dari kendali owner. Section 5 (Akun) di laporan itu dapet datanya dari
+DUA jalur tergantung bulan yang dipilih: `buildPosition()` live (report-md.js) ATAU
+`breakdown.accounts` snapshot (db.js `upsertSnapshot()`) — jadi **dua-duanya** harus dijaga, bukan
+cuma yang report-md.js. Dua-duanya kebetulan udah ambil field satu-satu (bukan spread `...a`),
+jadi ga bocor by default; komentar guard ditambahin di dua tempat itu supaya ga ada yang iseng
+ngubah jadi spread nanti.
+
+**Yang SENGAJA tetap ikut:** backup JSON (`exportAll()`) nge-spread dokumen apa adanya, jadi
+`accountNumber` IKUT ke-backup. Itu bener dan perlu — backup dipakai buat restore, kalau nomornya
+dibuang restore bakal ngilangin data. Bedanya: backup itu file lokal punya owner, bukan output
+yang dirancang buat dikirim ke pihak ketiga.
+
+**State operasional sekarang & aturan yang WAJIB dipatuhi:** lihat CLAUDE.md bullet `accounts` →
+`accountNumber`.
+
+---
+
+## Pass UI 2026-09: copy diminimalin, tema di-calm-in, layout dibikin adaptif desktop
+
+**Copy UI diminimalin.** App ini satu user (owner) yang hafal semua fiturnya, tapi copy-nya
+numpuk jadi paragraf tutorial di mana-mana ("nilai dihitung otomatis tiap bulan pakai...",
+"pilih X di dropdown Y biar Z") — sisa kebiasaan nulis buat "user umum" yang ga pernah ada.
+Semua teks penjelasan cara kerja fitur dihapus; yang DIPERTAHANKAN cuma teks yang isinya
+KONDISI/INSIGHT data finansial (pace milestone, estimasi kupon, sisa limit, preview sebelum aksi
+destruktif, hasil cek integritas, peringatan state kayak "⚠️ Belum jatuh tempo"). Aturannya
+sekarang ada di CLAUDE.md Stack & Prinsip.
+
+**Tema calm.** Palet lama saturasi tinggi di atas hitam nyaris pekat (`#0a0a0f` + hijau neon
+`#4ade80`). Diganti base slate desaturated + aksen diredam. Yang perlu diinget: warna di inline
+style JS bisa pakai `var(--x)`, tapi **Chart.js WAJIB literal hex** (canvas ga bisa resolve CSS
+var) — jadi tiap ganti palet, dua-duanya harus diupdate bareng atau chart-nya beda sendiri.
+
+**Layout adaptif desktop.** Mobile-first tetap jadi basis, ditambah SATU breakpoint
+`@media (min-width: 860px)`: kolom melebar, bottom nav jadi pill mengambang (bukan bar
+ke-stretch selebar monitor), bottom sheet jadi modal tengah, slider horizontal wrap jadi grid.
+Hover state dikurung `@media (hover:hover) and (pointer:fine)` biar di HP ga ada state nyangkut
+sehabis tap.
+
+**State operasional sekarang & aturan yang WAJIB dipatuhi:** lihat CLAUDE.md Stack & Prinsip
+(tiga bullet terakhir: copy minim, tema calm, layout breakpoint).

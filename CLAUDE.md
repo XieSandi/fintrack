@@ -51,7 +51,7 @@ Jangan gabungin dua konsep ini atau rename salah satunya tanpa sadar bedanya —
 ## Arsitektur
 
 ```
-index.html            shell: header, #view, FAB, bottom nav, sheet, toast
+index.html            shell: header, #view, FAB, bottom nav, sheet, toast, banner update SW
 css/style.css         dark theme (calm/desaturated), mobile-first + breakpoint desktop 860px
 js/app.js             entry: auth flow, hash router (ROUTES), month picker, SW register + auto-update
 js/firebase.js        init SDK via CDN gstatic + offline persistence
@@ -956,6 +956,9 @@ tampilan progress goal.
    sampai ±3–5rb docs. Evaluasi kalau transaksi udah > 3.000 docs atau load mulai lambat.
 2. Import CSV mutasi bank; laporan tahunan (reuse `report-md.js`); enkripsi backup (Web Crypto).
 3. Harga emas & NAV reksa dana: BELUM ada API gratis+CORS yang stabil → tetap manual.
+4. Chart **Tren Net Worth** & **Income vs Expense** belum ikut blur mode — baru chart 🚀 Proyeksi
+   yang ikut (tick callback `isBlurred()`, lihat bullet Dashboard Proyeksi di Known Quirks).
+   Canvas ga kena CSS `.blur-num`, jadi harus ditambahin per-chart.
 
 ## Konteks Owner (untuk fitur/copy)
 
