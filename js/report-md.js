@@ -212,7 +212,7 @@ export function buildMonthlyReport(month) {
     lines.push(`- 🪪 Kartu Kredit terpakai: ${fmtIDRPlain(totalCreditDebt)} (sudah termasuk di Debt di atas — lewat debt path, beda dari cicilan/Debt collection, lihat section 7)`);
   }
   if (position.receivablesTotal > 0) {
-    lines.push(`- 🤝 Piutang (uang dipinjamkan ke orang): ${fmtIDRPlain(position.receivablesTotal)} — sudah termasuk di Assets di atas, ${includeReceivablesNow ? "IKUT dihitung di net worth" : "TIDAK dihitung di net worth (toggle di Wealth → Total lagi OFF)"}; rincian per peminjam di section 6.`);
+    lines.push(`- 🤝 Claim (uang dipinjamkan ke orang): ${fmtIDRPlain(position.receivablesTotal)} — sudah termasuk di Assets di atas, ${includeReceivablesNow ? "IKUT dihitung di net worth" : "TIDAK dihitung di net worth (toggle di Wealth → Total lagi OFF)"}; rincian per peminjam di section 6.`);
   }
   const target = Number(state.settings.targetNetWorth) || 0;
   if (target > 0) {
@@ -371,7 +371,7 @@ export function buildMonthlyReport(month) {
       .slice().sort((a, b) => (a.dueDate || "9999").localeCompare(b.dueDate || "9999"))
       .map((a) => `${a.debtorName || a.symbol} ${fmtIDRPlain(a.valueIDR)}${a.dueDate ? ` (tagih ${a.dueDate}${a.dueDate < today ? " ⚠️ lewat" : ""})` : ""}`)
       .join(", ");
-    lines.push(`**🤝 Piutang** — Total sisa: ${fmtIDRPlain(totalRecv)} (${includeReceivablesNow ? "ikut" : "TIDAK ikut"} net worth) · ${perDebtor}`);
+    lines.push(`**🤝 Claim** — Total sisa: ${fmtIDRPlain(totalRecv)} (${includeReceivablesNow ? "ikut" : "TIDAK ikut"} net worth) · ${perDebtor}`);
   }
   lines.push("");
 
@@ -491,7 +491,7 @@ export function buildMonthlyReport(month) {
     if (comp.cash !== 0) parts.push(`Cash ${signed(comp.cash)}`);
     if (comp.assets !== 0) parts.push(`Assets ${signed(comp.assets)}`);
     if (includeCapexNow && comp.capex !== 0) parts.push(`CAPEX ${signed(comp.capex)}`);
-    if (includeReceivablesNow && comp.receivables !== 0) parts.push(`Piutang ${signed(comp.receivables)}`);
+    if (includeReceivablesNow && comp.receivables !== 0) parts.push(`Claim ${signed(comp.receivables)}`);
     if (comp.goalSavings !== 0) parts.push(`Goal Savings ${signed(comp.goalSavings)}`);
     if (comp.debt !== 0) parts.push(`Debt ${signed(comp.debt)}`);
     if (parts.length > 0) {

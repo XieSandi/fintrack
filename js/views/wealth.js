@@ -48,7 +48,7 @@ export const ASSET_TYPES = {
   gold: "Emas",
   crypto: "Crypto",
   bond: "Obligasi / SBN",
-  receivable: "Piutang",
+  receivable: "Claim",
   capex: "CAPEX (Barang Susut)",
   other: "Lainnya",
 };
@@ -100,7 +100,7 @@ export function render(root) {
       ${sumBtn("assets", "Assets", blurNum(fmtShort(assets)), "var(--green)")}
       ${sumBtn("liquid", "Liquid", blurNum(fmtShort(cash)), "var(--blue)")}
       ${sumBtn("debt", "Debt", blurNum(fmtShort(debt)), "var(--red)")}
-      ${sumBtn("receivable", "Piutang", blurNum(fmtShort(receivables)), "#7fbfba")}
+      ${sumBtn("receivable", "Claim", blurNum(fmtShort(receivables)), "#7fbfba")}
     </div>
     <div id="group-content"></div>
   `;
@@ -173,7 +173,7 @@ function renderTotal(root) {
         ${totalRow("💧 Liquid", cash, "var(--blue)")}
         ${totalRow("📈 Assets", investAssets, "var(--green)")}
         ${capex > 0 && includeCapex ? totalRow("🏗️ CAPEX", capex, "#d9bc7f") : ""}
-        ${receivables > 0 && includeReceivables ? totalRow("🤝 Piutang", receivables, "#7fbfba") : ""}
+        ${receivables > 0 && includeReceivables ? totalRow("🤝 Claim", receivables, "#7fbfba") : ""}
         ${goalSavings > 0 ? totalRow("🎯 Goals", goalSavings, "#b09ac9") : ""}
         ${hasCreditAccounts ? totalRow("🪪 Kartu Kredit", -totalCreditDebt, "var(--red)") : ""}
         ${totalRow(hasCreditAccounts ? "💳 Cicilan" : "💳 Debt", -debtsOnly, "var(--red)")}
@@ -190,7 +190,7 @@ function renderTotal(root) {
       ${hasReceivables ? `
       <label style="display:flex; align-items:center; gap:8px; margin-top:${hasCapexAssets ? 6 : 12}px; font-size:12px; text-transform:none; letter-spacing:0; color:var(--muted2)">
         <input type="checkbox" id="recv-toggle" style="width:auto" ${includeReceivables ? "checked" : ""}/>
-        🤝 Sertakan Piutang (${fmtIDR(receivables)}) di Net Worth
+        🤝 Sertakan Claim (${fmtIDR(receivables)}) di Net Worth
       </label>` : ""}
     </div>
 
@@ -223,7 +223,7 @@ function renderTotal(root) {
   if (recvToggle) {
     recvToggle.onchange = async (e) => {
       await updateSettings({ includeReceivablesInNetWorth: e.target.checked });
-      toast(e.target.checked ? "Piutang ikut dihitung di Net Worth ✓" : "Piutang di luar Net Worth ✓");
+      toast(e.target.checked ? "Claim ikut dihitung di Net Worth ✓" : "Claim di luar Net Worth ✓");
     };
   }
 
@@ -566,7 +566,7 @@ function assetRow(a) {
     <div class="asset-right">
       <div class="asset-val">${fmtIDR(val)}</div>
       ${isRecv
-        ? `<div class="stale-note">${val > 0 ? "sisa piutang" : "lunas"}</div>`
+        ? `<div class="stale-note">${val > 0 ? "sisa claim" : "lunas"}</div>`
         : `<div class="${pnl >= 0 ? "pnl-pos" : "pnl-neg"}">${pnl >= 0 ? "+" : ""}${fmtIDR(pnl)} (${pnlPct.toFixed(1)}%)</div>`}
     </div>`;
   div.onclick = () => openAssetSheet(a, div.closest("#group-content"));
@@ -637,7 +637,7 @@ export function openAssetSheet(existing, contentRoot) {
     </div>
     ${existing && existing.type === "receivable" ? `
     <label style="margin-top:12px; font-size:12px; text-transform:none; letter-spacing:0; color:var(--muted2)">
-      <input type="checkbox" id="a-recv-arch" style="width:auto" ${a.isArchived ? "checked" : ""}/> 📦 Arsipkan piutang (ditutup — sisa berhenti dihitung)
+      <input type="checkbox" id="a-recv-arch" style="width:auto" ${a.isArchived ? "checked" : ""}/> 📦 Arsipkan claim (ditutup — sisa berhenti dihitung)
     </label>` : ""}
     <label id="a-manual-wrap" style="margin-top:12px; font-size:12px; text-transform:none; letter-spacing:0; color:var(--muted2)">
       <input type="checkbox" id="a-manual-only" style="width:auto" ${a.manualOnly === true ? "checked" : ""}/>
@@ -700,7 +700,7 @@ export function openAssetSheet(existing, contentRoot) {
     el.querySelector("#a-symbol-wrap").classList.toggle("hidden", isCapexType || isRecvType);
     el.querySelector("#a-symbol-label").textContent = isBondType ? "Series Name" : "Symbol / Kode";
     el.querySelector("#a-symbol").placeholder = isBondType ? "ORI030T3" : "BBCA / VOO";
-    el.querySelector("#a-name-label").textContent = isCapexType ? "Nama Barang" : isRecvType ? "Nama Piutang" : "Nama (opsional)";
+    el.querySelector("#a-name-label").textContent = isCapexType ? "Nama Barang" : isRecvType ? "Nama Claim" : "Nama (opsional)";
     el.querySelector("#a-qtyless-wrap").classList.toggle("hidden", !qtylessEligible);
     // Capex/Bond hide SELURUH row (qty+currency, currency-nya di-force lewat curSel.value di
     // atas) — qtyless CUMA nyembunyiin input qty-nya doang (`a-qty-wrap`), currency TETAP bisa
@@ -709,7 +709,7 @@ export function openAssetSheet(existing, contentRoot) {
     el.querySelector("#a-qty-wrap").classList.toggle("hidden", isQtyless);
     el.querySelector("#a-avg-wrap").classList.toggle("hidden", isBondType);
     el.querySelector("#a-price-wrap").classList.toggle("hidden", isCapexType);
-    el.querySelector("#a-price-label").textContent = isBondType ? "Harga pasar (opsional)" : isRecvType ? "Sisa Piutang" : isQtyless ? "Nilai Sekarang" : "Harga sekarang / unit";
+    el.querySelector("#a-price-label").textContent = isBondType ? "Harga pasar (opsional)" : isRecvType ? "Sisa Claim" : isQtyless ? "Nilai Sekarang" : "Harga sekarang / unit";
     el.querySelector("#a-capex-row").classList.toggle("hidden", !isCapexType);
     ["a-bond-row1", "a-bond-row2", "a-bond-row3", "a-bond-row4"].forEach((id) =>
       el.querySelector(`#${id}`).classList.toggle("hidden", !isBondType));
@@ -790,7 +790,7 @@ export function openAssetSheet(existing, contentRoot) {
         data.manualPriceUpdatedAt = existing?.manualPriceUpdatedAt || todayStr();
       }
     }
-    if (!data.symbol && !data.name) return toast(isRecvNow ? "Isi nama piutang" : "Isi symbol atau nama");
+    if (!data.symbol && !data.name) return toast(isRecvNow ? "Isi nama claim" : "Isi symbol atau nama");
     if (isRecvNow && !data.debtorName) return toast("Isi siapa peminjamnya");
     // Piutang dibuat langsung dari form (posisi lama, tanpa transaksi "Kasih Pinjaman") dengan cuma
     // sisa yang diisi → total dipinjamkan default = sisa, biar ga ke-flag integrity "sisa > total".
@@ -1183,15 +1183,15 @@ function openQtylessTradeSheet(asset, dir, existingTx, opts = {}) {
   const isRecv = isReceivable(asset);
   const who = asset.debtorName || asset.name || asset.symbol;
   const L = isRecv ? {
-    detailTitle: isBuy ? "Detail Pinjaman Keluar" : "Detail Pembayaran Piutang",
+    detailTitle: isBuy ? "Detail Pinjaman Keluar" : "Detail Pembayaran Claim",
     title: isBuy ? `Kasih Pinjaman: ${escapeHtml(who)}` : `Terima Pembayaran: ${escapeHtml(who)}`,
     amountLabel: isBuy ? "Nominal Pinjaman" : "Nominal Pembayaran",
-    valueWord: "Sisa piutang", costWord: "Total dipinjamkan",
+    valueWord: "Sisa claim", costWord: "Total dipinjamkan",
     notePh: isBuy ? "cth: pinjam buat modal" : "cth: cicilan pertama",
-    defaultNote: isBuy ? `Pinjamkan ke ${who}` : `Pembayaran piutang ${who}`,
-    overMsg: "Ga bisa terima lebih dari sisa piutang",
+    defaultNote: isBuy ? `Pinjamkan ke ${who}` : `Pembayaran claim ${who}`,
+    overMsg: "Ga bisa terima lebih dari sisa claim",
     okToast: isBuy ? "Pinjaman tercatat ✓" : "Pembayaran tercatat ✓",
-    deleteConfirm: `Hapus transaksi ${isBuy ? "pinjaman" : "pembayaran"} ini? Sisa piutang bakal disesuaikan lagi.`,
+    deleteConfirm: `Hapus transaksi ${isBuy ? "pinjaman" : "pembayaran"} ini? Sisa claim bakal disesuaikan lagi.`,
   } : {
     detailTitle: isBuy ? "Detail Pembelian" : "Detail Penjualan/Penarikan",
     title: isBuy ? `Catat Pembelian: ${escapeHtml(asset.symbol || asset.name)}` : `Catat Penjualan/Penarikan: ${escapeHtml(asset.symbol || asset.name)}`,
@@ -1345,14 +1345,14 @@ function renderReceivables(root) {
 
   root.innerHTML = `
     <div class="card">
-      ${rows.length > 0 ? `<div class="sub" style="margin-bottom:4px">Total piutang: <b style="color:#7fbfba">${fmtIDR(total)}</b>${includeReceivables ? "" : " · di luar Net Worth"}</div>` : ""}
-      ${nOverdue > 0 ? `<div class="sub" style="margin-bottom:10px; color:var(--yellow)">⚠️ ${nOverdue} piutang udah bisa ditagih</div>` : ""}
+      ${rows.length > 0 ? `<div class="sub" style="margin-bottom:4px">Total claim: <b style="color:#7fbfba">${fmtIDR(total)}</b>${includeReceivables ? "" : " · di luar Net Worth"}</div>` : ""}
+      ${nOverdue > 0 ? `<div class="sub" style="margin-bottom:10px; color:var(--yellow)">⚠️ ${nOverdue} claim udah bisa ditagih</div>` : ""}
       <div id="recv-list">
-        ${rows.length === 0 ? `<div class="empty">Ga ada piutang aktif. 🎉</div>` : ""}
+        ${rows.length === 0 ? `<div class="empty">Ga ada claim aktif. 🎉</div>` : ""}
       </div>
       ${archived.length > 0 ? `<div class="group-head" style="margin-top:14px"><span>📦 Arsip (${archived.length})</span></div><div id="recv-archived"></div>` : ""}
     </div>
-    <button id="btn-add-recv" class="btn btn-primary btn-block">＋ Tambah Piutang</button>
+    <button id="btn-add-recv" class="btn btn-primary btn-block">＋ Tambah Claim</button>
   `;
 
   const list = root.querySelector("#recv-list");
@@ -1488,7 +1488,7 @@ function openNewReceivableSheet() {
     return;
   }
   const el = openSheet(`
-    ${sheetHead("🤝 Piutang Baru")}
+    ${sheetHead("🤝 Claim Baru")}
     <input id="nr-amount" class="amount-input" inputmode="numeric" placeholder="0" autocomplete="off" />
     <label>Siapa (peminjam)</label>
     <input id="nr-debtor" placeholder="cth: Budi" />
@@ -1545,7 +1545,7 @@ function openNewReceivableSheet() {
       note: note || `Pinjamkan ke ${debtorName}`,
     });
     await savePhoto(photo.get(), txRef.id);
-    toast(`Piutang ${debtorName} dicatat ✓ — ${acct?.name || "akun"} kepotong ${fmtMoneyPlain(amount, acct?.currency)}`, 3500);
+    toast(`Claim ${debtorName} dicatat ✓ — ${acct?.name || "akun"} kepotong ${fmtMoneyPlain(amount, acct?.currency)}`, 3500);
   };
 }
 
@@ -1570,7 +1570,7 @@ function openReceivableDetailSheet(a) {
     <div class="progress"><div class="${isPaid ? "p-green" : pct >= 50 ? "p-yellow" : "p-red"}" style="width:${pct}%"></div></div>
     <div class="sub" style="margin-top:4px">Dibayar ${fmtMoney(paid, a.currency)} dari ${fmtMoney(lent, a.currency)} · ${pct.toFixed(0)}%</div>
     <div class="table-like" style="margin-top:10px">
-      ${row("Sisa piutang", `<b style="color:${isPaid ? "var(--green)" : "#7fbfba"}">${fmtMoney(sisa, a.currency)}</b>`)}
+      ${row("Sisa claim", `<b style="color:${isPaid ? "var(--green)" : "#7fbfba"}">${fmtMoney(sisa, a.currency)}</b>`)}
       ${row("Total dipinjamkan", fmtMoney(lent, a.currency))}
       ${row("Bisa ditagih", isPaid ? "✅ Lunas" : isDue ? `<span style="color:var(--yellow)">⚠️ ${a.dueDate} (udah lewat)</span>` : (a.dueDate || "—"))}
     </div>

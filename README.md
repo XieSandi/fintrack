@@ -8,7 +8,10 @@ Vanilla JS, zero build, Firebase Firestore (offline-first), hosted di GitHub Pag
 ## Fitur
 
 - 📒 Catat expense/income/transfer per akun (bank, e-wallet, cash, RDN, broker, kartu kredit),
-  lengkap dengan tanggal + jam, dan opsi 🧾 biaya tambahan (admin transfer, parkir, dll)
+  lengkap dengan tanggal + jam, opsi 🧾 biaya tambahan (admin transfer, parkir, dll), dan
+  transfer lintas mata uang IDR↔USD dengan kurs + nominal diterima yang bisa diisi manual
+- ⚖️ Sesuaikan saldo (reconcile) jadi transaksi penyesuaian, boleh minus; kartu kredit input-nya
+  "tagihan terpakai"
 - 🔢 Simpan no. rekening / no. kartu per akun + tombol copy (sengaja TIDAK ikut ke laporan .md)
 - 📊 Budget bulanan per kategori + progress bar + salin dari bulan lalu
 - 💰 Assets (saham IDX per lot, US fractional shares, reksa dana, deposito, emas, crypto,
@@ -23,7 +26,13 @@ Vanilla JS, zero build, Firebase Firestore (offline-first), hosted di GitHub Pag
 - 📈 Net worth otomatis (cash + assets + goal savings − debt), snapshot bulanan, grafik tren &
   dashboard proyeksi ke target
 - 💳 Kartu kredit sebagai akun biasa (utang derived dari saldo negatif) + Debt tracker terpisah
-  buat cicilan tetap (outstanding, cicilan, jatuh tempo)
+  buat cicilan tetap: hutang baru bisa sekalian catat dana pinjaman masuk ke akun, detail per
+  hutang (progress + riwayat), Bayar Cicilan dengan foto/link bukti, arsip (ga pernah dihapus)
+- 🤝 Claim (piutang): catat uang yang dipinjemin ke orang — potong akun sumber, siapa & kapan
+  bisa ditagih, pembayaran dicicil (tiap cicilan satu transaksi) dengan foto/link bukti, tab
+  sendiri di Wealth + toggle ikut/enggak di net worth, arsip (ga pernah dihapus)
+- 🗑️ Asset yang posisinya udah 0 bisa dihapus walau punya riwayat beli/jual — transaksinya tetap
+  ada di History (ditandai "asset dihapus")
 - 🔁 Recurring/rutin bulanan (termasuk DCA beli asset) dengan konfirmasi "Awal Bulan"
 - 👁️ Blur mode — mask semua angka finansial jadi asterisk **panjang tetap**, jadi ordo angkanya
   ga ketebak dari jumlah bintang atau lebar teksnya (buat dipakai di tempat umum)
@@ -48,7 +57,8 @@ js/
 ├─ firebase.js        init SDK + offline persistence
 ├─ store.js           state global + Firestore listeners + wrapper ke calc.js
 ├─ calc.js            kalkulasi murni (saldo, net worth, dll) — ga import Firebase, ditest
-├─ db.js              repository: CRUD, seeding, snapshot, backup, bulk delete
+├─ db.js              repository: CRUD + hook efek debt/asset, seeding, snapshot, backup, bulk delete,
+│                      foto bukti (collection attachments)
 ├─ integrity.js       scan referensi yatim (read-only)
 ├─ kurs.js            kurs USD/IDR auto
 ├─ prices.js          auto price: TradingView (IDX), Finnhub (US), CoinGecko (crypto)
@@ -95,6 +105,10 @@ service cloud.firestore {
   }
 }
 ```
+
+Rule wildcard di atas udah nge-cover semua collection termasuk `attachments` (foto bukti
+Claim/Hutang, disimpan sebagai JPEG terkompres di Firestore — bukan Firebase Storage, jadi
+ga perlu setup Storage).
 
 Config Firebase di `js/firebase.js` memang public — data dikunci oleh rules di atas.
 

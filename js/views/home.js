@@ -316,7 +316,7 @@ export function txRow(t) {
         ? `Pinjaman masuk: ${escapeHtml(borrowDebt?.name || "?")}`
         : asset
         ? isRecv
-          ? `${isSell ? "Pembayaran piutang" : "Pinjamkan"}: ${escapeHtml(recvWho)}`
+          ? `${isSell ? "Pembayaran claim" : "Pinjamkan"}: ${escapeHtml(recvWho)}`
           : `${isRedeem ? "Cairkan Pokok" : isSell ? "Jual" : "Beli"}: ${escapeHtml(asset.symbol || asset.name)}`
         : goal
         ? `${isWithdraw ? "Pencairan" : "Topup"}: ${escapeHtml(goal.name)}`
