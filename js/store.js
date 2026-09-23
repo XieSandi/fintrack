@@ -105,7 +105,6 @@ export const bondLocalValue = (a) => calc.bondLocalValue(a);
 export const bondNextCouponHint = (a) => calc.bondNextCouponHint(a, todayStr());
 export const totalAssetsIDR = () => calc.totalAssetsIDR(state, currentMonth());
 export const totalCapexIDR = () => calc.totalCapexIDR(state, currentMonth());
-export const activeAssets = () => calc.activeAssets(state);
 export const isReceivable = (a) => calc.isReceivable(a);
 export const receivableLocalValue = (a) => calc.receivableLocalValue(a);
 export const totalReceivablesIDR = () => calc.totalReceivablesIDR(state);

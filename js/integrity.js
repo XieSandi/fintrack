@@ -21,7 +21,9 @@ export function scanIntegrity(state) {
       if (t.toGoalId && !state.goals.find((g) => g.id === t.toGoalId)) problems.push("goal (topup) ga ketemu");
       if (t.fromGoalId && !state.goals.find((g) => g.id === t.fromGoalId)) problems.push("goal (pencairan) ga ketemu");
       if (t.assetId) {
-        const refAsset = state.assets.find((a) => a.id === t.assetId);
+        // Asset yang dihapus lewat app (db.js deleteAssetKeepHistory()) ninggalin `assetDeleted` +
+        // `assetSnapshot` — itu disengaja, BUKAN orphan; snapshot-nya dipakai buat validasi qtyless.
+        const refAsset = state.assets.find((a) => a.id === t.assetId) || (t.assetDeleted ? t.assetSnapshot : null);
         if (!refAsset) problems.push("asset ga ketemu");
         // "redeem" (TASK-4, bond) DAN asset qtyless ("Jumlah N/A") BEDA validasi dari buy/sell
         // biasa — dua-duanya ga pakai assetQty/assetPrice sama sekali (ga ada qty/harga-per-unit
@@ -113,7 +115,7 @@ export function scanIntegrity(state) {
     if (a.type !== "receivable") continue;
     const problems = [];
     const sisa = Number(a.manualPrice) || 0;
-    if (a.dueDate && a.dueDate < today && sisa > 0 && !a.isArchived) problems.push(`udah bisa ditagih sejak ${a.dueDate}, sisa ${sisa.toLocaleString("id-ID")}`);
+    if (a.dueDate && a.dueDate < today && sisa > 0) problems.push(`udah bisa ditagih sejak ${a.dueDate}, sisa ${sisa.toLocaleString("id-ID")}`);
     if (a.qtyless !== true) problems.push("piutang tapi qtyless bukan true (harusnya selalu true)");
     if (sisa > (Number(a.avgBuyPrice) || 0) + 0.5) problems.push("sisa piutang > total dipinjamkan — cek input");
     if (problems.length > 0) issues.push({ kind: "asset", ref: a, problems });

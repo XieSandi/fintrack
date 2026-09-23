@@ -255,10 +255,20 @@ function openCustomRangeSheet(root) {
 // ini otomatis fallback ke openTxSheet() generik — itu udah benar: sheet khusus butuh objek
 // goal/asset yang beneran ada buat dirender, jadi kalau udah ga ada, generik emang satu-satunya
 // jalan buat user liat/benerin transaksinya manual.
+// Transaksi ber-`assetId` yang asset-nya udah DIHAPUS lewat app (db.js deleteAssetKeepHistory())
+// bawa `assetDeleted:true` + `assetSnapshot` — dipakai sebagai pseudo-asset biar sheet detail
+// read-only (hapus doang, ga ada edit) tetap bisa dibuka & txRow tetap nampilin nama asset-nya.
+function assetForTx(t) {
+  const live = t.assetId ? state.assets.find((a) => a.id === t.assetId) : null;
+  if (live) return live;
+  if (t.assetDeleted && t.assetSnapshot) return { ...t.assetSnapshot, id: t.assetId, deleted: true };
+  return null;
+}
+
 export function openTxDetail(t) {
   const goalId = t.toGoalId || t.fromGoalId;
   const goal = goalId ? state.goals.find((g) => g.id === goalId) : null;
-  const asset = t.assetId ? state.assets.find((a) => a.id === t.assetId) : null;
+  const asset = assetForTx(t);
   // assetDir "redeem" (TASK-4, bond) — BEDA sheet dari beli/jual biasa (pencairan pokok, bukan
   // trade), lihat wealth.js openBondRedeemSheet().
   if (asset && t.assetDir === "redeem") openBondRedeemSheet(asset, t);
@@ -272,7 +282,7 @@ export function txRow(t) {
   const isWithdraw = !!t.fromGoalId;
   const goalId = t.toGoalId || t.fromGoalId;
   const goal = goalId ? state.goals.find((g) => g.id === goalId) : null;
-  const asset = t.assetId ? state.assets.find((a) => a.id === t.assetId) : null;
+  const asset = assetForTx(t);
   const isSell = t.assetDir === "sell";
   // "redeem" (TASK-4, bond) — pencairan pokok, BUKAN jual biasa (beda label/icon), tapi arah
   // arus kasnya SAMA kayak sell (asset -> akun, bukan akun -> asset kayak "buy").
@@ -298,6 +308,7 @@ export function txRow(t) {
         : goal
         ? `${isWithdraw ? "Pencairan" : "Topup"}: ${escapeHtml(goal.name)}`
         : t.type === "transfer" ? `Transfer` : escapeHtml(cat?.name || "—")}${
+        asset?.deleted ? ` <span class="badge badge-yellow">asset dihapus</span>` : ""}${
         // Transaksi biaya tambahan (ber-feeOfTxId) dikasih badge biar kelihatan dia nempel ke
         // transaksi lain, bukan expense berdiri sendiri — induknya persis di sebelahnya di list
         // (tanggal & jam-nya sama). Sengaja badge doang, ga lookup induknya per baris (O(n) per

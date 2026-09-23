@@ -110,7 +110,7 @@ function openRecurringSheet(existing) {
         <div id="rc-to-asset-wrap" class="hidden">
           <label>Ke Asset (DCA)</label>
           <select id="rc-to-asset">
-            ${state.assets.filter((a) => (!a.isArchived && a.type !== "receivable") || a.id === r.assetId).map((a) => `<option value="${a.id}" ${a.id === (r.assetId || "") ? "selected" : ""}>📈 ${escapeHtml(a.symbol || a.name)}</option>`).join("")}
+            ${state.assets.filter((a) => a.type !== "receivable" || a.id === r.assetId).map((a) => `<option value="${a.id}" ${a.id === (r.assetId || "") ? "selected" : ""}>📈 ${escapeHtml(a.symbol || a.name)}</option>`).join("")}
           </select>
         </div>` : ""}
       </div>

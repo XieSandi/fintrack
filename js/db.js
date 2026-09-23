@@ -6,7 +6,7 @@ import {
 import {
   state, netWorthIDR, totalCashIDR, totalAssetsIDR, totalCapexIDR, totalReceivablesIDR, totalDebtIDR, totalGoalSavingsIDR,
   accountBalances, assetValueIDR, assetCostIDR, capexLocalValue, effectiveRate, goalSavedIDR,
-  goalLinkedAssetsValueIDR, activeAccounts, activeGoals, activeAssets,
+  goalLinkedAssetsValueIDR, activeAccounts, activeGoals,
 } from "./store.js";
 import { currentMonth } from "./utils.js";
 
@@ -140,6 +140,36 @@ async function applyAssetQtyEffect(t) {
   await patch("assets", t.assetId, { quantity: newQty });
 }
 
+// ================= Hapus asset TANPA hapus transaksinya =================
+// Asset yang udah kosong (dijual habis / piutang lunas / bond redeemed) boleh dihapus walau punya
+// jejak transaksi ber-`assetId` — transaksinya SENGAJA TIDAK ikut dihapus (riwayat cashflow di
+// History & saldo akun harus tetap utuh; kalau ikut kehapus, saldo akun berubah diam-diam).
+// Sebagai gantinya tiap transaksi ditandai `assetDeleted:true` + `assetSnapshot` ({symbol, name,
+// type, currency, qtyless} — data minimal buat txRow()/detail sheet read-only tetap bisa render
+// tanpa dokumen asset-nya) — `assetId` TETAP dipertahankan apa adanya (bukti keterkaitan). Ini
+// jalur tulis massal (writeBatch langsung, pola sama importAll()/bulkDelete()), TIDAK lewat patch()
+// generik — ga ada efek samping debt/asset yang perlu di-trigger buat patch flag doang.
+// `integrity.js` ga nge-flag "asset ga ketemu" buat transaksi ber-`assetDeleted` (itu disengaja,
+// beda dari orphan karena hapus manual di Firestore console). Guard di UI (wealth.js): nilai
+// asset harus udah 0 — jangan panggil ini buat asset yang masih ada nilainya.
+export async function deleteAssetKeepHistory(assetId) {
+  const asset = state.assets.find((a) => a.id === assetId);
+  if (!asset) return;
+  const snapshot = {
+    symbol: asset.symbol || null, name: asset.name || null, type: asset.type || null,
+    currency: asset.currency || "IDR", qtyless: asset.qtyless === true,
+    debtorName: asset.type === "receivable" ? (asset.debtorName || null) : null,
+  };
+  const txs = state.transactions.filter((t) => t.assetId === assetId);
+  let batch = writeBatch(db), count = 0;
+  for (const t of txs) {
+    batch.update(docRef("transactions", t.id), { assetDeleted: true, assetSnapshot: snapshot, updatedAt: serverTimestamp() });
+    if (++count === 450) { await batch.commit(); batch = writeBatch(db); count = 0; }
+  }
+  if (count) await batch.commit();
+  await deleteDoc(docRef("assets", assetId));
+}
+
 // ================= Seeding (first run) =================
 const PRESET_CATEGORIES = [
   { id: "cat_makan",     name: "Makanan & Minuman", icon: "🍜", type: "expense" },
@@ -230,8 +260,7 @@ export async function upsertSnapshot() {
     // Bond yang udah redeemed di-exclude dari breakdown (pola sama wealth.js renderAssets() &
     // report-md.js live branch) — "hilang dari asset aktif", nilainya udah 0 di net worth
     // (bondValueIDR), snapshot ga perlu nyimpen baris Rp0 yang ga informatif.
-    // Asset diarsipkan (`isArchived`) juga di-exclude — pola sama (activeAssets(), lihat calc.js).
-    assets: activeAssets().filter((a) => !(a.type === "bond" && a.redeemed === true)).map((a) => ({
+    assets: state.assets.filter((a) => !(a.type === "bond" && a.redeemed === true)).map((a) => ({
       symbol: a.symbol || a.name, type: a.type, currency: a.currency,
       quantity: Number(a.quantity) || 0,
       avgBuyPrice: Number(a.avgBuyPrice) || 0,

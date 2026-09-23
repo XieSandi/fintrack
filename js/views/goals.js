@@ -108,10 +108,10 @@ export function openGoalSheet(existing) {
     ${state.assets.length > 0 ? `
     <label style="margin-top:14px">Asset ter-link (opsional)</label>
     <div id="g-asset-list" style="display:flex; flex-direction:column; gap:8px; max-height:220px; overflow-y:auto">
-      ${state.assets.filter((a) => !a.isArchived || linkedIds.has(a.id)).map((a) => `
+      ${state.assets.map((a) => `
         <label style="display:flex; align-items:center; gap:8px; font-size:13px; text-transform:none; letter-spacing:0; font-weight:400; color:var(--text)">
           <input type="checkbox" data-asset-link value="${a.id}" style="width:auto" ${linkedIds.has(a.id) ? "checked" : ""}/>
-          <span style="flex:1">${escapeHtml(a.symbol || a.name)}${a.isArchived ? ' <span class="badge badge-yellow">arsip</span>' : ""}</span>
+          <span style="flex:1">${escapeHtml(a.symbol || a.name)}</span>
           <span class="sub">${fmtIDR(assetValueIDR(a))}</span>
         </label>`).join("")}
     </div>` : ""}

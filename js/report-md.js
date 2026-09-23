@@ -2,7 +2,7 @@
 // Beda dari exportAll() (db.js): itu backup JSON buat restore, ini human/AI-readable.
 // Fungsi murni, ga nulis apa-apa ke Firestore, cuma baca dari store.
 import {
-  state, activeAccounts, activeGoals, activeAssets, accountBalances, totalCashIDR, totalAssetsIDR, totalCapexIDR, totalReceivablesIDR, totalDebtIDR,
+  state, activeAccounts, activeGoals, accountBalances, totalCashIDR, totalAssetsIDR, totalCapexIDR, totalReceivablesIDR, totalDebtIDR,
   totalGoalSavingsIDR, netWorthIDR, netWorthFromParts, snapshotNetWorth, netWorthComposition, assetValueIDR, assetCostIDR, capexLocalValue, goalSavedIDR,
   goalLinkedAssetsValueIDR, effectiveRate, monthSummary, spentByCategory, budgetsOfMonth, catById, acctById, milestoneProgress, includeReceivablesSetting,
 } from "./store.js";
@@ -113,8 +113,7 @@ function buildPosition(month, isCurrentMonth) {
     // Bond yang udah redeemed di-exclude (pola sama wealth.js renderAssets()) — "hilang dari
     // asset aktif", nilainya udah 0 otomatis di net worth (bondValueIDR) tapi ga perlu ditabelin
     // lagi di laporan sebagai baris Rp0 yang ga informatif.
-    // Asset diarsipkan (`isArchived`) juga di-exclude — pola sama db.js upsertSnapshot().
-    assets: activeAssets().filter((a) => !(a.type === "bond" && a.redeemed === true)).map((a) => ({
+    assets: state.assets.filter((a) => !(a.type === "bond" && a.redeemed === true)).map((a) => ({
       symbol: a.symbol || a.name, type: a.type, currency: a.currency,
       quantity: Number(a.quantity) || 0, avgBuyPrice: Number(a.avgBuyPrice) || 0,
       price: a.type === "capex" ? capexLocalValue(a) : Number(a.manualPrice) || 0,

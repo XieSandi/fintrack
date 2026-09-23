@@ -12,14 +12,6 @@
 import { addMonths, toDateStr } from "./utils.js";
 
 export const activeAccounts = (state) => state.accounts.filter((a) => !a.isArchived);
-// Asset diarsipkan (`isArchived`, pola sama accounts/goals) — buat posisi yang udah kosong abis
-// dijual habis tapi ga bisa dihapus (masih punya jejak transaksi ber-assetId). KONSEKUENSI-nya
-// SAMA kayak goal, BUKAN kayak akun: helper ini CUMA filter TAMPILAN (list Assets di Wealth,
-// auto-refresh harga, snapshot breakdown, laporan .md, dropdown DCA recurring) — nilai asset
-// arsip TETAP ikut `totalAssetsIDR()`/`netWorthIDR()` apa adanya (normalnya 0 karena qty-nya
-// udah 0; kalau masih ada nilai, Edit Asset ngasih tau eksplisit). Arsip ≠ "ilangin dari net
-// worth" — kalau mau nilainya hilang, ya jual/nol-in dulu.
-export const activeAssets = (state) => state.assets.filter((a) => !a.isArchived);
 export const catById = (state, id) => state.categories.find((c) => c.id === id);
 export const acctById = (state, id) => state.accounts.find((a) => a.id === id);
 
@@ -242,7 +234,8 @@ export function bondNextCouponHint(a, todayStr) {
 // (default TRUE/include — beda dari CAPEX yang default exclude: uang yang dipinjemin itu beneran
 // keluar dari cash, kalau ga dihitung net worth bakal keliatan "jatuh" persis sebesar pinjaman
 // padahal cuma pindah bentuk; user yang mau konservatif tinggal matiin toggle-nya di Wealth →
-// Total). Sisa 0 = lunas (badge, pola sama `debts`), user arsipin lewat `isArchived`.
+// Total). Sisa 0 = lunas (badge, pola sama `debts`), asset-nya boleh dihapus (transaksi tetap ada,
+// lihat db.js deleteAssetKeepHistory()).
 export const isReceivable = (a) => a.type === "receivable";
 
 export function receivableLocalValue(a) {

@@ -752,19 +752,6 @@ function makeState() {
   assertEqual(bal.acc_idr2, 500_000 + 150_000, "transfer tanpa toAmount (atau null): tujuan dikredit amount apa adanya");
 }
 
-// ================= Arsip Asset (`isArchived`) =================
-{
-  const s = makeState();
-  s.assets = [
-    { id: "a1", type: "stock_id", symbol: "BBCA", quantity: 0, avgBuyPrice: 9000, manualPrice: 9500, currency: "IDR", isArchived: true },
-    { id: "a2", type: "gold", symbol: "EMAS", quantity: 2, avgBuyPrice: 1_000_000, manualPrice: 1_200_000, currency: "IDR" },
-    { id: "a3", type: "gold", symbol: "EMAS2", quantity: 1, avgBuyPrice: 1_000_000, manualPrice: 1_000_000, currency: "IDR", isArchived: true },
-  ];
-  assertEqual(calc.activeAssets(s).map((a) => a.id).join(","), "a2", "activeAssets: asset isArchived ga ikut");
-  // Arsip = filter TAMPILAN doang (pola goal, bukan akun): nilainya TETAP ikut totalAssetsIDR.
-  assertEqual(calc.totalAssetsIDR(s, "2026-01"), 2_400_000 + 1_000_000, "arsip asset: nilai TETAP keitung totalAssetsIDR (a3 masih punya nilai)");
-}
-
 // ================= Piutang (receivable) =================
 {
   const s = makeState();

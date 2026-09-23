@@ -4,9 +4,9 @@ import {
   capexLocalValue, bondLocalValue, bondNextCouponHint, effectiveRate, monthSummary, milestoneProgress, recentAvgSurplus,
   monthsBetween, projectSeries, snapshotNetWorth,
   isCreditAccount, creditUsed, creditRemaining, totalCreditDebtIDR,
-  activeAssets, isReceivable, receivableLocalValue, totalReceivablesIDR, includeReceivablesSetting,
+  isReceivable, receivableLocalValue, totalReceivablesIDR, includeReceivablesSetting,
 } from "../store.js";
-import { add, patch, remove, updateSettings } from "../db.js";
+import { add, patch, remove, updateSettings, deleteAssetKeepHistory } from "../db.js";
 import {
   fmtIDR, fmtMoney, fmtNum, fmtIDRPlain, fmtMoneyPlain, escapeHtml, toast, openSheet, closeSheet, sheetHead,
   parseAmount, attachThousands, lastNMonths, monthLabel, todayStr, confirmDialog, monthOf,
@@ -38,9 +38,6 @@ export const ASSET_TYPES = {
 // manual yang belum punya model single-unit sendiri (CAPEX/Bond udah, qty selalu 1 dipaksa tanpa
 // toggle). Saham/US/crypto DIKELUARIN — auto-refresh perlu qty×harga/unit.
 const QTYLESS_TYPES = ["mutual_fund", "deposito", "gold", "other"];
-// Nilai khusus `assetFilter` buat nampilin asset yang DIARSIPKAN (`isArchived`) — bukan tipe asset,
-// jadi jangan dipakai sebagai default tipe di openAssetSheet().
-const ARCHIVED_FILTER = "__archived";
 
 const destroyCharts = () => { charts.forEach((c) => c.destroy()); charts = []; };
 
@@ -398,15 +395,9 @@ function renderAssets(root) {
   // Firestore (jejak riwayat, lihat calc.js bullet Bond), cuma difilter dari list/filter-dropdown/
   // summary tab ini. Nilai net worth-nya sendiri udah 0 otomatis (bondValueIDR), jadi filter di
   // sini murni declutter tampilan, BUKAN yang bikin net worth benar.
-  // Asset diarsipkan (`isArchived` — posisi kosong abis dijual habis, dll) juga difilter dari list
-  // aktif, tapi TETAP bisa dilihat lewat opsi "Arsip" di dropdown filter (buat un-archive lewat
-  // Edit Asset) — beda dari bond redeemed yang ga punya jalan balik dari list ini.
-  const archivedAll = state.assets.filter((a) => a.isArchived);
-  if (assetFilter === ARCHIVED_FILTER && archivedAll.length === 0) assetFilter = "";
-  const showArchived = assetFilter === ARCHIVED_FILTER;
-  const all = activeAssets().filter((a) => !(a.type === "bond" && a.redeemed === true));
+  const all = state.assets.filter((a) => !(a.type === "bond" && a.redeemed === true));
   const typesPresent = [...new Set(all.map((a) => a.type))];
-  const rows = showArchived ? archivedAll : assetFilter ? all.filter((a) => a.type === assetFilter) : all;
+  const rows = assetFilter ? all.filter((a) => a.type === assetFilter) : all;
   const filteredTotal = rows.reduce((s, a) => s + assetValueIDR(a), 0);
   const filteredCost = rows.reduce((s, a) => s + assetCostIDR(a), 0);
   const filteredPnl = filteredTotal - filteredCost;
@@ -418,7 +409,6 @@ function renderAssets(root) {
       <select id="asset-filter">
         <option value="">Semua tipe (${all.length})</option>
         ${typesPresent.map((t) => `<option value="${t}" ${t === assetFilter ? "selected" : ""}>${ASSET_TYPES[t] || t} (${all.filter((a) => a.type === t).length})</option>`).join("")}
-        ${archivedAll.length > 0 ? `<option value="${ARCHIVED_FILTER}" ${showArchived ? "selected" : ""}>📦 Arsip (${archivedAll.length})</option>` : ""}
       </select>
       <button id="btn-refresh-prices" class="btn" style="flex:0 0 auto" ${nRefreshable === 0 ? "disabled" : ""}>🔄 Harga</button>
     </div>
@@ -432,7 +422,7 @@ function renderAssets(root) {
       </div>` : ""}
       <div id="asset-list">
         ${all.length === 0 ? `<div class="empty">Belum ada asset.</div>` : ""}
-        ${(all.length > 0 || showArchived) && rows.length === 0 ? `<div class="empty">Ga ada asset di tipe ini.</div>` : ""}
+        ${all.length > 0 && rows.length === 0 ? `<div class="empty">Ga ada asset di tipe ini.</div>` : ""}
       </div>
     </div>
     <button id="btn-add-asset" class="btn btn-primary btn-block">＋ Tambah Asset</button>
@@ -526,7 +516,7 @@ function assetRow(a) {
     const isDue = !!a.dueDate && a.dueDate <= todayStr();
     metaLine = `🤝 ${escapeHtml(a.debtorName || "?")} · dipinjamkan ${fmtMoney(a.avgBuyPrice, a.currency)}`;
     staleLine = isPaid
-      ? `✅ Lunas${a.isArchived ? "" : " — arsipkan di Edit Asset"}`
+      ? `✅ Lunas — bisa dihapus di Edit Asset`
       : isDue
       ? `⚠️ Udah bisa ditagih sejak ${a.dueDate}`
       : `bisa ditagih ${a.dueDate || "?"} · sisa per ${a.manualPriceUpdatedAt || "?"}`;
@@ -544,7 +534,7 @@ function assetRow(a) {
   div.className = "asset-item";
   div.innerHTML = `
     <div>
-      <div class="asset-sym">${escapeHtml(a.name || a.symbol)}${a.isArchived ? ' <span class="badge badge-yellow">arsip</span>' : ""}</div>
+      <div class="asset-sym">${escapeHtml(a.name || a.symbol)}</div>
       <div class="asset-meta">${metaLine}</div>
       <div class="stale-note">${staleLine}</div>
     </div>
@@ -560,15 +550,12 @@ function assetRow(a) {
 
 export function openAssetSheet(existing, contentRoot) {
   const a = existing || {
-    type: (assetFilter && assetFilter !== ARCHIVED_FILTER) ? assetFilter : "stock_id", symbol: "", name: "", quantity: "", avgBuyPrice: "",
+    type: assetFilter || "stock_id", symbol: "", name: "", quantity: "", avgBuyPrice: "",
     currency: "IDR", manualPrice: "", purchaseDate: todayStr(), depreciationPctMonth: "",
     principal: "", couponRatePA: "", couponPeriodMonths: 1, maturityDate: "",
     couponAccountId: "", maturityAccountId: "", debtorName: "", dueDate: "",
   };
   const accountsForBond = activeAccounts();
-  // Buat hint arsip: asset yang masih punya nilai TETAP keitung net worth walau diarsipkan
-  // (lihat calc.js activeAssets()) — kasih tau eksplisit biar ga disangka "ilang".
-  const existingValue = existing ? assetValueIDR(existing) : 0;
 
   const el = openSheet(`
     ${sheetHead(existing ? "Edit Asset" : "Tambah Asset")}
@@ -637,11 +624,6 @@ export function openAssetSheet(existing, contentRoot) {
       <button id="a-bond-redeem" class="btn" style="flex:1">🏁 Cairkan Pokok</button>
     </div>
     ${existing && existing.type === "bond" && existing.redeemed === true ? `<div class="sub" style="margin-top:10px">✅ Pokok udah dicairkan</div>` : ""}
-    ${existing ? `
-    <label style="margin-top:14px; font-size:12px; text-transform:none; letter-spacing:0; color:var(--muted2)">
-      <input type="checkbox" id="a-arch" style="width:auto" ${a.isArchived ? "checked" : ""}/> 📦 Arsipkan asset
-    </label>
-    ${existingValue > 0 ? `<div class="sub" id="a-arch-hint">⚠️ Nilai masih ${fmtIDR(existingValue)} — tetap kehitung net worth walau diarsipkan</div>` : ""}` : ""}
     <div style="margin-top:18px; display:flex; gap:8px;">
       ${existing ? `<button id="a-delete" class="btn btn-danger">Hapus</button>` : ""}
       <button id="a-save" class="btn btn-primary" style="flex:1">Simpan</button>
@@ -749,8 +731,6 @@ export function openAssetSheet(existing, contentRoot) {
       avgBuyPrice: isBondNow ? 0 : parseDec(el.querySelector("#a-avg").value),
       currency: curSel.value,
       qtyless: isQtylessNow,
-      // Arsip (pola sama accounts/goals) — cuma bisa di-set dari sheet edit (existing).
-      isArchived: existing ? !!el.querySelector("#a-arch")?.checked : false,
       // Field piutang — `null` kecuali tipe receivable (pola sama bond/capex).
       debtorName: isRecvNow ? el.querySelector("#a-recv-debtor").value.trim() : null,
       dueDate: isRecvNow ? (el.querySelector("#a-recv-due").value || null) : null,
@@ -799,14 +779,25 @@ export function openAssetSheet(existing, contentRoot) {
     el.querySelector("#a-sell").onclick = () => openAssetSellSheet(existing);
     el.querySelector("#a-bond-coupon").onclick = () => openBondCouponSheet(existing);
     el.querySelector("#a-bond-redeem").onclick = () => openBondRedeemSheet(existing);
+    // Hapus asset yang PUNYA transaksi BOLEH, asal nilainya udah 0 (posisi habis dijual / piutang
+    // lunas / bond redeemed) — transaksinya TIDAK ikut dihapus (riwayat cashflow & saldo akun
+    // tetap utuh), cuma ditandai `assetDeleted` + `assetSnapshot` biar History masih bisa nampilin
+    // & buka detail read-only-nya (lihat db.js deleteAssetKeepHistory()). Nilai > 0 diblok —
+    // ngilangin asset yang masih ada nilainya = net worth berubah tanpa jurnal.
     el.querySelector("#a-delete").onclick = async () => {
-      const used = state.transactions.some((t) => t.assetId === existing.id);
-      if (used) return toast("Masih ada transaksi beli/jual — beresin di History dulu");
+      const txCount = state.transactions.filter((t) => t.assetId === existing.id).length;
       const linkedGoals = state.goals.filter((g) => (g.linkedAssetIds || []).includes(existing.id));
       if (linkedGoals.length > 0) return toast(`Masih di-link ke goal "${linkedGoals[0].name}" — lepas dulu`);
-      if (!confirmDialog("Hapus asset ini?")) return;
+      if (txCount > 0 && assetValueIDR(existing) > 0.5) {
+        return toast(`Nilai masih ${fmtIDRPlain(assetValueIDR(existing))} — jual/nol-in dulu, baru bisa dihapus`, 3500);
+      }
+      const msg = txCount > 0
+        ? `Hapus asset ini? ${txCount} transaksi beli/jual-nya TETAP ada di History (read-only, ditandai "asset dihapus").`
+        : "Hapus asset ini?";
+      if (!confirmDialog(msg)) return;
       closeSheet();
-      await remove("assets", existing.id);
+      if (txCount > 0) await deleteAssetKeepHistory(existing.id);
+      else await remove("assets", existing.id);
       toast("Dihapus");
     };
   }
@@ -1138,9 +1129,8 @@ function openAssetTradeSheet(asset, dir, existingTx, opts = {}) {
       note: note || `${isBuy ? "Beli" : "Jual"} ${asset.symbol || asset.name}`,
     });
     opts.onSaved?.();
-    // Jual habis → posisi kosong tapi asset-nya ga bisa dihapus (punya jejak transaksi) — arahkan
-    // ke arsip biar ga nggantung di list (lihat calc.js activeAssets()).
-    toast(isBuy ? "Pembelian tercatat ✓" : newQty <= 0 ? "Penjualan tercatat ✓ — posisi kosong, arsipkan di Edit Asset" : "Penjualan tercatat ✓", newQty <= 0 && !isBuy ? 4000 : 2200);
+    // Jual habis → posisi kosong, asset-nya boleh dihapus (transaksi tetap ada, lihat openAssetSheet).
+    toast(isBuy ? "Pembelian tercatat ✓" : newQty <= 0 ? "Penjualan tercatat ✓ — posisi kosong, bisa dihapus di Edit Asset" : "Penjualan tercatat ✓", newQty <= 0 && !isBuy ? 4000 : 2200);
   };
 }
 
@@ -1284,9 +1274,8 @@ function openQtylessTradeSheet(asset, dir, existingTx, opts = {}) {
       note: note || L.defaultNote,
     });
     opts.onSaved?.();
-    // Posisi/piutang abis → arahkan ke arsip (ga bisa dihapus, punya jejak transaksi).
     const emptied = !isBuy && newValue <= 0;
-    toast(emptied ? `${L.okToast} — ${isRecv ? "lunas" : "posisi kosong"}, arsipkan di Edit Asset` : L.okToast, emptied ? 4000 : 2200);
+    toast(emptied ? `${L.okToast} — ${isRecv ? "lunas" : "posisi kosong"}, bisa dihapus di Edit Asset` : L.okToast, emptied ? 4000 : 2200);
   };
 }
 
