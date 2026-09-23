@@ -121,7 +121,7 @@ function openRecurringSheet(existing) {
       <label>Potong hutang? (opsional)</label>
       <select id="rc-debt">
         <option value="">— Ga terkait hutang —</option>
-        ${state.debts.map((d) => `<option value="${d.id}" ${d.id === (r.debtId || "") ? "selected" : ""}>${escapeHtml(d.name)}</option>`).join("")}
+        ${state.debts.filter((d) => d.isArchived !== true || d.id === r.debtId).map((d) => `<option value="${d.id}" ${d.id === (r.debtId || "") ? "selected" : ""}>${escapeHtml(d.name)}</option>`).join("")}
       </select>
     </div>` : ""}
 

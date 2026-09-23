@@ -6,7 +6,7 @@ import {
 import {
   state, netWorthIDR, totalCashIDR, totalAssetsIDR, totalCapexIDR, totalReceivablesIDR, totalDebtIDR, totalGoalSavingsIDR,
   accountBalances, assetValueIDR, assetCostIDR, capexLocalValue, effectiveRate, goalSavedIDR,
-  goalLinkedAssetsValueIDR, activeAccounts, activeGoals,
+  goalLinkedAssetsValueIDR, activeAccounts, activeGoals, activeDebts, isDebtBorrow, debtTxDelta,
 } from "./store.js";
 import { currentMonth } from "./utils.js";
 
@@ -20,10 +20,17 @@ const stamp = (data, isNew) => ({
 });
 
 // Generic CRUD
-export async function add(name, data) {
+// `opts.skipDebtEffect` — bypass EKSPLISIT hook debt (pola yang diwajibkan CLAUDE.md buat jalur
+// tulis yang efeknya udah final di dokumen lain). Dipakai `openNewDebtSheet()` (wealth.js): debt
+// dibuat dengan `totalOutstanding` = nominal pinjaman LANGSUNG, lalu transaksi borrow-nya ditulis
+// tanpa hook — kalau hook jalan, outstanding ketambah dua kali (dan hook bisa gagal nemu debt di
+// state kalau snapshot listener belum sempat emit). Reversal pas hapus (remove()) TETAP jalan.
+export async function add(name, data, opts = {}) {
   const ref = await addDoc(col(name), stamp(data, true));
-  if (name === "transactions" && data.debtId) {
-    await applyDebtEffect(data.debtId, -(Number(data.amount) || 0), true, -1);
+  if (name === "transactions" && data.debtId && !opts.skipDebtEffect) {
+    // Pembayaran: outstanding turun + sisa bulan −1. Borrow (dana pinjaman masuk): outstanding
+    // NAIK, sisa bulan ga disentuh (lihat calc.js debtTxDelta / isDebtBorrow).
+    await applyDebtEffect(data.debtId, debtTxDelta(data), !isDebtBorrow(data), -1);
   }
   return ref;
 }
@@ -39,7 +46,7 @@ export async function remove(name, id) {
   const before = name === "transactions" ? state.transactions.find((t) => t.id === id) : null;
   await deleteDoc(docRef(name, id));
   if (name === "transactions" && before?.debtId) {
-    await applyDebtEffect(before.debtId, Number(before.amount) || 0, true, 1);
+    await applyDebtEffect(before.debtId, -debtTxDelta(before), !isDebtBorrow(before), 1);
   }
   if (name === "transactions" && before?.assetId) {
     await applyAssetQtyEffect(before);
@@ -81,20 +88,24 @@ async function applyDebtEffect(debtId, outstandingDelta, touchMonths, monthsDelt
 // debtId sama (termasuk sama-sama kosong) → cuma sesuaikan selisih nominal, remainingMonths
 // ga ikut kesentuh (itu hitungan JUMLAH pembayaran, bukan nominal). debtId beda/baru/dilepas
 // → reverse penuh ke debt lama (kalau ada) + apply penuh ke debt baru (kalau ada).
+// Arah (`debtDir`) ikut dibandingin lewat debtTxDelta() — kalau `data` ga bawa debtDir (patch
+// parsial dari openTxSheet, yang emang cuma nulis pembayaran), pakai arah transaksi lama.
 async function handleDebtPatch(before, data) {
   const oldDebtId = before?.debtId || null;
   const newDebtId = data.debtId || null;
-  const oldAmount = Number(before?.amount) || 0;
-  const newAmount = Number(data.amount) || 0;
+  const oldTx = before || {};
+  const newTx = { ...oldTx, ...data };
+  const oldDelta = debtTxDelta(oldTx);
+  const newDelta = debtTxDelta(newTx);
 
   if (oldDebtId === newDebtId) {
-    if (newDebtId && oldAmount !== newAmount) {
-      await applyDebtEffect(newDebtId, -(newAmount - oldAmount), false);
+    if (newDebtId && oldDelta !== newDelta) {
+      await applyDebtEffect(newDebtId, newDelta - oldDelta, false);
     }
     return;
   }
-  if (oldDebtId) await applyDebtEffect(oldDebtId, oldAmount, true, 1);
-  if (newDebtId) await applyDebtEffect(newDebtId, -newAmount, true, -1);
+  if (oldDebtId) await applyDebtEffect(oldDebtId, -oldDelta, !isDebtBorrow(oldTx), 1);
+  if (newDebtId) await applyDebtEffect(newDebtId, newDelta, !isDebtBorrow(newTx), -1);
 }
 
 // ================= Efek qty asset dari beli/jual =================
@@ -318,7 +329,8 @@ export async function upsertSnapshot() {
       valueIDR: Math.round(assetValueIDR(a)),
       costIDR: Math.round(assetCostIDR(a)),
     })),
-    debts: state.debts.map((d) => ({
+    // activeDebts() — hutang arsip (ditutup) ga ikut breakdown, outstanding-nya udah 0 di total.
+    debts: activeDebts().map((d) => ({
       name: d.name,
       outstanding: Math.round(Number(d.totalOutstanding) || 0),
       monthlyInstalment: Math.round(Number(d.monthlyInstalment) || 0),
@@ -563,12 +575,14 @@ export async function bulkDelete({ mode, month, year, includeMaster, keepApiKeys
 
   // Efek debt (skip total kalau includeMaster — debts-nya sendiri toh ikut kehapus)
   if (!includeMaster) {
+    // amount = Σ reverse kontribusi (pembayaran → +amount balik ke outstanding, borrow → −amount),
+    // count = jumlah PEMBAYARAN doang (borrow ga nyentuh remainingMonths).
     const debtAgg = {}; // debtId -> {amount, count}
     for (const t of scope.transactions) {
       if (!t.debtId) continue;
       if (!debtAgg[t.debtId]) debtAgg[t.debtId] = { amount: 0, count: 0 };
-      debtAgg[t.debtId].amount += Number(t.amount) || 0;
-      debtAgg[t.debtId].count += 1;
+      debtAgg[t.debtId].amount += -debtTxDelta(t);
+      if (!isDebtBorrow(t)) debtAgg[t.debtId].count += 1;
     }
     for (const [debtId, agg] of Object.entries(debtAgg)) {
       const debt = state.debts.find((d) => d.id === debtId);

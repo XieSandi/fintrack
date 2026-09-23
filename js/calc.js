@@ -31,7 +31,11 @@ export function accountBalances(state) {
     if (t.type === "expense") bal[t.accountId] = (bal[t.accountId] || 0) - amt;
     else if (t.type === "income") bal[t.accountId] = (bal[t.accountId] || 0) + amt;
     else if (t.type === "transfer") {
-      if (t.fromGoalId || (t.assetId && t.assetDir === "sell")) {
+      // Pinjaman MASUK dari hutang (`debtId` + `debtDir:"borrow"`, lihat blok Hutang di bawah):
+      // akun dikredit, ga ada akun lain yang didebit — BUKAN income (uang pinjaman bukan pendapatan).
+      if (t.debtId && t.debtDir === "borrow") {
+        bal[t.accountId] = (bal[t.accountId] || 0) + amt;
+      } else if (t.fromGoalId || (t.assetId && t.assetDir === "sell")) {
         bal[t.accountId] = (bal[t.accountId] || 0) + amt;
       } else if (t.toGoalId || (t.assetId && t.assetDir === "buy")) {
         bal[t.accountId] = (bal[t.accountId] || 0) - amt;
@@ -273,8 +277,21 @@ export const totalCapexIDR = (state, nowMonth) =>
 // vs kartu revolving) — cuma DIJUMLAHKAN di sini biar netWorthIDR() otomatis bener; breakdown
 // tampilan (Wealth/report) misahin lagi jadi 2 baris via `totalCreditDebtIDR()` + (totalDebtIDR −
 // totalCreditDebtIDR) buat cicilan doang.
+// ============== Hutang / cicilan (collection `debts`) — v2 (pola sama Piutang) ==============
+// `isArchived` (hutang ditutup — lunas, atau dianggap selesai) → outstanding berhenti dihitung
+// (`debtOutstanding()` = 0), disembunyiin ke section Arsip tab Debt. Hutang SENGAJA GA BISA
+// DIHAPUS (keputusan owner, sama kayak piutang) — riwayat pinjaman/pembayaran harus tetap ada.
+// Arah transaksi ber-`debtId`: `debtDir:"borrow"` (transfer, dana pinjaman MASUK ke akun,
+// outstanding NAIK) vs pembayaran (expense biasa ber-debtId, outstanding TURUN — perilaku lama,
+// `debtDir` kosong/undefined = pembayaran, jadi data lama ga berubah arti). Helper `debtTxDelta(t)`
+// = kontribusi transaksi ke outstanding (signed), SATU sumber dipakai db.js hook & bulkDelete.
+export const isDebtBorrow = (t) => !!t.debtId && t.debtDir === "borrow";
+export const debtTxDelta = (t) => (isDebtBorrow(t) ? 1 : -1) * (Number(t.amount) || 0);
+export const debtOutstanding = (d) => (d.isArchived === true ? 0 : Math.max(0, Number(d.totalOutstanding) || 0));
+export const activeDebts = (state) => state.debts.filter((d) => d.isArchived !== true);
+
 export const totalDebtIDR = (state) =>
-  state.debts.reduce((s, d) => s + (Number(d.totalOutstanding) || 0), 0) + totalCreditDebtIDR(state);
+  state.debts.reduce((s, d) => s + debtOutstanding(d), 0) + totalCreditDebtIDR(state);
 
 // Goal yang diarsipkan (`isArchived`, pola sama `activeAccounts()`) — TAPI beda konsekuensi:
 // `activeAccounts()` dipakai LANGSUNG di totalCashIDR() (akun diarsip = ditutup, saldo-nya

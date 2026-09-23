@@ -810,5 +810,27 @@ function makeState() {
   assertEqual(compEx.total, comp.total - 2_000_000, "composition: exclude piutang → total beda persis Δ piutang");
 }
 
+// ================= Hutang v2: borrow transaction, archive, debtTxDelta =================
+{
+  const s = makeState();
+  s.debts = [
+    { id: "d1", name: "KTA", totalOutstanding: 5_000_000 },
+    { id: "d2", name: "Lama", totalOutstanding: 2_000_000, isArchived: true },
+  ];
+  s.transactions = [
+    { type: "transfer", amount: 5_000_000, accountId: "acc_idr", debtId: "d1", debtDir: "borrow", month: "2026-01", date: "2026-01-05" },
+    { type: "expense", amount: 500_000, accountId: "acc_idr", categoryId: "cat_cicilan", debtId: "d1", month: "2026-02", date: "2026-02-05" },
+  ];
+  const bal = calc.accountBalances(s);
+  assertEqual(bal.acc_idr, 1_000_000 + 5_000_000 - 500_000, "debt borrow: akun dikredit pinjaman, pembayaran (expense) didebit");
+  assertEqual(calc.monthSummary(s, "2026-01").income, 0, "debt borrow: transfer, BUKAN income");
+  assertEqual(calc.debtTxDelta(s.transactions[0]), 5_000_000, "debtTxDelta: borrow = +amount");
+  assertEqual(calc.debtTxDelta(s.transactions[1]), -500_000, "debtTxDelta: pembayaran (debtDir kosong) = -amount");
+  assertEqual(calc.isDebtBorrow({ debtId: "d1" }), false, "isDebtBorrow: data lama tanpa debtDir = pembayaran");
+  assertEqual(calc.debtOutstanding(s.debts[1]), 0, "debtOutstanding: hutang arsip = 0");
+  assertEqual(calc.activeDebts(s).length, 1, "activeDebts: arsip ga ikut");
+  assertEqual(calc.totalDebtIDR(s), 5_000_000, "totalDebtIDR: hutang arsip ga ikut");
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

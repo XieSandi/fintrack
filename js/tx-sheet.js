@@ -1,6 +1,6 @@
 // Bottom sheet tambah / edit transaksi — quick add flow.
-import { state, activeAccounts, accountBalances, acctById, isCreditAccount, creditUsed, effectiveRate } from "./store.js";
-import { add, patch, remove } from "./db.js";
+import { state, activeAccounts, accountBalances, acctById, isCreditAccount, creditUsed, effectiveRate, activeDebts } from "./store.js";
+import { add, patch, remove, getAttachment } from "./db.js";
 import {
   openSheet, closeSheet, sheetHead, toast, escapeHtml,
   parseAmount, attachThousands, todayStr, nowTimeStr, DEFAULT_TX_TIME, monthOf, confirmDialog, fmtNum, fmtMoneyPlain,
@@ -42,6 +42,8 @@ export function openTxSheet(existing = null) {
   const isFeeTx = !!existing?.feeOfTxId;
   const existingFee = existing ? state.transactions.find((t) => t.feeOfTxId === existing.id) : null;
   const expenseCats = state.categories.filter((c) => c.type === "expense");
+  // Dropdown "Potong hutang?": hutang arsip disembunyiin (kecuali yang lagi dipakai transaksi ini).
+  const debtOptions = state.debts.filter((d) => d.isArchived !== true || d.id === existing?.debtId);
   const feeCatDefault = existingFee?.categoryId || (expenseCats.find((c) => c.id === "cat_fee") ? "cat_fee" : expenseCats[0]?.id || "");
 
   const el = openSheet(`
@@ -80,12 +82,12 @@ export function openTxSheet(existing = null) {
       </div>
     </div>
 
-    ${state.debts.length > 0 ? `
+    ${debtOptions.length > 0 ? `
     <div id="debt-section" class="hidden">
       <label>Potong hutang? (opsional)</label>
       <select id="tx-debt">
         <option value="">— Ga terkait hutang —</option>
-        ${state.debts.map((d) => `<option value="${d.id}" ${d.id === (tx.debtId || "") ? "selected" : ""}>${escapeHtml(d.name)}</option>`).join("")}
+        ${debtOptions.map((d) => `<option value="${d.id}" ${d.id === (tx.debtId || "") ? "selected" : ""}>${escapeHtml(d.name)}</option>`).join("")}
       </select>
     </div>` : ""}
 
@@ -101,6 +103,8 @@ export function openTxSheet(existing = null) {
     </div>
     <label>Catatan (opsional)</label>
     <input id="tx-note" type="text" placeholder="cth: makan siang" value="${escapeHtml(tx.note || "")}" />
+    ${existing?.linkUrl ? `<div class="sub" style="margin-top:8px"><a href="${escapeHtml(existing.linkUrl)}" target="_blank" rel="noopener noreferrer" style="color:var(--blue); word-break:break-all">🔗 ${escapeHtml(existing.linkUrl.replace(/^https?:\/\//, ""))}</a></div>` : ""}
+    ${existing?.attachmentId ? `<div id="tx-photo-wrap" class="sub" style="margin-top:8px">⏳ memuat foto...</div>` : ""}
 
     ${isFeeTx ? "" : `
     <div id="fee-section" class="hidden">
@@ -134,6 +138,17 @@ export function openTxSheet(existing = null) {
   const amountInput = el.querySelector("#tx-amount");
   attachThousands(amountInput);
   if (!existing) setTimeout(() => amountInput.focus(), 250);
+
+  // Foto/link bukti (ditulis sheet Bayar Cicilan / piutang, wealth.js) — di sini cuma DITAMPILIN
+  // (read-only, on demand dari collection attachments), nambahin foto tetap lewat sheet asalnya.
+  const photoWrap = el.querySelector("#tx-photo-wrap");
+  if (photoWrap) {
+    getAttachment(existing.attachmentId).then((att) => {
+      photoWrap.innerHTML = att?.data
+        ? `<img src="${att.data}" alt="bukti" style="display:block; width:100%; border-radius:10px" />`
+        : "⚠️ foto ga ketemu";
+    }).catch(() => { photoWrap.textContent = "⚠️ foto gagal dimuat (offline & belum pernah dibuka?)"; });
+  }
 
   // ---- Transfer lintas mata uang (IDR <-> USD) ----
   // Kalau akun asal & tujuan beda currency, akun tujuan ga boleh dikredit `amount` mentah (1.5jt

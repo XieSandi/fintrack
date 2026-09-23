@@ -59,8 +59,10 @@ export function brokenReason(r) {
   } else {
     const cat = state.categories.find((c) => c.id === r.categoryId);
     if (!cat) return "kategori ga ketemu (mungkin udah kehapus)";
-    if (r.debtId && !state.debts.find((d) => d.id === r.debtId)) {
-      return "debt yang di-link ga ketemu (mungkin udah kehapus)";
+    if (r.debtId) {
+      const debt = state.debts.find((d) => d.id === r.debtId);
+      if (!debt) return "debt yang di-link ga ketemu (mungkin udah kehapus)";
+      if (debt.isArchived === true) return "debt yang di-link udah diarsipkan";
     }
   }
   return null;

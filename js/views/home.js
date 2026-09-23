@@ -9,7 +9,7 @@ import {
 } from "../utils.js";
 import { openTxSheet } from "../tx-sheet.js";
 import { openTopupSheet, openWithdrawSheet, goalDisplayStats } from "./goals.js";
-import { openAssetBuySheet, openAssetSellSheet, openBondRedeemSheet } from "./wealth.js";
+import { openAssetBuySheet, openAssetSellSheet, openBondRedeemSheet, openDebtBorrowSheet } from "./wealth.js";
 
 // Filter periode Home — persist selama sesi (module-level, bukan di store global)
 const period = { mode: "month", from: null, to: null };
@@ -269,6 +269,10 @@ export function openTxDetail(t) {
   const goalId = t.toGoalId || t.fromGoalId;
   const goal = goalId ? state.goals.find((g) => g.id === goalId) : null;
   const asset = assetForTx(t);
+  // Pinjaman masuk dari hutang (transfer ber-debtId + debtDir:"borrow") — sheet detail read-only
+  // sendiri; openTxSheet() generik ga ngerti debtDir & cuma nulis debtId buat expense.
+  const borrowDebt = t.debtId && t.debtDir === "borrow" ? state.debts.find((d) => d.id === t.debtId) : null;
+  if (borrowDebt) return openDebtBorrowSheet(borrowDebt, t);
   // assetDir "redeem" (TASK-4, bond) — BEDA sheet dari beli/jual biasa (pencairan pokok, bukan
   // trade), lihat wealth.js openBondRedeemSheet().
   if (asset && t.assetDir === "redeem") openBondRedeemSheet(asset, t);
@@ -292,6 +296,9 @@ export function txRow(t) {
   // terima pembayaran — arah arus kas SAMA kayak beli/jual, cuma label/icon-nya beda.
   const isRecv = asset?.type === "receivable";
   const recvWho = asset?.debtorName || asset?.name || "?";
+  // Pinjaman masuk dari hutang (borrow) — tampil kayak income (+ hijau), tipe data tetap transfer.
+  const isBorrow = t.type === "transfer" && !!t.debtId && t.debtDir === "borrow";
+  const borrowDebt = isBorrow ? state.debts.find((d) => d.id === t.debtId) : null;
   const cat = t.type === "transfer" ? null : catById(t.categoryId);
   const acct = acctById(t.accountId);
   const toAcct = t.toAccountId ? acctById(t.toAccountId) : null;
@@ -300,12 +307,14 @@ export function txRow(t) {
   // Piutang: pembayaran masuk ditampilin kayak income (+, hijau), pinjaman keluar kayak expense
   // (−, merah) — TAMPILAN doang; tipe datanya tetap transfer (ga masuk Income/Expense cashflow,
   // lihat CLAUDE.md bullet `receivable`).
-  const amtClass = isRecv ? (isSell ? "income" : "expense") : t.type;
+  const amtClass = isRecv ? (isSell ? "income" : "expense") : isBorrow ? "income" : t.type;
   const sign = amtClass === "expense" ? "−" : amtClass === "income" ? "+" : "⇄";
   div.innerHTML = `
-    <div class="tx-ic">${asset ? (isRedeem ? "🏁" : isRecv ? "🤝" : "📈") : goal ? "🎯" : t.type === "transfer" ? "🔁" : (cat?.icon || "📦")}</div>
+    <div class="tx-ic">${asset ? (isRedeem ? "🏁" : isRecv ? "🤝" : "📈") : goal ? "🎯" : isBorrow ? "🏦" : t.type === "transfer" ? "🔁" : (cat?.icon || "📦")}</div>
     <div class="tx-main">
-      <div class="tx-cat">${asset
+      <div class="tx-cat">${isBorrow
+        ? `Pinjaman masuk: ${escapeHtml(borrowDebt?.name || "?")}`
+        : asset
         ? isRecv
           ? `${isSell ? "Pembayaran piutang" : "Pinjamkan"}: ${escapeHtml(recvWho)}`
           : `${isRedeem ? "Cairkan Pokok" : isSell ? "Jual" : "Beli"}: ${escapeHtml(asset.symbol || asset.name)}`
@@ -322,7 +331,9 @@ export function txRow(t) {
     </div>
     <div>
       <div class="tx-amt ${amtClass}">${sign} ${fmtMoney(t.amount, acct?.currency)}</div>
-      <div class="tx-acct">${asset
+      <div class="tx-acct">${isBorrow
+        ? `🏦 ${escapeHtml(borrowDebt?.name || "?")} → ${escapeHtml(acct?.name || "?")}`
+        : asset
         ? isRecv
           ? (assetInflow ? `🤝 ${escapeHtml(recvWho)} → ${escapeHtml(acct?.name || "?")}` : `${escapeHtml(acct?.name || "?")} → 🤝 ${escapeHtml(recvWho)}`)
           : (assetInflow ? `📈 ${escapeHtml(asset.symbol || asset.name)} → ${escapeHtml(acct?.name || "?")}` : `${escapeHtml(acct?.name || "?")} → 📈 ${escapeHtml(asset.symbol || asset.name)}`)

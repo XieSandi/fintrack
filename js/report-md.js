@@ -2,7 +2,7 @@
 // Beda dari exportAll() (db.js): itu backup JSON buat restore, ini human/AI-readable.
 // Fungsi murni, ga nulis apa-apa ke Firestore, cuma baca dari store.
 import {
-  state, activeAccounts, activeGoals, accountBalances, totalCashIDR, totalAssetsIDR, totalCapexIDR, totalReceivablesIDR, totalDebtIDR,
+  state, activeAccounts, activeGoals, activeDebts, accountBalances, totalCashIDR, totalAssetsIDR, totalCapexIDR, totalReceivablesIDR, totalDebtIDR,
   totalGoalSavingsIDR, netWorthIDR, netWorthFromParts, snapshotNetWorth, netWorthComposition, assetValueIDR, assetCostIDR, capexLocalValue, goalSavedIDR,
   goalLinkedAssetsValueIDR, effectiveRate, monthSummary, spentByCategory, budgetsOfMonth, catById, acctById, milestoneProgress, includeReceivablesSetting,
 } from "./store.js";
@@ -131,7 +131,8 @@ function buildPosition(month, isCurrentMonth) {
       dueDate: a.type === "receivable" ? (a.dueDate || null) : null,
       valueIDR: assetValueIDR(a), costIDR: assetCostIDR(a),
     })),
-    debts: state.debts.map((d) => ({
+    // activeDebts() — hutang arsip (ditutup) ga ditabelin, outstanding-nya udah 0 di totalDebtIDR.
+    debts: activeDebts().map((d) => ({
       name: d.name, outstanding: Number(d.totalOutstanding) || 0,
       monthlyInstalment: Number(d.monthlyInstalment) || 0,
       remainingMonths: d.remainingMonths ?? null, dueDay: d.dueDay ?? null,

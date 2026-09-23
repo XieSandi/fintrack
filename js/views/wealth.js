@@ -5,6 +5,7 @@ import {
   monthsBetween, projectSeries, snapshotNetWorth,
   isCreditAccount, creditUsed, creditRemaining, totalCreditDebtIDR,
   isReceivable, receivableLocalValue, totalReceivablesIDR, includeReceivablesSetting,
+  activeDebts, isDebtBorrow, debtOutstanding,
 } from "../store.js";
 import { add, patch, remove, updateSettings, deleteAssetKeepHistory, addAttachment, getAttachment } from "../db.js";
 
@@ -32,6 +33,7 @@ import {
 } from "../utils.js";
 import { refreshPrices, refreshableAssets } from "../prices.js";
 import { openAcctSheet } from "./accounts.js";
+import { openTxSheet } from "../tx-sheet.js";
 
 let groupTab = "total";   // total | assets | liquid | debt | receivable
 let chartTab = "nw";      // nw | cashflow | projection
@@ -1653,10 +1655,15 @@ function renderLiquid(root) {
 // Kartu kredit muncul di tab ini SEKARANG (lewat debt path, lihat calc.js & DECISIONS.md) —
 // tapi TETAP dipisah jadi section-nya sendiri (bukan dicampur ke list `debts` collection), karena
 // konsepnya beda: CC revolving (derived dari saldo akun, klik → openAcctSheet) vs cicilan TETAP
-// (monthlyInstalment/dueDay/remainingMonths, klik → openDebtSheet). "Total debt" di atas SELALU
-// `totalDebtIDR()` (cicilan + kartu) biar match badge "Debt" di sumtabs atas halaman.
+// (monthlyInstalment/dueDay/remainingMonths, klik → openDebtDetailSheet). "Total debt" di atas
+// SELALU `totalDebtIDR()` (cicilan + kartu) biar match badge "Debt" di sumtabs atas halaman.
+// v2 (pola SAMA persis Piutang): hutang GA BISA DIHAPUS, cuma diarsipkan (section "📦 Arsip" di
+// bawah); klik item → detail (progress + riwayat semua transaksi ber-debtId); "Hutang Baru" bisa
+// sekalian nyatet dana pinjaman masuk ke akun (transfer `debtDir:"borrow"`); "Bayar Cicilan"
+// sheet sendiri (expense ber-debtId + foto/link bukti) — cicilan = banyak transaksi.
 function renderDebts(root) {
-  const rows = state.debts.slice().sort((a, b) => (a.dueDay || 99) - (b.dueDay || 99));
+  const rows = activeDebts().slice().sort((a, b) => (a.dueDay || 99) - (b.dueDay || 99));
+  const archived = state.debts.filter((d) => d.isArchived === true);
   const totalInstalment = rows.reduce((s, d) => s + (Number(d.monthlyInstalment) || 0), 0);
   const creditAccounts = state.accounts.filter((a) => isCreditAccount(a) && !a.isArchived);
   const bal = accountBalances();
@@ -1668,10 +1675,11 @@ function renderDebts(root) {
       ${(rows.length > 0 || creditAccounts.length > 0) ? `<div class="sub" style="margin-bottom:4px">Total debt: <b style="color:var(--red)">${fmtIDR(totalDebt)}</b>${creditAccounts.length > 0 ? ` (cicilan ${fmtIDR(totalDebt - totalCreditDebt)} + kartu ${fmtIDR(totalCreditDebt)})` : ""}</div>` : ""}
       ${rows.length > 0 ? `<div class="sub" style="margin-bottom:10px">Total cicilan / bulan: <b style="color:var(--red)">${fmtIDR(totalInstalment)}</b></div>` : ""}
       <div id="debt-list">
-        ${rows.length === 0 && creditAccounts.length === 0 ? `<div class="empty">Ga ada hutang aktif. 🎉</div>` : ""}
-        ${rows.length === 0 && creditAccounts.length > 0 ? `<div class="empty">Ga ada cicilan aktif. 🎉</div>` : ""}
+        ${rows.length === 0 && creditAccounts.length === 0 && archived.length === 0 ? `<div class="empty">Ga ada hutang aktif. 🎉</div>` : ""}
+        ${rows.length === 0 && (creditAccounts.length > 0 || archived.length > 0) ? `<div class="empty">Ga ada cicilan aktif. 🎉</div>` : ""}
       </div>
       ${creditAccounts.length > 0 ? `<div class="group-head" style="margin-top:14px"><span>🪪 Kartu Kredit</span></div><div id="debt-credit-list"></div>` : ""}
+      ${archived.length > 0 ? `<div class="group-head" style="margin-top:14px"><span>📦 Arsip (${archived.length})</span></div><div id="debt-archived"></div>` : ""}
     </div>
     <button id="btn-add-debt" class="btn btn-primary btn-block">＋ Tambah Hutang / Cicilan</button>
   `;
@@ -1681,19 +1689,20 @@ function renderDebts(root) {
   rows.forEach((d) => {
     const div = document.createElement("div");
     div.className = "asset-item";
-    const isPaidOff = (Number(d.totalOutstanding) || 0) <= 0;
+    const isPaidOff = debtOutstanding(d) <= 0;
     const dueSoon = !isPaidOff && d.dueDay && d.dueDay - today >= 0 && d.dueDay - today <= 3;
     div.innerHTML = `
       <div>
         <div class="asset-sym" style="font-size:13px">${escapeHtml(d.name)} ${isPaidOff ? '<span class="badge badge-green">Lunas 🎉</span>' : ""}</div>
         <div class="asset-meta">cicilan ${fmtIDR(d.monthlyInstalment)}/bln · sisa ${d.remainingMonths ?? "?"} bln</div>
         ${d.dueDay && !isPaidOff ? `<div class="stale-note">jatuh tempo tgl ${d.dueDay} ${dueSoon ? '<span class="badge badge-yellow">SEGERA</span>' : ""}</div>` : ""}
+        ${isPaidOff ? `<div class="stale-note">lunas — arsipkan lewat Edit</div>` : ""}
       </div>
       <div class="asset-right">
         <div class="asset-val" style="color:${isPaidOff ? "var(--green)" : "var(--red)"}">${fmtIDR(d.totalOutstanding)}</div>
         <div class="stale-note">outstanding</div>
       </div>`;
-    div.onclick = () => openDebtSheet(d);
+    div.onclick = () => openDebtDetailSheet(d);
     list.appendChild(div);
   });
 
@@ -1719,15 +1728,31 @@ function renderDebts(root) {
     });
   }
 
-  root.querySelector("#btn-add-debt").onclick = () => openDebtSheet(null);
+  const archList = root.querySelector("#debt-archived");
+  archived.forEach((d) => {
+    const div = document.createElement("div");
+    div.className = "asset-item";
+    div.innerHTML = `
+      <div>
+        <div class="asset-sym" style="font-size:13px; color:var(--muted2)">${escapeHtml(d.name)} <span class="badge badge-yellow">arsip</span></div>
+        <div class="asset-meta">${(Number(d.totalOutstanding) || 0) > 0 ? `sisa ${fmtIDR(d.totalOutstanding)} (dianggap selesai)` : "lunas"}</div>
+      </div>
+      <div class="asset-right"><span class="sub">›</span></div>`;
+    div.onclick = () => openDebtDetailSheet(d);
+    archList.appendChild(div);
+  });
+
+  root.querySelector("#btn-add-debt").onclick = () => openNewDebtSheet();
 }
 
+// Edit hutang (existing doang — hutang baru lewat openNewDebtSheet). GA ADA tombol Hapus:
+// hutang cuma bisa diarsipkan (checkbox), riwayat transaksinya tetap ada.
 function openDebtSheet(existing) {
-  const d = existing || { name: "", totalOutstanding: "", monthlyInstalment: "", dueDay: "", remainingMonths: "" };
+  const d = existing;
   const el = openSheet(`
-    ${sheetHead(existing ? "Edit Hutang" : "Tambah Hutang")}
+    ${sheetHead("Edit Hutang")}
     <label>Nama</label>
-    <input id="d-name" placeholder="cth: Tokopedia CC" value="${escapeHtml(d.name)}" />
+    <input id="d-name" placeholder="cth: KTA Bank" value="${escapeHtml(d.name)}" />
     <div class="row">
       <div><label>Outstanding (Rp)</label><input id="d-out" inputmode="numeric" value="${d.totalOutstanding ? fmtNum(d.totalOutstanding) : ""}" /></div>
       <div><label>Cicilan / bulan (Rp)</label><input id="d-inst" inputmode="numeric" value="${d.monthlyInstalment ? fmtNum(d.monthlyInstalment) : ""}" /></div>
@@ -1736,8 +1761,10 @@ function openDebtSheet(existing) {
       <div><label>Jatuh tempo (tgl)</label><input id="d-due" inputmode="numeric" placeholder="15" value="${d.dueDay ?? ""}" /></div>
       <div><label>Sisa bulan</label><input id="d-months" inputmode="numeric" placeholder="8" value="${d.remainingMonths ?? ""}" /></div>
     </div>
+    <label style="margin-top:12px; font-size:12px; text-transform:none; letter-spacing:0; color:var(--muted2)">
+      <input type="checkbox" id="d-arch" style="width:auto" ${d.isArchived ? "checked" : ""}/> 📦 Arsipkan hutang (ditutup — outstanding berhenti dihitung)
+    </label>
     <div style="margin-top:18px; display:flex; gap:8px;">
-      ${existing ? `<button id="d-delete" class="btn btn-danger">Lunas / Hapus</button>` : ""}
       <button id="d-save" class="btn btn-primary" style="flex:1">Simpan</button>
     </div>
   `);
@@ -1752,22 +1779,284 @@ function openDebtSheet(existing) {
       monthlyInstalment: parseAmount(el.querySelector("#d-inst").value),
       dueDay: parseInt(el.querySelector("#d-due").value) || null,
       remainingMonths: parseInt(el.querySelector("#d-months").value) || null,
+      isArchived: el.querySelector("#d-arch").checked,
     };
     if (!data.name) return toast("Isi nama hutang");
     closeSheet();
-    if (existing) await patch("debts", existing.id, data);
-    else await add("debts", data);
+    await patch("debts", existing.id, data);
     toast("Disimpan ✓");
   };
+}
 
-  if (existing) {
-    el.querySelector("#d-delete").onclick = async () => {
-      const used = state.transactions.some((t) => t.debtId === existing.id);
-      if (used) return toast("Masih ada pembayaran ber-link — lepas di History dulu");
-      if (!confirmDialog("Hapus hutang ini? (misal karena sudah lunas)")) return;
-      closeSheet();
-      await remove("debts", existing.id);
-      toast("Mantap, satu hutang hilang 🎉");
-    };
+// ---- Hutang baru: opsional sekalian catat dana pinjaman masuk ke akun ----
+// Cash loan (KTA, pinjol, pinjam temen) → dana beneran masuk rekening → checkbox "dana masuk ke
+// akun" ON: debt dibuat dengan outstanding = nominal, PLUS transaksi transfer `debtDir:"borrow"`
+// (akun dikredit; ditulis dengan `skipDebtEffect` biar outstanding ga dobel — lihat db.js add()).
+// Non-cash (BNPL/cicilan barang: uangnya langsung jadi barang) → checkbox OFF, cuma dokumen debt.
+function openNewDebtSheet() {
+  const accounts = activeAccounts().filter((a) => !isCreditAccount(a));
+  const el = openSheet(`
+    ${sheetHead("💳 Hutang Baru")}
+    <input id="nd-amount" class="amount-input" inputmode="numeric" placeholder="0" autocomplete="off" />
+    <div class="sub" style="margin-top:2px; margin-bottom:8px">nominal pinjaman / outstanding awal</div>
+    <label>Nama</label>
+    <input id="nd-name" placeholder="cth: KTA Bank / Shopee BNPL" />
+    <div class="row">
+      <div><label>Cicilan / bulan (Rp)</label><input id="nd-inst" inputmode="numeric" placeholder="0" /></div>
+      <div><label>Sisa bulan</label><input id="nd-months" inputmode="numeric" placeholder="12" /></div>
+    </div>
+    <label>Jatuh tempo (tgl tiap bulan)</label>
+    <input id="nd-due" inputmode="numeric" placeholder="15" />
+    ${accounts.length > 0 ? `
+    <label style="margin-top:14px; font-size:12px; text-transform:none; letter-spacing:0; color:var(--muted2)">
+      <input type="checkbox" id="nd-cash" style="width:auto" checked/> 💵 Dana pinjaman masuk ke akun
+    </label>
+    <div id="nd-cash-fields">
+      <label>Ke Akun</label>
+      <select id="nd-account">${accounts.map((a) => `<option value="${a.id}">${escapeHtml(a.name)} (${a.currency})</option>`).join("")}</select>
+      <div class="row">
+        <div><label>Tanggal</label><input id="nd-date" type="date" value="${todayStr()}" /></div>
+        <div><label>Jam</label><input id="nd-time" type="time" value="${nowTimeStr()}" /></div>
+      </div>
+      <label>Catatan (opsional)</label>
+      <input id="nd-note" type="text" placeholder="cth: pencairan KTA" />
+      ${photoFieldHtml("nd")}
+      ${linkFieldHtml("nd")}
+    </div>` : ""}
+    <button id="nd-save" class="btn btn-primary btn-block" style="margin-top:18px">Simpan</button>
+  `);
+  const amountInput = el.querySelector("#nd-amount");
+  attachThousands(amountInput);
+  attachThousands(el.querySelector("#nd-inst"));
+  setTimeout(() => amountInput.focus(), 250);
+  el.querySelector("[data-close]").onclick = closeSheet;
+  const cashBox = el.querySelector("#nd-cash");
+  const cashFields = el.querySelector("#nd-cash-fields");
+  if (cashBox) cashBox.onchange = () => cashFields.classList.toggle("hidden", !cashBox.checked);
+  const photo = cashBox ? attachPhotoInput(el, "nd") : null;
+
+  el.querySelector("#nd-save").onclick = async () => {
+    const amount = parseAmount(amountInput.value);
+    const name = el.querySelector("#nd-name").value.trim();
+    if (!name) return toast("Isi nama hutang");
+    if (!amount || amount <= 0) return toast("Isi nominal pinjamannya");
+    const withCash = !!cashBox?.checked;
+    const accountId = withCash ? el.querySelector("#nd-account").value : null;
+    const acct = withCash ? accounts.find((a) => a.id === accountId) : null;
+    const date = withCash ? el.querySelector("#nd-date").value : null;
+    const time = withCash ? (el.querySelector("#nd-time").value || DEFAULT_TX_TIME) : null;
+    const note = withCash ? el.querySelector("#nd-note").value.trim() : "";
+    const linkUrl = withCash ? normalizeLink(el.querySelector("#nd-link").value) : null;
+    if (withCash && !date) return toast("Tanggal belum diisi");
+    if (linkUrl === false) return toast("Link ga valid (harus http/https)");
+    closeSheet();
+    const debtRef = await add("debts", {
+      name, totalOutstanding: amount,
+      monthlyInstalment: parseAmount(el.querySelector("#nd-inst").value),
+      dueDay: parseInt(el.querySelector("#nd-due").value) || null,
+      remainingMonths: parseInt(el.querySelector("#nd-months").value) || null,
+      isArchived: false,
+    });
+    if (withCash) {
+      const txRef = await add("transactions", {
+        type: "transfer", amount, date, time, month: monthOf(date),
+        accountId, toAccountId: null, categoryId: null,
+        debtId: debtRef.id, debtDir: "borrow", linkUrl,
+        note: note || `Pinjaman masuk: ${name}`,
+      }, { skipDebtEffect: true });
+      await savePhoto(photo?.get(), txRef.id);
+      toast(`Hutang ${name} dicatat ✓ — ${acct?.name || "akun"} +${fmtMoneyPlain(amount, acct?.currency)}`, 3500);
+    } else {
+      toast(`Hutang ${name} dicatat ✓`);
+    }
+  };
+}
+
+// ---- Detail satu hutang: progress + riwayat (pola sama openReceivableDetailSheet) ----
+function openDebtDetailSheet(d) {
+  const outstanding = Math.max(0, Number(d.totalOutstanding) || 0);
+  const txs = state.transactions.filter((t) => t.debtId === d.id);
+  const totalPaid = txs.filter((t) => !isDebtBorrow(t)).reduce((s, t) => s + (Number(t.amount) || 0), 0);
+  const principal = outstanding + totalPaid; // basis progress: yang udah dibayar + yang masih sisa
+  const pct = principal > 0 ? Math.min(100, (totalPaid / principal) * 100) : 0;
+  const isPaidOff = outstanding <= 0;
+  const row = (label, val) => `<div style="display:flex; justify-content:space-between; padding:5px 0"><span class="sub">${label}</span><span>${val}</span></div>`;
+
+  const el = openSheet(`
+    ${sheetHead(`💳 ${escapeHtml(d.name)}${d.isArchived ? ' <span class="badge badge-yellow">arsip</span>' : isPaidOff ? ' <span class="badge badge-green">Lunas 🎉</span>' : ""}`)}
+    <div class="progress"><div class="${isPaidOff ? "p-green" : pct >= 50 ? "p-yellow" : "p-red"}" style="width:${pct}%"></div></div>
+    <div class="sub" style="margin-top:4px">Dibayar ${fmtIDR(totalPaid)} dari ${fmtIDR(principal)} · ${pct.toFixed(0)}%</div>
+    <div class="table-like" style="margin-top:10px">
+      ${row("Outstanding", `<b style="color:${isPaidOff ? "var(--green)" : "var(--red)"}">${fmtIDR(outstanding)}</b>`)}
+      ${row("Cicilan / bulan", fmtIDR(d.monthlyInstalment))}
+      ${row("Jatuh tempo", d.dueDay ? `tgl ${d.dueDay}` : "—")}
+      ${row("Sisa bulan", d.remainingMonths ?? "—")}
+    </div>
+    <div class="card-title" style="margin-top:14px">Riwayat (${txs.length})</div>
+    <div id="dd-list">${txs.length === 0 ? `<div class="empty">Belum ada transaksi.</div>` : ""}</div>
+    <div style="margin-top:14px; display:flex; gap:8px;">
+      ${isPaidOff || d.isArchived ? "" : `<button id="dd-pay" class="btn btn-primary" style="flex:1">💵 Bayar Cicilan</button>`}
+      ${d.isArchived ? "" : `<button id="dd-borrow" class="btn" style="flex:1">➕ Tambah Pinjaman</button>`}
+      <button id="dd-edit" class="btn">✎</button>
+    </div>
+  `);
+  el.querySelector("[data-close]").onclick = closeSheet;
+  const list = el.querySelector("#dd-list");
+  txs.forEach((t) => {
+    const isBorrow = isDebtBorrow(t);
+    const acct = state.accounts.find((x) => x.id === t.accountId);
+    const div = document.createElement("div");
+    div.className = "tx-item";
+    div.innerHTML = `
+      <div class="tx-ic">${isBorrow ? "🏦" : "💵"}</div>
+      <div class="tx-main">
+        <div class="tx-cat">${isBorrow ? "Pinjaman masuk" : "Pembayaran"}${t.attachmentId ? " 📎" : ""}${t.linkUrl ? " 🔗" : ""}</div>
+        <div class="tx-note">${escapeHtml(t.date)}${t.time ? ` · ${escapeHtml(t.time)}` : ""} · ${escapeHtml(acct?.name || "?")}${t.note ? ` · ${escapeHtml(t.note)}` : ""}</div>
+      </div>
+      <div class="tx-amt ${isBorrow ? "income" : "expense"}">${isBorrow ? "+" : "−"} ${fmtMoney(t.amount, acct?.currency)}</div>`;
+    div.onclick = () => (isBorrow ? openDebtBorrowSheet(d, t) : openTxSheet(t));
+    list.appendChild(div);
+  });
+  el.querySelector("#dd-pay")?.addEventListener("click", () => openDebtPaySheet(d));
+  el.querySelector("#dd-borrow")?.addEventListener("click", () => openDebtBorrowSheet(d));
+  el.querySelector("#dd-edit").onclick = () => openDebtSheet(d);
+}
+
+// ---- Bayar cicilan: expense BIASA ber-debtId (jalur lama tetap: openTxSheet "Potong hutang?")
+// — sheet ini cuma pre-fill + foto/link bukti. Efek ke outstanding lewat hook db.js add().
+function openDebtPaySheet(d) {
+  const accounts = activeAccounts();
+  if (accounts.length === 0) {
+    toast("Buat akun dulu di Settings ⚙️");
+    location.hash = "#/settings";
+    return;
   }
+  const cats = state.categories.filter((c) => c.type === "expense");
+  const defaultCat = cats.find((c) => c.id === "cat_cicilan")?.id || cats[0]?.id || "";
+  const last = JSON.parse(localStorage.getItem("fintrack_last_input") || "{}");
+  const el = openSheet(`
+    ${sheetHead(`Bayar Cicilan: ${escapeHtml(d.name)}`)}
+    <input id="dp-amount" class="amount-input" inputmode="numeric" placeholder="0" value="${d.monthlyInstalment ? fmtNum(d.monthlyInstalment) : ""}" autocomplete="off" />
+    <div class="sub" style="margin-top:2px">outstanding sekarang ${fmtIDR(d.totalOutstanding)}</div>
+    <label>Dari Akun</label>
+    <select id="dp-account">${accounts.map((a) => `<option value="${a.id}" ${a.id === last.accountId ? "selected" : ""}>${escapeHtml(a.name)} (${a.currency})</option>`).join("")}</select>
+    <label>Kategori</label>
+    <select id="dp-cat">${cats.map((c) => `<option value="${c.id}" ${c.id === defaultCat ? "selected" : ""}>${c.icon || "📦"} ${escapeHtml(c.name)}</option>`).join("")}</select>
+    <div class="row">
+      <div><label>Tanggal</label><input id="dp-date" type="date" value="${todayStr()}" /></div>
+      <div><label>Jam</label><input id="dp-time" type="time" value="${nowTimeStr()}" /></div>
+    </div>
+    <label>Catatan (opsional)</label>
+    <input id="dp-note" type="text" placeholder="cth: cicilan ke-3" />
+    ${photoFieldHtml("dp")}
+    ${linkFieldHtml("dp")}
+    <button id="dp-save" class="btn btn-primary btn-block" style="margin-top:18px">Simpan</button>
+  `);
+  const amountInput = el.querySelector("#dp-amount");
+  attachThousands(amountInput);
+  el.querySelector("[data-close]").onclick = closeSheet;
+  const photo = attachPhotoInput(el, "dp");
+
+  el.querySelector("#dp-save").onclick = async () => {
+    const amount = parseAmount(amountInput.value);
+    const accountId = el.querySelector("#dp-account").value;
+    const categoryId = el.querySelector("#dp-cat").value;
+    const date = el.querySelector("#dp-date").value;
+    const time = el.querySelector("#dp-time").value || DEFAULT_TX_TIME;
+    const note = el.querySelector("#dp-note").value.trim();
+    const linkUrl = normalizeLink(el.querySelector("#dp-link").value);
+    if (!amount || amount <= 0) return toast("Isi nominal cicilannya");
+    if (!categoryId) return toast("Pilih kategori");
+    if (!date) return toast("Tanggal belum diisi");
+    if (linkUrl === false) return toast("Link ga valid (harus http/https)");
+    const over = amount > (Number(d.totalOutstanding) || 0) + 0.5;
+    closeSheet();
+    const txRef = await add("transactions", {
+      type: "expense", amount, date, time, month: monthOf(date),
+      accountId, categoryId, toAccountId: null, debtId: d.id, linkUrl,
+      note: note || `Cicilan ${d.name}`,
+    });
+    await savePhoto(photo.get(), txRef.id);
+    toast(over ? "Cicilan tercatat ✓ — lebih dari outstanding, sisa jadi 0" : "Cicilan tercatat ✓", over ? 3500 : 2200);
+  };
+}
+
+// ---- Pinjaman masuk (borrow): transfer ber-debtId+debtDir:"borrow", akun dikredit, outstanding
+// naik lewat hook. Export — dipakai home.js openTxDetail() buat routing detail read-only.
+export function openDebtBorrowSheet(debt, existingTx = null) {
+  if (existingTx) {
+    const acct = state.accounts.find((a) => a.id === existingTx.accountId);
+    const el = openSheet(`
+      ${sheetHead("Detail Pinjaman Masuk")}
+      <div class="sub" style="margin-bottom:10px">Ga bisa diedit — hapus &amp; catat ulang.</div>
+      <div class="table-like">
+        <div style="display:flex; justify-content:space-between; padding:6px 0"><span class="sub">Hutang</span><span>${escapeHtml(debt.name)}</span></div>
+        <div style="display:flex; justify-content:space-between; padding:6px 0"><span class="sub">Nominal</span><span>${fmtMoney(existingTx.amount, acct?.currency)}</span></div>
+        <div style="display:flex; justify-content:space-between; padding:6px 0"><span class="sub">Ke Akun</span><span>${escapeHtml(acct?.name || "?")}</span></div>
+        <div style="display:flex; justify-content:space-between; padding:6px 0"><span class="sub">Tanggal</span><span>${existingTx.date}${existingTx.time ? ` ${existingTx.time}` : ""}</span></div>
+        ${existingTx.note ? `<div style="display:flex; justify-content:space-between; padding:6px 0"><span class="sub">Catatan</span><span>${escapeHtml(existingTx.note)}</span></div>` : ""}
+      </div>
+      <div id="db-link-wrap" style="margin-top:10px"></div><div id="db-photo-wrap" style="margin-top:10px"></div>
+      <button id="db-delete" class="btn btn-danger btn-block" style="margin-top:18px">Hapus Transaksi</button>
+    `);
+    el.querySelector("[data-close]").onclick = closeSheet;
+    renderTxPhoto(el.querySelector("#db-photo-wrap"), existingTx);
+    renderTxLink(el.querySelector("#db-link-wrap"), existingTx);
+    el.querySelector("#db-delete").onclick = async () => {
+      if (!confirmDialog("Hapus pinjaman masuk ini? Outstanding hutang dikurangi sebesar nominalnya.")) return;
+      closeSheet();
+      await remove("transactions", existingTx.id); // reversal outstanding lewat hook db.js
+      toast("Dihapus, outstanding disesuaikan");
+    };
+    return;
+  }
+
+  const accounts = activeAccounts().filter((a) => !isCreditAccount(a));
+  if (accounts.length === 0) {
+    toast("Buat akun dulu di Settings ⚙️");
+    location.hash = "#/settings";
+    return;
+  }
+  const el = openSheet(`
+    ${sheetHead(`Tambah Pinjaman: ${escapeHtml(debt.name)}`)}
+    <input id="db-amount" class="amount-input" inputmode="numeric" placeholder="0" autocomplete="off" />
+    <div class="sub" style="margin-top:2px">outstanding sekarang ${fmtIDR(debt.totalOutstanding)}</div>
+    <label>Ke Akun</label>
+    <select id="db-account">${accounts.map((a) => `<option value="${a.id}">${escapeHtml(a.name)} (${a.currency})</option>`).join("")}</select>
+    <div class="row">
+      <div><label>Tanggal</label><input id="db-date" type="date" value="${todayStr()}" /></div>
+      <div><label>Jam</label><input id="db-time" type="time" value="${nowTimeStr()}" /></div>
+    </div>
+    <label>Catatan (opsional)</label>
+    <input id="db-note" type="text" placeholder="cth: top-up pinjaman" />
+    ${photoFieldHtml("db")}
+    ${linkFieldHtml("db")}
+    <button id="db-save" class="btn btn-primary btn-block" style="margin-top:18px">Simpan</button>
+  `);
+  const amountInput = el.querySelector("#db-amount");
+  attachThousands(amountInput);
+  setTimeout(() => amountInput.focus(), 250);
+  el.querySelector("[data-close]").onclick = closeSheet;
+  const photo = attachPhotoInput(el, "db");
+
+  el.querySelector("#db-save").onclick = async () => {
+    const amount = parseAmount(amountInput.value);
+    const accountId = el.querySelector("#db-account").value;
+    const date = el.querySelector("#db-date").value;
+    const time = el.querySelector("#db-time").value || DEFAULT_TX_TIME;
+    const note = el.querySelector("#db-note").value.trim();
+    const linkUrl = normalizeLink(el.querySelector("#db-link").value);
+    if (!amount || amount <= 0) return toast("Isi nominal pinjamannya");
+    if (!date) return toast("Tanggal belum diisi");
+    if (linkUrl === false) return toast("Link ga valid (harus http/https)");
+    closeSheet();
+    const txRef = await add("transactions", {
+      type: "transfer", amount, date, time, month: monthOf(date),
+      accountId, toAccountId: null, categoryId: null,
+      debtId: debt.id, debtDir: "borrow", linkUrl,
+      note: note || `Pinjaman masuk: ${debt.name}`,
+    });
+    await savePhoto(photo.get(), txRef.id);
+    toast("Pinjaman masuk tercatat ✓");
+  };
 }
