@@ -220,9 +220,12 @@ export const setBlurred = (on) => {
 // Foto (bukti transfer/pembayaran piutang) disimpan sebagai data URL JPEG di Firestore (collection
 // `attachments`, lihat db.js) — BUKAN Firebase Storage (ga di-init di firebase.js, dan upload-nya
 // ga ikut offline persistence Firestore). Dokumen Firestore maks 1 MiB → WAJIB dikompres: resize
-// sisi terpanjang ke `maxDim` + JPEG quality, turun bertahap sampai ≤ `maxBytes`. Browser modern
-// udah apply orientasi EXIF pas decode <img>, jadi hasil canvas-nya ga kebalik.
-export async function compressImage(file, { maxDim = 1280, maxBytes = 700_000 } = {}) {
+// sisi terpanjang ke `maxDim` + JPEG quality, turun bertahap sampai ≤ `maxBytes` (diukur dari
+// PANJANG DATA URL-nya, bukan byte JPEG mentah — itu yang beneran kesimpen di dokumen). Target
+// 450KB (bukan mepet 1 MiB): foto ikut masuk cache offline Firestore (default 40 MB, LRU) — foto
+// gede bisa ngusir data transaksi dari cache. Browser modern udah apply orientasi EXIF pas decode
+// <img>, jadi hasil canvas-nya ga kebalik.
+export async function compressImage(file, { maxDim = 1280, maxBytes = 450_000 } = {}) {
   const dataUrl = await new Promise((res, rej) => {
     const r = new FileReader();
     r.onload = () => res(r.result);

@@ -6,3 +6,5 @@ Export_*.md
 Export_*.json
 export_*.md
 export_*.json
+# Konteks personal owner (gaji/bank/portfolio) — repo ini PUBLIC, jangan pernah commit.
+CLAUDE.local.md

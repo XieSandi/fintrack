@@ -70,8 +70,12 @@ js/
                        goals, recurring, danger
 icons/
 tests/
-└─ calc.test.mjs      smoke test manual buat js/calc.js (`node tests/calc.test.mjs`)
+├─ calc.test.mjs      smoke test manual buat js/calc.js (`node tests/calc.test.mjs`)
+└─ precache.test.mjs  cek PRECACHE sw.js lengkap (`node tests/precache.test.mjs`)
 ```
+
+Repo ini public dan GitHub Pages nge-serve semua file root, jadi jangan taruh data personal di
+file manapun yang di-commit — konteks owner ada di `CLAUDE.local.md` (di-gitignore).
 
 Dokumentasi lebih lengkap buat development (aturan wajib, arsitektur detail, data model,
 known quirks) ada di `CLAUDE.md`; narasi historis "kenapa" di balik keputusan desain & insiden
@@ -127,7 +131,7 @@ Buka `http://localhost:8080`. Domain `localhost` sudah authorized by default di 
 ## Update / deploy versi baru
 
 Setiap ada perubahan file, naikkan `CACHE_VERSION` di `sw.js` (misal `fintrack-v2`). File baru
-juga wajib masuk array `PRECACHE`.
+juga wajib masuk array `PRECACHE` — cek dengan `node tests/precache.test.mjs`.
 
 Di sisi user, SW baru **ga langsung ambil alih** — itu sengaja (auto-activate + auto-reload pernah
 bikin infinite-reload-loop, lihat `DECISIONS.md`). Yang muncul: banner **"Versi baru siap"** →
