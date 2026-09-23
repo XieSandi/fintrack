@@ -312,7 +312,7 @@ export function txRow(t) {
         : goal
         ? `${isWithdraw ? "Pencairan" : "Topup"}: ${escapeHtml(goal.name)}`
         : t.type === "transfer" ? `Transfer` : escapeHtml(cat?.name || "—")}${
-        asset?.deleted ? ` <span class="badge badge-yellow">asset dihapus</span>` : ""}${t.attachmentId ? " 📎" : ""}${
+        asset?.deleted ? ` <span class="badge badge-yellow">asset dihapus</span>` : ""}${t.attachmentId ? " 📎" : ""}${t.linkUrl ? " 🔗" : ""}${
         // Transaksi biaya tambahan (ber-feeOfTxId) dikasih badge biar kelihatan dia nempel ke
         // transaksi lain, bukan expense berdiri sendiri — induknya persis di sebelahnya di list
         // (tanggal & jam-nya sama). Sengaja badge doang, ga lookup induknya per baris (O(n) per

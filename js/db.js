@@ -289,7 +289,8 @@ export async function upsertSnapshot() {
     // Bond yang udah redeemed di-exclude dari breakdown (pola sama wealth.js renderAssets() &
     // report-md.js live branch) — "hilang dari asset aktif", nilainya udah 0 di net worth
     // (bondValueIDR), snapshot ga perlu nyimpen baris Rp0 yang ga informatif.
-    assets: state.assets.filter((a) => !(a.type === "bond" && a.redeemed === true)).map((a) => ({
+    // Piutang arsip (ditutup) juga di-exclude — nilainya udah 0 (receivableLocalValue), pola sama.
+    assets: state.assets.filter((a) => !(a.type === "bond" && a.redeemed === true) && !(a.type === "receivable" && a.isArchived === true)).map((a) => ({
       symbol: a.symbol || a.name, type: a.type, currency: a.currency,
       quantity: Number(a.quantity) || 0,
       avgBuyPrice: Number(a.avgBuyPrice) || 0,

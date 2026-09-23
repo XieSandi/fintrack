@@ -7,6 +7,23 @@ import {
   isReceivable, receivableLocalValue, totalReceivablesIDR, includeReceivablesSetting,
 } from "../store.js";
 import { add, patch, remove, updateSettings, deleteAssetKeepHistory, addAttachment, getAttachment } from "../db.js";
+
+// Link bukti (URL, opsional — pola sama foto, cuma jalur piutang). Disimpan di transaksi sebagai
+// `linkUrl` (additive). Normalisasi: tanpa skema → https://, cuma http(s) yang diterima.
+const linkFieldHtml = (prefix, value = "") => `
+    <label style="margin-top:12px">🔗 Link bukti (opsional)</label>
+    <input id="${prefix}-link" type="url" inputmode="url" autocomplete="off" placeholder="https://..." value="${escapeHtml(value)}" />`;
+function normalizeLink(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return null;
+  const withScheme = /^[a-z][a-z0-9+.-]*:/i.test(s) ? s : `https://${s}`;
+  try {
+    const u = new URL(withScheme);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return false;
+    return u.href;
+  } catch { return false; }
+}
+const linkAnchorHtml = (url) => `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" style="color:var(--blue); word-break:break-all">🔗 ${escapeHtml(url.replace(/^https?:\/\//, ""))}</a>`;
 import {
   fmtIDR, fmtMoney, fmtNum, fmtIDRPlain, fmtMoneyPlain, escapeHtml, toast, openSheet, closeSheet, sheetHead,
   parseAmount, attachThousands, lastNMonths, monthLabel, todayStr, confirmDialog, monthOf,
@@ -522,7 +539,7 @@ function assetRow(a) {
     const isDue = !!a.dueDate && a.dueDate <= todayStr();
     metaLine = `🤝 ${escapeHtml(a.debtorName || "?")} · dipinjamkan ${fmtMoney(a.avgBuyPrice, a.currency)}`;
     staleLine = isPaid
-      ? `✅ Lunas — bisa dihapus di Edit Asset`
+      ? `✅ Lunas — arsipkan lewat Edit`
       : isDue
       ? `⚠️ Udah bisa ditagih sejak ${a.dueDate}`
       : `bisa ditagih ${a.dueDate || "?"} · sisa per ${a.manualPriceUpdatedAt || "?"}`;
@@ -616,6 +633,10 @@ export function openAssetSheet(existing, contentRoot) {
       <div><label>Siapa (peminjam)</label><input id="a-recv-debtor" placeholder="cth: Budi" value="${escapeHtml(a.debtorName || "")}" /></div>
       <div><label>Bisa ditagih (tgl)</label><input id="a-recv-due" type="date" value="${a.dueDate || ""}" /></div>
     </div>
+    ${existing && existing.type === "receivable" ? `
+    <label style="margin-top:12px; font-size:12px; text-transform:none; letter-spacing:0; color:var(--muted2)">
+      <input type="checkbox" id="a-recv-arch" style="width:auto" ${a.isArchived ? "checked" : ""}/> 📦 Arsipkan piutang (ditutup — sisa berhenti dihitung)
+    </label>` : ""}
     <label id="a-manual-wrap" style="margin-top:12px; font-size:12px; text-transform:none; letter-spacing:0; color:var(--muted2)">
       <input type="checkbox" id="a-manual-only" style="width:auto" ${a.manualOnly === true ? "checked" : ""}/>
       🔒 Harga manual (skip auto-refresh)
@@ -631,7 +652,7 @@ export function openAssetSheet(existing, contentRoot) {
     </div>
     ${existing && existing.type === "bond" && existing.redeemed === true ? `<div class="sub" style="margin-top:10px">✅ Pokok udah dicairkan</div>` : ""}
     <div style="margin-top:18px; display:flex; gap:8px;">
-      ${existing ? `<button id="a-delete" class="btn btn-danger">Hapus</button>` : ""}
+      ${existing && existing.type !== "receivable" ? `<button id="a-delete" class="btn btn-danger">Hapus</button>` : ""}
       <button id="a-save" class="btn btn-primary" style="flex:1">Simpan</button>
     </div>
   `);
@@ -741,6 +762,8 @@ export function openAssetSheet(existing, contentRoot) {
       debtorName: isRecvNow ? el.querySelector("#a-recv-debtor").value.trim() : null,
       dueDate: isRecvNow ? (el.querySelector("#a-recv-due").value || null) : null,
     };
+    // Arsip KHUSUS piutang (ga bisa dihapus, cuma ditutup) — tipe lain ga punya field ini.
+    if (isRecvNow) data.isArchived = !!el.querySelector("#a-recv-arch")?.checked;
     if (isCapexNow) {
       data.purchaseDate = el.querySelector("#a-purchase-date").value || todayStr();
       const pct = parseDec(el.querySelector("#a-deprec-pct").value);
@@ -790,7 +813,8 @@ export function openAssetSheet(existing, contentRoot) {
     // tetap utuh), cuma ditandai `assetDeleted` + `assetSnapshot` biar History masih bisa nampilin
     // & buka detail read-only-nya (lihat db.js deleteAssetKeepHistory()). Nilai > 0 diblok —
     // ngilangin asset yang masih ada nilainya = net worth berubah tanpa jurnal.
-    el.querySelector("#a-delete").onclick = async () => {
+    // Piutang GA PUNYA tombol Hapus (cuma arsip) — `?.` biar handler-nya ga meledak.
+    el.querySelector("#a-delete")?.addEventListener("click", async () => {
       const txCount = state.transactions.filter((t) => t.assetId === existing.id).length;
       const linkedGoals = state.goals.filter((g) => (g.linkedAssetIds || []).includes(existing.id));
       if (linkedGoals.length > 0) return toast(`Masih di-link ke goal "${linkedGoals[0].name}" — lepas dulu`);
@@ -805,7 +829,7 @@ export function openAssetSheet(existing, contentRoot) {
       if (txCount > 0) await deleteAssetKeepHistory(existing.id);
       else await remove("assets", existing.id);
       toast("Dihapus");
-    };
+    });
   }
 }
 
@@ -1189,11 +1213,14 @@ function openQtylessTradeSheet(asset, dir, existingTx, opts = {}) {
         <div style="display:flex; justify-content:space-between; padding:6px 0"><span class="sub">${isBuy ? "Dari" : "Ke"} Akun</span><span>${escapeHtml(acct?.name || "?")}</span></div>
         <div style="display:flex; justify-content:space-between; padding:6px 0"><span class="sub">Tanggal</span><span>${existingTx.date}</span></div>
       </div>
-      ${isRecv ? `<div id="qt-photo-wrap" style="margin-top:10px"></div>` : ""}
+      ${isRecv ? `<div id="qt-link-wrap" style="margin-top:10px"></div><div id="qt-photo-wrap" style="margin-top:10px"></div>` : ""}
       <button id="qt-delete" class="btn btn-danger btn-block" style="margin-top:18px">Hapus Transaksi</button>
     `);
     el.querySelector("[data-close]").onclick = closeSheet;
-    if (isRecv) renderTxPhoto(el.querySelector("#qt-photo-wrap"), existingTx);
+    if (isRecv) {
+      renderTxPhoto(el.querySelector("#qt-photo-wrap"), existingTx);
+      renderTxLink(el.querySelector("#qt-link-wrap"), existingTx);
+    }
     el.querySelector("#qt-delete").onclick = async () => {
       if (!confirmDialog(L.deleteConfirm)) return;
       closeSheet();
@@ -1229,7 +1256,7 @@ function openQtylessTradeSheet(asset, dir, existingTx, opts = {}) {
     </div>
     <label>Catatan (opsional)</label>
     <input id="qt-note" type="text" placeholder="${L.notePh}" />
-    ${isRecv ? photoFieldHtml("qt") : ""}
+    ${isRecv ? photoFieldHtml("qt") + linkFieldHtml("qt") : ""}
     <button id="qt-save" class="btn btn-primary btn-block" style="margin-top:18px">Simpan</button>
   `);
 
@@ -1264,6 +1291,8 @@ function openQtylessTradeSheet(asset, dir, existingTx, opts = {}) {
 
     if (!amount || amount <= 0) return toast("Isi nominalnya dulu");
     if (!date) return toast("Tanggal belum diisi");
+    const linkUrl = isRecv ? normalizeLink(el.querySelector("#qt-link").value) : null;
+    if (linkUrl === false) return toast("Link ga valid (harus http/https)");
     if (!isBuy && amount > curValue + 0.5) {
       return toast(L.overMsg ? `${L.overMsg} (${fmtMoneyPlain(curValue, asset.currency)})` : `Ga bisa tarik lebih dari nilai sekarang (${fmtMoneyPlain(curValue, asset.currency)})`);
     }
@@ -1280,13 +1309,13 @@ function openQtylessTradeSheet(asset, dir, existingTx, opts = {}) {
     const txRef = await add("transactions", {
       type: "transfer", amount, date, time, month: monthOf(date),
       accountId, toAccountId: null, categoryId: null,
-      assetId: asset.id, assetDir: dir,
+      assetId: asset.id, assetDir: dir, linkUrl,
       note: note || L.defaultNote,
     });
     if (photo) await savePhoto(photo.get(), txRef.id);
     opts.onSaved?.();
     const emptied = !isBuy && newValue <= 0;
-    toast(emptied ? `${L.okToast} — ${isRecv ? "lunas" : "posisi kosong"}, bisa dihapus di Edit Asset` : L.okToast, emptied ? 4000 : 2200);
+    toast(emptied ? `${L.okToast} — ${isRecv ? "lunas, arsipkan lewat Edit" : "posisi kosong, bisa dihapus di Edit Asset"}` : L.okToast, emptied ? 4000 : 2200);
   };
 }
 
@@ -1296,9 +1325,13 @@ function openQtylessTradeSheet(asset, dir, existingTx, opts = {}) {
 // sebagai daftar sendiri (kebalikan tab Debt). Data & sheet-nya TETAP yang sama (openAssetSheet /
 // openQtylessTradeSheet), cuma tampilannya di sini. Urutan: yang udah bisa ditagih dulu, lalu
 // tanggal tagih terdekat, yang lunas paling bawah.
+// Piutang arsip (ditutup — lunas atau write-off) ditaruh di section "📦 Arsip" paling bawah,
+// nilainya udah 0 (calc.js receivableLocalValue), un-archive lewat Edit. GA ADA hapus buat piutang.
 function renderReceivables(root) {
   const today = todayStr();
-  const rows = state.assets.filter(isReceivable).slice().sort((a, b) => {
+  const allRecv = state.assets.filter(isReceivable);
+  const archived = allRecv.filter((a) => a.isArchived === true);
+  const rows = allRecv.filter((a) => a.isArchived !== true).sort((a, b) => {
     const pa = receivableLocalValue(a) <= 0 ? 2 : (a.dueDate && a.dueDate <= today ? 0 : 1);
     const pb = receivableLocalValue(b) <= 0 ? 2 : (b.dueDate && b.dueDate <= today ? 0 : 1);
     if (pa !== pb) return pa - pb;
@@ -1313,8 +1346,9 @@ function renderReceivables(root) {
       ${rows.length > 0 ? `<div class="sub" style="margin-bottom:4px">Total piutang: <b style="color:#7fbfba">${fmtIDR(total)}</b>${includeReceivables ? "" : " · di luar Net Worth"}</div>` : ""}
       ${nOverdue > 0 ? `<div class="sub" style="margin-bottom:10px; color:var(--yellow)">⚠️ ${nOverdue} piutang udah bisa ditagih</div>` : ""}
       <div id="recv-list">
-        ${rows.length === 0 ? `<div class="empty">Ga ada piutang. 🎉</div>` : ""}
+        ${rows.length === 0 ? `<div class="empty">Ga ada piutang aktif. 🎉</div>` : ""}
       </div>
+      ${archived.length > 0 ? `<div class="group-head" style="margin-top:14px"><span>📦 Arsip (${archived.length})</span></div><div id="recv-archived"></div>` : ""}
     </div>
     <button id="btn-add-recv" class="btn btn-primary btn-block">＋ Tambah Piutang</button>
   `;
@@ -1333,7 +1367,7 @@ function renderReceivables(root) {
         <span class="budget-nums" style="color:${isPaid ? "var(--green)" : "#7fbfba"}">${fmtMoney(sisa, a.currency)}</span>
       </div>
       <div class="sub">${escapeHtml(a.name || "")}${a.name ? " · " : ""}dipinjamkan ${fmtMoney(a.avgBuyPrice, a.currency)}${a.currency === "USD" ? ` · ≈ ${fmtIDR(assetValueIDR(a))}` : ""}</div>
-      <div class="stale-note">${isPaid ? "lunas — bisa dihapus lewat Edit" : isDue ? `⚠️ udah bisa ditagih sejak ${a.dueDate}` : `bisa ditagih ${a.dueDate || "?"} · sisa per ${a.manualPriceUpdatedAt || "?"}`}</div>
+      <div class="stale-note">${isPaid ? "lunas — arsipkan lewat Edit" : isDue ? `⚠️ udah bisa ditagih sejak ${a.dueDate}` : `bisa ditagih ${a.dueDate || "?"} · sisa per ${a.manualPriceUpdatedAt || "?"}`}</div>
       <div style="margin-top:8px; display:flex; gap:8px;">
         ${isPaid ? "" : `<button class="btn btn-sm" data-pay style="flex:1">💵 Terima Pembayaran</button>`}
         <button class="btn btn-sm" data-lend style="flex:1">🤝 Kasih Pinjaman</button>
@@ -1344,6 +1378,20 @@ function renderReceivables(root) {
     div.querySelector("[data-lend]").onclick = (e) => { e.stopPropagation(); openAssetBuySheet(a); };
     div.querySelector("[data-edit]").onclick = (e) => { e.stopPropagation(); openAssetSheet(a, root); };
     list.appendChild(div);
+  });
+
+  const archList = root.querySelector("#recv-archived");
+  archived.forEach((a) => {
+    const div = document.createElement("div");
+    div.className = "asset-item";
+    div.innerHTML = `
+      <div>
+        <div class="asset-sym" style="font-size:13px; color:var(--muted2)">🤝 ${escapeHtml(a.debtorName || "?")} <span class="badge badge-yellow">arsip</span></div>
+        <div class="asset-meta">${escapeHtml(a.name || "")}${a.name ? " · " : ""}dipinjamkan ${fmtMoney(a.avgBuyPrice, a.currency)}${(Number(a.manualPrice) || 0) > 0 ? ` · sisa ${fmtMoney(a.manualPrice, a.currency)} (write-off)` : " · lunas"}</div>
+      </div>
+      <div class="asset-right"><span class="sub">›</span></div>`;
+    div.onclick = () => openReceivableDetailSheet(a);
+    archList.appendChild(div);
   });
 
   root.querySelector("#btn-add-recv").onclick = () => openNewReceivableSheet();
@@ -1411,6 +1459,19 @@ async function renderTxPhoto(wrap, tx) {
   });
 }
 
+// Link bukti di detail transaksi: tampilin kalau ada, kalau belum ada bisa nyusul (patch `linkUrl`).
+function renderTxLink(wrap, tx) {
+  if (tx.linkUrl) { wrap.innerHTML = linkAnchorHtml(tx.linkUrl); return; }
+  wrap.innerHTML = `${linkFieldHtml("late")}<button id="late-link-save" class="btn btn-sm" style="margin-top:6px">Simpan link</button>`;
+  wrap.querySelector("#late-link-save").onclick = async () => {
+    const url = normalizeLink(wrap.querySelector("#late-link").value);
+    if (!url) return toast(url === false ? "Link ga valid (harus http/https)" : "Isi link-nya dulu");
+    await patch("transactions", tx.id, { linkUrl: url });
+    toast("Link tersimpan ✓");
+    renderTxLink(wrap, { ...tx, linkUrl: url });
+  };
+}
+
 // ================= Piutang baru: potong akun → jadi piutang =================
 // Bikin piutang = SATU aksi: dokumen asset `receivable` + transaksi transfer `assetDir:"buy"`
 // (akun sumber didebit sebesar pinjaman) — sama persis kayak "Kasih Pinjaman" di piutang yang
@@ -1444,6 +1505,7 @@ function openNewReceivableSheet() {
     <label>Catatan (opsional)</label>
     <input id="nr-note" type="text" placeholder="cth: transfer via BCA" />
     ${photoFieldHtml("nr")}
+    ${linkFieldHtml("nr")}
     <button id="nr-save" class="btn btn-primary btn-block" style="margin-top:18px">Simpan</button>
   `);
   const amountInput = el.querySelector("#nr-amount");
@@ -1466,6 +1528,8 @@ function openNewReceivableSheet() {
     if (!debtorName) return toast("Isi siapa peminjamnya");
     if (!date) return toast("Tanggal belum diisi");
     if (dueDate && dueDate < date) return toast("Tanggal tagih sebelum tanggal pinjam");
+    const linkUrl = normalizeLink(el.querySelector("#nr-link").value);
+    if (linkUrl === false) return toast("Link ga valid (harus http/https)");
     closeSheet();
     const assetRef = await add("assets", {
       type: "receivable", symbol: "", name, debtorName, dueDate,
@@ -1475,7 +1539,7 @@ function openNewReceivableSheet() {
     const txRef = await add("transactions", {
       type: "transfer", amount, date, time, month: monthOf(date),
       accountId, toAccountId: null, categoryId: null,
-      assetId: assetRef.id, assetDir: "buy",
+      assetId: assetRef.id, assetDir: "buy", linkUrl,
       note: note || `Pinjamkan ke ${debtorName}`,
     });
     await savePhoto(photo.get(), txRef.id);
@@ -1499,7 +1563,7 @@ function openReceivableDetailSheet(a) {
   const row = (label, val) => `<div style="display:flex; justify-content:space-between; padding:5px 0"><span class="sub">${label}</span><span>${val}</span></div>`;
 
   const el = openSheet(`
-    ${sheetHead(`🤝 ${escapeHtml(a.debtorName || "?")}`)}
+    ${sheetHead(`🤝 ${escapeHtml(a.debtorName || "?")}${a.isArchived ? ' <span class="badge badge-yellow">arsip</span>' : ""}`)}
     ${a.name ? `<div class="sub" style="margin-bottom:8px">${escapeHtml(a.name)}</div>` : ""}
     <div class="progress"><div class="${isPaid ? "p-green" : pct >= 50 ? "p-yellow" : "p-red"}" style="width:${pct}%"></div></div>
     <div class="sub" style="margin-top:4px">Dibayar ${fmtMoney(paid, a.currency)} dari ${fmtMoney(lent, a.currency)} · ${pct.toFixed(0)}%</div>
@@ -1511,8 +1575,8 @@ function openReceivableDetailSheet(a) {
     <div class="card-title" style="margin-top:14px">Riwayat (${txs.length})</div>
     <div id="rd-list">${txs.length === 0 ? `<div class="empty">Belum ada transaksi.</div>` : ""}</div>
     <div style="margin-top:14px; display:flex; gap:8px;">
-      ${isPaid ? "" : `<button id="rd-pay" class="btn btn-primary" style="flex:1">💵 Terima Pembayaran</button>`}
-      <button id="rd-lend" class="btn" style="flex:1">🤝 Kasih Pinjaman</button>
+      ${isPaid || a.isArchived ? "" : `<button id="rd-pay" class="btn btn-primary" style="flex:1">💵 Terima Pembayaran</button>`}
+      ${a.isArchived ? "" : `<button id="rd-lend" class="btn" style="flex:1">🤝 Kasih Pinjaman</button>`}
       <button id="rd-edit" class="btn">✎</button>
     </div>
   `);
@@ -1526,7 +1590,7 @@ function openReceivableDetailSheet(a) {
     div.innerHTML = `
       <div class="tx-ic">${isPay ? "💵" : "🤝"}</div>
       <div class="tx-main">
-        <div class="tx-cat">${isPay ? "Pembayaran" : "Pinjaman keluar"}${t.attachmentId ? " 📎" : ""}</div>
+        <div class="tx-cat">${isPay ? "Pembayaran" : "Pinjaman keluar"}${t.attachmentId ? " 📎" : ""}${t.linkUrl ? " 🔗" : ""}</div>
         <div class="tx-note">${escapeHtml(t.date)}${t.time ? ` · ${escapeHtml(t.time)}` : ""} · ${escapeHtml(acct?.name || "?")}${t.note ? ` · ${escapeHtml(t.note)}` : ""}</div>
       </div>
       <div class="tx-amt ${isPay ? "income" : "expense"}">${isPay ? "+" : "−"} ${fmtMoney(t.amount, acct?.currency)}</div>`;
@@ -1534,7 +1598,7 @@ function openReceivableDetailSheet(a) {
     list.appendChild(div);
   });
   el.querySelector("#rd-pay")?.addEventListener("click", () => openAssetSellSheet(a));
-  el.querySelector("#rd-lend").onclick = () => openAssetBuySheet(a);
+  el.querySelector("#rd-lend")?.addEventListener("click", () => openAssetBuySheet(a));
   el.querySelector("#rd-edit").onclick = () => openAssetSheet(a);
 }
 

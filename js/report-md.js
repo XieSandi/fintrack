@@ -113,7 +113,7 @@ function buildPosition(month, isCurrentMonth) {
     // Bond yang udah redeemed di-exclude (pola sama wealth.js renderAssets()) — "hilang dari
     // asset aktif", nilainya udah 0 otomatis di net worth (bondValueIDR) tapi ga perlu ditabelin
     // lagi di laporan sebagai baris Rp0 yang ga informatif.
-    assets: state.assets.filter((a) => !(a.type === "bond" && a.redeemed === true)).map((a) => ({
+    assets: state.assets.filter((a) => !(a.type === "bond" && a.redeemed === true) && !(a.type === "receivable" && a.isArchived === true)).map((a) => ({
       symbol: a.symbol || a.name, type: a.type, currency: a.currency,
       quantity: Number(a.quantity) || 0, avgBuyPrice: Number(a.avgBuyPrice) || 0,
       price: a.type === "capex" ? capexLocalValue(a) : Number(a.manualPrice) || 0,

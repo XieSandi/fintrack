@@ -775,6 +775,11 @@ function makeState() {
   assertEqual(calc.netWorthIDR(s, "2026-01"), cash + 2_750_000 + 1_100_000, "netWorthIDR: toggle true → include");
   // Sisa piutang negatif (data korup) di-clamp 0.
   assertEqual(calc.receivableLocalValue({ type: "receivable", manualPrice: -5 }), 0, "receivable: nilai negatif di-clamp 0");
+  // Arsip (ditutup / write-off) → nilai 0, berhenti dihitung di total & net worth.
+  s.assets[0].isArchived = true;
+  assertEqual(calc.receivableLocalValue(s.assets[0]), 0, "receivable arsip: nilai 0");
+  assertEqual(calc.totalReceivablesIDR(s), 750_000, "receivable arsip: ga ikut totalReceivablesIDR");
+  assertEqual(calc.netWorthIDR(s, "2026-01"), cash + 750_000 + 1_100_000, "receivable arsip: ga ikut net worth");
 }
 {
   // netWorthFromParts: receivables pola sama capex, default include.

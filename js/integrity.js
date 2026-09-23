@@ -115,7 +115,7 @@ export function scanIntegrity(state) {
     if (a.type !== "receivable") continue;
     const problems = [];
     const sisa = Number(a.manualPrice) || 0;
-    if (a.dueDate && a.dueDate < today && sisa > 0) problems.push(`udah bisa ditagih sejak ${a.dueDate}, sisa ${sisa.toLocaleString("id-ID")}`);
+    if (a.dueDate && a.dueDate < today && sisa > 0 && a.isArchived !== true) problems.push(`udah bisa ditagih sejak ${a.dueDate}, sisa ${sisa.toLocaleString("id-ID")}`);
     if (a.qtyless !== true) problems.push("piutang tapi qtyless bukan true (harusnya selalu true)");
     if (sisa > (Number(a.avgBuyPrice) || 0) + 0.5) problems.push("sisa piutang > total dipinjamkan — cek input");
     if (problems.length > 0) issues.push({ kind: "asset", ref: a, problems });

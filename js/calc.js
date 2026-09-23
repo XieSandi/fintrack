@@ -238,7 +238,12 @@ export function bondNextCouponHint(a, todayStr) {
 // lihat db.js deleteAssetKeepHistory()).
 export const isReceivable = (a) => a.type === "receivable";
 
+// `isArchived` (KHUSUS piutang — tipe asset lain ga punya arsip, dihapus aja) → nilai 0: piutang
+// ditutup (lunas, atau di-write-off karena ga ketagih), berhenti dihitung net worth & disembunyiin
+// dari list aktif. Piutang SENGAJA GA BISA DIHAPUS (keputusan owner) — riwayat pinjaman/pembayaran
+// harus tetap ada, arsip satu-satunya jalan "beresin". Pola sama bond `redeemed`.
 export function receivableLocalValue(a) {
+  if (a.isArchived === true) return 0;
   return Math.max(0, Number(a.manualPrice) || 0);
 }
 
