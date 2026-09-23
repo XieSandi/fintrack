@@ -111,8 +111,9 @@ const cgId = (symbol) => COINGECKO_IDS[(symbol || "").toUpperCase()] || (symbol 
 
 export const AUTO_TYPES = ["stock_id", "stock_us", "crypto"];
 
+// Asset diarsipkan (`isArchived`) di-skip — posisi kosong ga perlu harga baru (hemat call).
 export function refreshableAssets() {
-  return state.assets.filter((a) => AUTO_TYPES.includes(a.type) && a.manualOnly !== true && (a.symbol || "").trim());
+  return state.assets.filter((a) => AUTO_TYPES.includes(a.type) && a.manualOnly !== true && !a.isArchived && (a.symbol || "").trim());
 }
 
 // return { updated, failed: [symbol...], noKey: [provider...], errors: {idx?, us?, crypto?} }

@@ -278,6 +278,10 @@ export function txRow(t) {
   // arus kasnya SAMA kayak sell (asset -> akun, bukan akun -> asset kayak "buy").
   const isRedeem = t.assetDir === "redeem";
   const assetInflow = isSell || isRedeem;
+  // Piutang (asset tipe `receivable`, lewat mesin qtyless): "buy" = kasih pinjaman, "sell" =
+  // terima pembayaran — arah arus kas SAMA kayak beli/jual, cuma label/icon-nya beda.
+  const isRecv = asset?.type === "receivable";
+  const recvWho = asset?.debtorName || asset?.name || "?";
   const cat = t.type === "transfer" ? null : catById(t.categoryId);
   const acct = acctById(t.accountId);
   const toAcct = t.toAccountId ? acctById(t.toAccountId) : null;
@@ -285,10 +289,12 @@ export function txRow(t) {
   div.className = "tx-item";
   const sign = t.type === "expense" ? "−" : t.type === "income" ? "+" : "⇄";
   div.innerHTML = `
-    <div class="tx-ic">${asset ? (isRedeem ? "🏁" : "📈") : goal ? "🎯" : t.type === "transfer" ? "🔁" : (cat?.icon || "📦")}</div>
+    <div class="tx-ic">${asset ? (isRedeem ? "🏁" : isRecv ? "🤝" : "📈") : goal ? "🎯" : t.type === "transfer" ? "🔁" : (cat?.icon || "📦")}</div>
     <div class="tx-main">
       <div class="tx-cat">${asset
-        ? `${isRedeem ? "Cairkan Pokok" : isSell ? "Jual" : "Beli"}: ${escapeHtml(asset.symbol || asset.name)}`
+        ? isRecv
+          ? `${isSell ? "Pembayaran piutang" : "Pinjamkan"}: ${escapeHtml(recvWho)}`
+          : `${isRedeem ? "Cairkan Pokok" : isSell ? "Jual" : "Beli"}: ${escapeHtml(asset.symbol || asset.name)}`
         : goal
         ? `${isWithdraw ? "Pencairan" : "Topup"}: ${escapeHtml(goal.name)}`
         : t.type === "transfer" ? `Transfer` : escapeHtml(cat?.name || "—")}${
@@ -302,10 +308,15 @@ export function txRow(t) {
     <div>
       <div class="tx-amt ${t.type}">${sign} ${fmtMoney(t.amount, acct?.currency)}</div>
       <div class="tx-acct">${asset
-        ? (assetInflow ? `📈 ${escapeHtml(asset.symbol || asset.name)} → ${escapeHtml(acct?.name || "?")}` : `${escapeHtml(acct?.name || "?")} → 📈 ${escapeHtml(asset.symbol || asset.name)}`)
+        ? isRecv
+          ? (assetInflow ? `🤝 ${escapeHtml(recvWho)} → ${escapeHtml(acct?.name || "?")}` : `${escapeHtml(acct?.name || "?")} → 🤝 ${escapeHtml(recvWho)}`)
+          : (assetInflow ? `📈 ${escapeHtml(asset.symbol || asset.name)} → ${escapeHtml(acct?.name || "?")}` : `${escapeHtml(acct?.name || "?")} → 📈 ${escapeHtml(asset.symbol || asset.name)}`)
         : isWithdraw
         ? `🎯 ${escapeHtml(goal?.name || "?")} → ${escapeHtml(acct?.name || "?")}`
-        : `${escapeHtml(acct?.name || "?")}${toAcct ? ` → ${escapeHtml(toAcct.name)}` : ""}${goal ? ` → 🎯 ${escapeHtml(goal.name)}` : ""}`}</div>
+        : `${escapeHtml(acct?.name || "?")}${toAcct ? ` → ${escapeHtml(toAcct.name)}${
+          // Transfer lintas mata uang: nominal yang diterima tujuan (currency tujuan) beda dari
+          // `amount` (currency sumber) — tampilin biar ga kebaca "USD dapet 1.5jt".
+          t.toAmount != null && t.toAmount !== "" && toAcct.currency !== acct?.currency ? ` (+${fmtMoney(Number(t.toAmount) || 0, toAcct.currency)})` : ""}` : ""}${goal ? ` → 🎯 ${escapeHtml(goal.name)}` : ""}`}</div>
     </div>`;
   div.onclick = () => openTxDetail(t);
   return div;

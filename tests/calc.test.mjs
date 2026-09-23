@@ -727,5 +727,96 @@ function makeState() {
   assertEqual(sorted.join(","), "aug11,aug10-evening,aug10-morning,old-no-time", "compareTxDateTime: sort desc end-to-end (tanggal dulu, time tie-break, no-time paling bawah)");
 }
 
+// ================= Transfer lintas mata uang (`toAmount`) =================
+{
+  // IDR -> USD: akun sumber didebit `amount` (IDR), akun tujuan dikredit `toAmount` (USD) — BUKAN
+  // `amount` mentah (yang bikin akun USD dapet 1.500.000 "dollar" kayak bug lama).
+  const s = makeState();
+  s.transactions = [
+    { type: "transfer", amount: 1_500_000, toAmount: 100, fxRate: 15000, accountId: "acc_idr", toAccountId: "acc_usd", month: "2026-01", date: "2026-01-05" },
+  ];
+  const bal = calc.accountBalances(s);
+  assertEqual(bal.acc_idr, 1_000_000 - 1_500_000, "fx transfer: sumber IDR didebit amount");
+  assertEqual(bal.acc_usd, 100 + 100, "fx transfer: tujuan USD dikredit toAmount, bukan amount");
+  // Net worth kekal (kurs 15000 = fxRate): -1.5jt IDR + 100 USD * 15000 = 0 perubahan.
+  assertEqual(calc.totalCashIDR(s), 1_000_000 + 500_000 + 200 * 15000 - 1_500_000, "fx transfer: total cash IDR konsisten");
+}
+{
+  // Tanpa toAmount (transfer se-currency / data lama) → perilaku lama: tujuan dikredit amount.
+  const s = makeState();
+  s.transactions = [
+    { type: "transfer", amount: 100_000, accountId: "acc_idr", toAccountId: "acc_idr2", month: "2026-01", date: "2026-01-05" },
+    { type: "transfer", amount: 50_000, toAmount: null, accountId: "acc_idr", toAccountId: "acc_idr2", month: "2026-01", date: "2026-01-06" },
+  ];
+  const bal = calc.accountBalances(s);
+  assertEqual(bal.acc_idr2, 500_000 + 150_000, "transfer tanpa toAmount (atau null): tujuan dikredit amount apa adanya");
+}
+
+// ================= Arsip Asset (`isArchived`) =================
+{
+  const s = makeState();
+  s.assets = [
+    { id: "a1", type: "stock_id", symbol: "BBCA", quantity: 0, avgBuyPrice: 9000, manualPrice: 9500, currency: "IDR", isArchived: true },
+    { id: "a2", type: "gold", symbol: "EMAS", quantity: 2, avgBuyPrice: 1_000_000, manualPrice: 1_200_000, currency: "IDR" },
+    { id: "a3", type: "gold", symbol: "EMAS2", quantity: 1, avgBuyPrice: 1_000_000, manualPrice: 1_000_000, currency: "IDR", isArchived: true },
+  ];
+  assertEqual(calc.activeAssets(s).map((a) => a.id).join(","), "a2", "activeAssets: asset isArchived ga ikut");
+  // Arsip = filter TAMPILAN doang (pola goal, bukan akun): nilainya TETAP ikut totalAssetsIDR.
+  assertEqual(calc.totalAssetsIDR(s, "2026-01"), 2_400_000 + 1_000_000, "arsip asset: nilai TETAP keitung totalAssetsIDR (a3 masih punya nilai)");
+}
+
+// ================= Piutang (receivable) =================
+{
+  const s = makeState();
+  s.assets = [
+    { id: "r1", type: "receivable", name: "Pinjaman Budi", debtorName: "Budi", dueDate: "2026-03-01", qtyless: true, quantity: 1, manualPrice: 2_000_000, avgBuyPrice: 3_000_000, currency: "IDR" },
+    { id: "r2", type: "receivable", name: "Pinjaman Ani", debtorName: "Ani", qtyless: true, quantity: 1, manualPrice: 50, avgBuyPrice: 50, currency: "USD" },
+    { id: "g1", type: "gold", symbol: "EMAS", quantity: 1, avgBuyPrice: 1_000_000, manualPrice: 1_100_000, currency: "IDR" },
+  ];
+  assertEqual(calc.receivableLocalValue(s.assets[0]), 2_000_000, "receivable: nilai = sisa piutang (manualPrice)");
+  assertEqual(calc.assetValueIDR(s, s.assets[0], "2026-01"), 2_000_000, "receivable: assetValueIDR = sisa piutang");
+  assertEqual(calc.assetCostIDR(s, s.assets[0]), 2_000_000, "receivable: cost = value (P&L selalu 0, bukan value - total dipinjamkan)");
+  assertEqual(calc.assetValueIDR(s, s.assets[1], "2026-01"), 50 * 15000, "receivable USD: dikonversi kurs");
+  assertEqual(calc.totalReceivablesIDR(s), 2_000_000 + 750_000, "totalReceivablesIDR: cuma tipe receivable");
+  assertEqual(calc.totalAssetsIDR(s, "2026-01"), 2_750_000 + 1_100_000, "totalAssetsIDR TETAP termasuk piutang (pola sama CAPEX)");
+  const cash = calc.totalCashIDR(s);
+  // Default (setting kosong) = include.
+  assertEqual(calc.netWorthIDR(s, "2026-01"), cash + 2_750_000 + 1_100_000, "netWorthIDR: default include piutang");
+  s.settings.includeReceivablesInNetWorth = false;
+  assertEqual(calc.netWorthIDR(s, "2026-01"), cash + 1_100_000, "netWorthIDR: toggle false → piutang di-exclude, emas tetap");
+  s.settings.includeReceivablesInNetWorth = true;
+  assertEqual(calc.netWorthIDR(s, "2026-01"), cash + 2_750_000 + 1_100_000, "netWorthIDR: toggle true → include");
+  // Sisa piutang negatif (data korup) di-clamp 0.
+  assertEqual(calc.receivableLocalValue({ type: "receivable", manualPrice: -5 }), 0, "receivable: nilai negatif di-clamp 0");
+}
+{
+  // netWorthFromParts: receivables pola sama capex, default include.
+  const parts = { cash: 1000, assets: 800, capex: 200, receivables: 300, goalSavings: 100, debt: 50 };
+  assertEqual(calc.netWorthFromParts(parts, true), 1000 + 800 + 100 - 50, "netWorthFromParts: includeReceivables default true");
+  assertEqual(calc.netWorthFromParts(parts, true, false), 1000 + 800 + 100 - 50 - 300, "netWorthFromParts: exclude receivables");
+  assertEqual(calc.netWorthFromParts(parts, false, false), 1000 + 800 + 100 - 50 - 200 - 300, "netWorthFromParts: exclude capex DAN receivables");
+  assertEqual(calc.netWorthFromParts({ cash: 1000, assets: 800, capex: 200, goalSavings: 100, debt: 50 }, false, false), 1650, "netWorthFromParts: receivables undefined (snapshot lama) → 0");
+}
+{
+  // snapshotNetWorth: snapshot baru punya totalReceivables; lama ga punya → ga ngefek.
+  const snapNew = { totalCash: 1000, totalAssets: 800, totalCapex: 0, totalReceivables: 300, totalGoalSavings: 0, totalDebt: 0, netWorth: 1800 };
+  assertEqual(calc.snapshotNetWorth(snapNew, false), 1800, "snapshotNetWorth: default include piutang");
+  assertEqual(calc.snapshotNetWorth(snapNew, false, false), 1500, "snapshotNetWorth: exclude piutang");
+  const snapOld = { totalCash: 1000, totalAssets: 800, totalGoalSavings: 0, totalDebt: 0, netWorth: 1800 };
+  assertEqual(calc.snapshotNetWorth(snapOld, false, false), 1800, "snapshotNetWorth: snapshot lama tanpa totalReceivables → flag ga ngefek");
+}
+{
+  // netWorthComposition: piutang baris terpisah, `assets` exclude capex + receivables, sum = total.
+  const prev = { cash: 5_000_000, assets: 2_000_000, capex: 500_000, receivables: 0, goalSavings: 0, debt: 0 };
+  const curr = { cash: 3_000_000, assets: 4_200_000, capex: 450_000, receivables: 2_000_000, goalSavings: 0, debt: 0 };
+  const comp = calc.netWorthComposition(prev, curr, false, true);
+  assertEqual(comp.receivables, 2_000_000, "composition: Δ piutang baris sendiri");
+  assertEqual(comp.assets, (4_200_000 - 450_000 - 2_000_000) - (2_000_000 - 500_000), "composition: Δ assets exclude capex DAN piutang");
+  assertEqual(comp.cash + comp.assets + comp.receivables + comp.goalSavings + comp.debt, comp.total, "composition: Σ (tanpa capex, dengan piutang) === total");
+  const compEx = calc.netWorthComposition(prev, curr, false, false);
+  assertEqual(compEx.cash + compEx.assets + compEx.goalSavings + compEx.debt, compEx.total, "composition: Σ (tanpa capex, tanpa piutang) === total");
+  assertEqual(compEx.total, comp.total - 2_000_000, "composition: exclude piutang → total beda persis Δ piutang");
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

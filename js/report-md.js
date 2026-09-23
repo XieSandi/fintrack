@@ -2,9 +2,9 @@
 // Beda dari exportAll() (db.js): itu backup JSON buat restore, ini human/AI-readable.
 // Fungsi murni, ga nulis apa-apa ke Firestore, cuma baca dari store.
 import {
-  state, activeAccounts, activeGoals, accountBalances, totalCashIDR, totalAssetsIDR, totalCapexIDR, totalDebtIDR,
+  state, activeAccounts, activeGoals, activeAssets, accountBalances, totalCashIDR, totalAssetsIDR, totalCapexIDR, totalReceivablesIDR, totalDebtIDR,
   totalGoalSavingsIDR, netWorthIDR, netWorthFromParts, snapshotNetWorth, netWorthComposition, assetValueIDR, assetCostIDR, capexLocalValue, goalSavedIDR,
-  goalLinkedAssetsValueIDR, effectiveRate, monthSummary, spentByCategory, budgetsOfMonth, catById, acctById, milestoneProgress,
+  goalLinkedAssetsValueIDR, effectiveRate, monthSummary, spentByCategory, budgetsOfMonth, catById, acctById, milestoneProgress, includeReceivablesSetting,
 } from "./store.js";
 import {
   fmtIDRPlain, fmtMoneyPlain, fmtNum, monthLabel, addMonths, todayStr, currentMonth, milestonePaceLine,
@@ -71,6 +71,7 @@ function buildPosition(month, isCurrentMonth) {
       cash: snap.totalCash || 0,
       assetsTotal: snap.totalAssets || 0,
       capexTotal: snap.totalCapex || 0, // snapshot lama (pre-fitur CAPEX) ga punya field ini -> 0
+      receivablesTotal: snap.totalReceivables || 0, // idem, pre-fitur piutang -> 0
       goalSavingsTotal: snap.totalGoalSavings || 0,
       debtTotal: snap.totalDebt || 0,
       nw: snap.netWorth || 0,
@@ -93,6 +94,7 @@ function buildPosition(month, isCurrentMonth) {
     cash: totalCashIDR(),
     assetsTotal: totalAssetsIDR(),
     capexTotal: totalCapexIDR(),
+    receivablesTotal: totalReceivablesIDR(),
     goalSavingsTotal: totalGoalSavingsIDR(),
     debtTotal: totalDebtIDR(),
     nw: netWorthIDR(),
@@ -111,7 +113,8 @@ function buildPosition(month, isCurrentMonth) {
     // Bond yang udah redeemed di-exclude (pola sama wealth.js renderAssets()) — "hilang dari
     // asset aktif", nilainya udah 0 otomatis di net worth (bondValueIDR) tapi ga perlu ditabelin
     // lagi di laporan sebagai baris Rp0 yang ga informatif.
-    assets: state.assets.filter((a) => !(a.type === "bond" && a.redeemed === true)).map((a) => ({
+    // Asset diarsipkan (`isArchived`) juga di-exclude — pola sama db.js upsertSnapshot().
+    assets: activeAssets().filter((a) => !(a.type === "bond" && a.redeemed === true)).map((a) => ({
       symbol: a.symbol || a.name, type: a.type, currency: a.currency,
       quantity: Number(a.quantity) || 0, avgBuyPrice: Number(a.avgBuyPrice) || 0,
       price: a.type === "capex" ? capexLocalValue(a) : Number(a.manualPrice) || 0,
@@ -124,6 +127,9 @@ function buildPosition(month, isCurrentMonth) {
       // qtyless ("Jumlah N/A") — boolean lintas-tipe (bukan field khusus satu tipe), pola sama
       // db.js upsertSnapshot() (`false` buat non-qtyless, bukan `null`).
       qtyless: a.qtyless === true,
+      // Piutang — `null` kecuali tipe receivable (pola sama db.js upsertSnapshot()).
+      debtorName: a.type === "receivable" ? (a.debtorName || null) : null,
+      dueDate: a.type === "receivable" ? (a.dueDate || null) : null,
       valueIDR: assetValueIDR(a), costIDR: assetCostIDR(a),
     })),
     debts: state.debts.map((d) => ({
@@ -167,15 +173,19 @@ export function buildMonthlyReport(month) {
   // bukan cuma nerima satu angka yang bisa maksudnya beda-beda tergantung toggle waktu itu.
   // Dua-duanya dihitung dari breakdown MENTAH position (cash/assetsTotal RAW/capexTotal/dst)
   // lewat SATU formula (`netWorthFromParts()`, calc.js) — biar konsisten sama chart Wealth.
-  const partsNow = { cash: position.cash, assets: position.assetsTotal, capex: position.capexTotal, goalSavings: position.goalSavingsTotal, debt: position.debtTotal };
-  const nwWithCapex = netWorthFromParts(partsNow, true);
-  const nwWithoutCapex = netWorthFromParts(partsNow, false);
+  // Piutang (receivable) ngikut toggle SEKARANG buat SEMUA angka net worth di laporan ini (dua
+  // variant CAPEX di bawah, Δ, trend section 10) — yang dibandingin eksplisit tetap cuma CAPEX;
+  // perlakuan piutang disebut di baris terpisah biar AI yang baca tau.
+  const includeReceivablesNow = includeReceivablesSetting();
+  const partsNow = { cash: position.cash, assets: position.assetsTotal, capex: position.capexTotal, receivables: position.receivablesTotal, goalSavings: position.goalSavingsTotal, debt: position.debtTotal };
+  const nwWithCapex = netWorthFromParts(partsNow, true, includeReceivablesNow);
+  const nwWithoutCapex = netWorthFromParts(partsNow, false, includeReceivablesNow);
   const includeCapexNow = state.settings.includeCapexInNetWorth === true;
   const nwForToggle = includeCapexNow ? nwWithCapex : nwWithoutCapex;
 
   const prevMonthKey = addMonths(month, -1);
   const prevSnap = state.snapshots.find((s) => s.id === prevMonthKey);
-  const nwDelta = prevSnap ? nwForToggle - snapshotNetWorth(prevSnap, includeCapexNow) : null;
+  const nwDelta = prevSnap ? nwForToggle - snapshotNetWorth(prevSnap, includeCapexNow, includeReceivablesNow) : null;
 
   lines.push(`- **Net worth (+ CAPEX): ${fmtIDRPlain(nwWithCapex)}**`);
   lines.push(`- **Net worth (tanpa CAPEX): ${fmtIDRPlain(nwWithoutCapex)}**`);
@@ -200,6 +210,9 @@ export function buildMonthlyReport(month) {
     .reduce((s, a) => s + Math.max(0, -(a.balanceIDR || 0)), 0);
   if (totalCreditDebt > 0) {
     lines.push(`- 🪪 Kartu Kredit terpakai: ${fmtIDRPlain(totalCreditDebt)} (sudah termasuk di Debt di atas — lewat debt path, beda dari cicilan/Debt collection, lihat section 7)`);
+  }
+  if (position.receivablesTotal > 0) {
+    lines.push(`- 🤝 Piutang (uang dipinjamkan ke orang): ${fmtIDRPlain(position.receivablesTotal)} — sudah termasuk di Assets di atas, ${includeReceivablesNow ? "IKUT dihitung di net worth" : "TIDAK dihitung di net worth (toggle di Wealth → Total lagi OFF)"}; rincian per peminjam di section 6.`);
   }
   const target = Number(state.settings.targetNetWorth) || 0;
   if (target > 0) {
@@ -304,6 +317,17 @@ export function buildMonthlyReport(month) {
         ]);
         return;
       }
+      if (type === "receivable") {
+        // Piutang: Qty ga relevan, Avg Buy = total dipinjamkan, Harga = sisa + tanggal tagih,
+        // P&L "—" (piutang ga punya gain/loss, cost = value — lihat calc.js blok Piutang).
+        assetRows.push([
+          `${a.symbol}${a.debtorName ? ` (${a.debtorName})` : ""}`, ASSET_TYPES[a.type], NA,
+          fmtMoneyPlain(a.avgBuyPrice, a.currency),
+          `sisa ${fmtMoneyPlain(a.price, a.currency)}${a.dueDate ? ` (tagih ${a.dueDate})` : ""}`,
+          fmtIDRPlain(val), NA, NA,
+        ]);
+        return;
+      }
       const p = val - cost;
       const pPct = cost > 0 ? (p / cost) * 100 : 0;
       assetRows.push([
@@ -338,6 +362,16 @@ export function buildMonthlyReport(month) {
       .map((a) => `${a.symbol} (${a.maturityDate})`)
       .join(", ");
     lines.push(`**🏦 Obligasi/SBN** — Total pokok: ${fmtIDRPlain(totalPrincipal)} · Estimasi kupon tahunan (sebelum pajak): ${fmtIDRPlain(totalAnnualCoupon)}${upcoming ? ` · Maturity terdekat: ${upcoming}` : ""}`);
+  }
+  // Baris informatif piutang — sisa per peminjam + kapan bisa ditagih (yang udah lewat dikasih ⚠️).
+  const recvAssets = position.assets.filter((a) => a.type === "receivable" && (a.valueIDR || 0) > 0);
+  if (recvAssets.length > 0) {
+    const totalRecv = recvAssets.reduce((s, a) => s + (a.valueIDR || 0), 0);
+    const perDebtor = recvAssets
+      .slice().sort((a, b) => (a.dueDate || "9999").localeCompare(b.dueDate || "9999"))
+      .map((a) => `${a.debtorName || a.symbol} ${fmtIDRPlain(a.valueIDR)}${a.dueDate ? ` (tagih ${a.dueDate}${a.dueDate < today ? " ⚠️ lewat" : ""})` : ""}`)
+      .join(", ");
+    lines.push(`**🤝 Piutang** — Total sisa: ${fmtIDRPlain(totalRecv)} (${includeReceivablesNow ? "ikut" : "TIDAK ikut"} net worth) · ${perDebtor}`);
   }
   lines.push("");
 
@@ -437,8 +471,8 @@ export function buildMonthlyReport(month) {
   const snaps = state.snapshots.slice(-12);
   const trendRows = snaps.map((s) => [
     monthLabel(s.month || s.id),
-    fmtIDRPlain(snapshotNetWorth(s, true)),
-    fmtIDRPlain(snapshotNetWorth(s, false)),
+    fmtIDRPlain(snapshotNetWorth(s, true, includeReceivablesNow)),
+    fmtIDRPlain(snapshotNetWorth(s, false, includeReceivablesNow)),
   ]);
   lines.push(mdTable(["Bulan", "Net Worth (+ CAPEX)", "Net Worth (tanpa CAPEX)"], trendRows));
   // "Perubahan komposisi" pakai PASANGAN BULAN YANG SAMA kayak Δ net worth section 1 (`partsNow` +
@@ -447,8 +481,8 @@ export function buildMonthlyReport(month) {
   // — SATU sumber angka, dijamin `comp.total` === `nwDelta` section 1 persis (bukan cuma toleransi
   // Rp1 kayak sebelumnya), DAN dijamin Σ komponen === comp.total (TASK-1, riwayat bug: DECISIONS.md).
   if (prevSnap && typeof prevSnap.totalCash === "number" && typeof prevSnap.totalAssets === "number") {
-    const prevParts = { cash: prevSnap.totalCash, assets: prevSnap.totalAssets, capex: prevSnap.totalCapex, goalSavings: prevSnap.totalGoalSavings, debt: prevSnap.totalDebt };
-    const comp = netWorthComposition(prevParts, partsNow, includeCapexNow);
+    const prevParts = { cash: prevSnap.totalCash, assets: prevSnap.totalAssets, capex: prevSnap.totalCapex, receivables: prevSnap.totalReceivables, goalSavings: prevSnap.totalGoalSavings, debt: prevSnap.totalDebt };
+    const comp = netWorthComposition(prevParts, partsNow, includeCapexNow, includeReceivablesNow);
     // Field comp.* SEMUA udah representasi kontribusi ke net worth (assets exclude CAPEX, debt
     // udah dinegasi) — tinggal ditampilin apa adanya, JANGAN sign-flip/exclude manual lagi di sini
     // (itu persis pola yang bikin bug ganda TASK-1 kejadian: Δassets RAW+ΔCAPEX ke-double-count,
@@ -457,6 +491,7 @@ export function buildMonthlyReport(month) {
     if (comp.cash !== 0) parts.push(`Cash ${signed(comp.cash)}`);
     if (comp.assets !== 0) parts.push(`Assets ${signed(comp.assets)}`);
     if (includeCapexNow && comp.capex !== 0) parts.push(`CAPEX ${signed(comp.capex)}`);
+    if (includeReceivablesNow && comp.receivables !== 0) parts.push(`Piutang ${signed(comp.receivables)}`);
     if (comp.goalSavings !== 0) parts.push(`Goal Savings ${signed(comp.goalSavings)}`);
     if (comp.debt !== 0) parts.push(`Debt ${signed(comp.debt)}`);
     if (parts.length > 0) {

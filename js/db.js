@@ -4,9 +4,9 @@ import {
   getDoc, getDocs, serverTimestamp, writeBatch,
 } from "./firebase.js";
 import {
-  state, netWorthIDR, totalCashIDR, totalAssetsIDR, totalCapexIDR, totalDebtIDR, totalGoalSavingsIDR,
+  state, netWorthIDR, totalCashIDR, totalAssetsIDR, totalCapexIDR, totalReceivablesIDR, totalDebtIDR, totalGoalSavingsIDR,
   accountBalances, assetValueIDR, assetCostIDR, capexLocalValue, effectiveRate, goalSavedIDR,
-  goalLinkedAssetsValueIDR, activeAccounts, activeGoals,
+  goalLinkedAssetsValueIDR, activeAccounts, activeGoals, activeAssets,
 } from "./store.js";
 import { currentMonth } from "./utils.js";
 
@@ -230,7 +230,8 @@ export async function upsertSnapshot() {
     // Bond yang udah redeemed di-exclude dari breakdown (pola sama wealth.js renderAssets() &
     // report-md.js live branch) — "hilang dari asset aktif", nilainya udah 0 di net worth
     // (bondValueIDR), snapshot ga perlu nyimpen baris Rp0 yang ga informatif.
-    assets: state.assets.filter((a) => !(a.type === "bond" && a.redeemed === true)).map((a) => ({
+    // Asset diarsipkan (`isArchived`) juga di-exclude — pola sama (activeAssets(), lihat calc.js).
+    assets: activeAssets().filter((a) => !(a.type === "bond" && a.redeemed === true)).map((a) => ({
       symbol: a.symbol || a.name, type: a.type, currency: a.currency,
       quantity: Number(a.quantity) || 0,
       avgBuyPrice: Number(a.avgBuyPrice) || 0,
@@ -251,6 +252,10 @@ export async function upsertSnapshot() {
       // `null` kayak field khusus bond/capex, karena ini boolean flag lintas-tipe, bukan
       // sekumpulan field yang cuma relevan buat SATU tipe tertentu).
       qtyless: a.qtyless === true,
+      // Piutang (receivable) — additive/opsional, `null` kecuali tipe "receivable" (pola sama bond/
+      // capex). `price` di atas udah = sisa piutang (manualPrice), `avgBuyPrice` = total dipinjamkan.
+      debtorName: a.type === "receivable" ? (a.debtorName || null) : null,
+      dueDate: a.type === "receivable" ? (a.dueDate || null) : null,
       valueIDR: Math.round(assetValueIDR(a)),
       costIDR: Math.round(assetCostIDR(a)),
     })),
@@ -284,6 +289,9 @@ export async function upsertSnapshot() {
     totalCash: Math.round(totalCashIDR()),
     totalAssets: Math.round(totalAssetsIDR()),
     totalCapex: Math.round(totalCapexIDR()),
+    // Piutang — field top-level baru (pola sama totalCapex), snapshot lama ga punya → fallback 0
+    // di snapshotNetWorth(). schemaVersion TIDAK naik.
+    totalReceivables: Math.round(totalReceivablesIDR()),
     totalGoalSavings: Math.round(totalGoalSavingsIDR()),
     totalDebt: Math.round(totalDebtIDR()),
     netWorth: Math.round(netWorthIDR()),

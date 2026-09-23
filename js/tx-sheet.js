@@ -1,5 +1,5 @@
 // Bottom sheet tambah / edit transaksi — quick add flow.
-import { state, activeAccounts, accountBalances, acctById, isCreditAccount, creditUsed } from "./store.js";
+import { state, activeAccounts, accountBalances, acctById, isCreditAccount, creditUsed, effectiveRate } from "./store.js";
 import { add, patch, remove } from "./db.js";
 import {
   openSheet, closeSheet, sheetHead, toast, escapeHtml,
@@ -70,6 +70,13 @@ export function openTxSheet(existing = null) {
         <select id="tx-to-account">
           ${accounts.map((a) => `<option value="${a.id}" ${a.id === tx.toAccountId ? "selected" : ""}>${escapeHtml(a.name)} (${a.currency})</option>`).join("")}
         </select>
+        <div id="fx-wrap" class="hidden">
+          <div class="row">
+            <div><label>Kurs (1 USD = Rp)</label><input id="tx-fx-rate" inputmode="decimal" autocomplete="off" placeholder="0" /></div>
+            <div><label id="tx-to-amount-label">Diterima</label><input id="tx-to-amount" inputmode="decimal" autocomplete="off" placeholder="0" /></div>
+          </div>
+          <div id="fx-hint" class="sub"></div>
+        </div>
       </div>
     </div>
 
@@ -128,12 +135,86 @@ export function openTxSheet(existing = null) {
   attachThousands(amountInput);
   if (!existing) setTimeout(() => amountInput.focus(), 250);
 
+  // ---- Transfer lintas mata uang (IDR <-> USD) ----
+  // Kalau akun asal & tujuan beda currency, akun tujuan ga boleh dikredit `amount` mentah (1.5jt
+  // "dollar"). Field tambahan: `fxRate` (SELALU "1 USD = X IDR", apapun arahnya — sama kayak konsep
+  // kurs di seluruh app) + `toAmount` (nominal yang DITERIMA tujuan, currency tujuan). Dua-duanya
+  // saling ngitung: edit kurs → toAmount ke-hitung, edit toAmount → kurs ke-hitung (yang terakhir
+  // diedit menang). Default kurs = effectiveRate(). Disimpan additive/opsional di transaksi —
+  // `accountBalances()` (calc.js) pakai `toAmount` buat kredit tujuan kalau ada.
+  const fxWrap = el.querySelector("#fx-wrap");
+  const fxRateInput = el.querySelector("#tx-fx-rate");
+  const toAmountInput = el.querySelector("#tx-to-amount");
+  const fxHint = el.querySelector("#fx-hint");
+  // Kurs bisa diketik "16250", "16.250", "16250.5", atau "16.250,5" — titik dianggap pemisah
+  // ribuan CUMA kalau ada lebih dari satu ATAU dipakai bareng koma; selain itu titik = desimal.
+  const parseDec = (v) => {
+    const s = String(v).trim();
+    const dots = (s.match(/\./g) || []).length;
+    const normalized = (dots > 1 || (dots > 0 && s.includes(",")))
+      ? s.replace(/\./g, "").replace(",", ".")
+      : s.replace(",", ".");
+    return parseFloat(normalized) || 0;
+  };
+  const fromAcct = () => acctById(el.querySelector("#tx-account").value);
+  const toAcct = () => acctById(el.querySelector("#tx-to-account").value);
+  const fxNeeded = () => type === "transfer" && !!fromAcct() && !!toAcct() && fromAcct().currency !== toAcct().currency;
+  // Format nominal tujuan sesuai currency-nya: IDR pakai pemisah ribuan, USD desimal 2 digit.
+  const fmtDest = (v) => (toAcct()?.currency === "USD" ? String(Math.round(v * 100) / 100) : fmtNum(Math.round(v)));
+  const parseDest = () => (toAcct()?.currency === "USD"
+    ? parseFloat(String(toAmountInput.value).replace(",", ".")) || 0
+    : parseAmount(toAmountInput.value));
+  const fxRateVal = () => parseDec(fxRateInput.value);
+  // Konversi pakai kurs "IDR per USD": IDR→USD bagi, USD→IDR kali.
+  const convert = (amt, rate) => (fromAcct()?.currency === "USD" ? amt * rate : (rate > 0 ? amt / rate : 0));
+  const recomputeToAmount = () => {
+    if (!fxNeeded()) return;
+    const amt = parseAmount(amountInput.value);
+    const rate = fxRateVal();
+    toAmountInput.value = amt > 0 && rate > 0 ? fmtDest(convert(amt, rate)) : "";
+    updateFxHint();
+  };
+  const recomputeRate = () => {
+    if (!fxNeeded()) return;
+    const amt = parseAmount(amountInput.value);
+    const dest = parseDest();
+    if (amt > 0 && dest > 0) {
+      const rate = fromAcct().currency === "USD" ? dest / amt : amt / dest;
+      fxRateInput.value = String(Math.round(rate * 100) / 100);
+    }
+    updateFxHint();
+  };
+  function updateFxHint() {
+    if (!fxNeeded()) { fxHint.textContent = ""; return; }
+    const dest = parseDest();
+    fxHint.textContent = dest > 0
+      ? `${fromAcct().name} −${fmtMoneyPlain(parseAmount(amountInput.value), fromAcct().currency)} → ${toAcct().name} +${fmtMoneyPlain(dest, toAcct().currency)}`
+      : "";
+  }
+  const syncFx = () => {
+    const needed = fxNeeded();
+    fxWrap.classList.toggle("hidden", !needed);
+    if (!needed) return;
+    el.querySelector("#tx-to-amount-label").textContent = `Diterima (${toAcct().currency})`;
+    if (!fxRateInput.value) fxRateInput.value = String(existing?.fxRate || effectiveRate());
+    // Transaksi lama yang udah punya toAmount: tampilin apa adanya (jangan ditimpa hasil hitung).
+    if (existing?.toAmount != null && !toAmountInput.dataset.touched) toAmountInput.value = fmtDest(Number(existing.toAmount) || 0);
+    else recomputeToAmount();
+    updateFxHint();
+  };
+  fxRateInput.addEventListener("input", () => { toAmountInput.dataset.touched = "1"; recomputeToAmount(); });
+  toAmountInput.addEventListener("input", () => { toAmountInput.dataset.touched = "1"; recomputeRate(); });
+  amountInput.addEventListener("input", () => { if (fxRateVal() > 0) recomputeToAmount(); });
+  el.querySelector("#tx-account").addEventListener("change", () => { toAmountInput.dataset.touched = "1"; syncFx(); });
+  el.querySelector("#tx-to-account").addEventListener("change", () => { toAmountInput.dataset.touched = "1"; syncFx(); });
+
   const renderTypeButtons = () => {
     el.querySelectorAll(".type-toggle button").forEach((b) => {
       b.classList.toggle("active", b.dataset.type === type);
     });
     el.querySelector("#cat-section").classList.toggle("hidden", type === "transfer");
     el.querySelector("#to-acct-wrap").classList.toggle("hidden", type !== "transfer");
+    syncFx();
     el.querySelector("#debt-section")?.classList.toggle("hidden", type !== "expense");
     el.querySelector("#acct-label").textContent = type === "transfer" ? "Dari Akun" : "Akun";
     // Biaya tambahan cuma relevan buat expense & transfer (income ga ada konsep "biaya" yang
@@ -211,12 +292,19 @@ export function openTxSheet(existing = null) {
     if (type === "transfer" && accountId === toAccountId) return toast("Akun asal & tujuan sama");
     if (feeActive && feeAmount <= 0) return toast("Isi nominal biayanya, atau matiin biaya tambahan");
     if (feeActive && !feeCategoryId) return toast("Pilih kategori biaya");
+    const fxActive = fxNeeded();
+    const toAmount = fxActive ? parseDest() : null;
+    const fxRate = fxActive ? fxRateVal() : null;
+    if (fxActive && !(toAmount > 0)) return toast("Isi kurs atau nominal yang diterima");
 
     const data = {
       type, amount, date, time, month: monthOf(date),
       accountId, note,
       categoryId: type === "transfer" ? null : categoryId,
       toAccountId: type === "transfer" ? toAccountId : null,
+      // Lintas mata uang doang; transfer se-currency (atau bukan transfer) → null, biar
+      // accountBalances() fallback ke `amount` kayak biasa (dan field lama ke-clear pas edit).
+      toAmount, fxRate,
       debtId: type === "expense" ? (el.querySelector("#tx-debt")?.value || null) : null,
     };
 

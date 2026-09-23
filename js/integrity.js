@@ -106,6 +106,19 @@ export function scanIntegrity(state) {
     if (problems.length > 0) issues.push({ kind: "asset", ref: a, problems });
   }
 
+  // Piutang (receivable) — info doang, BUKAN auto-fix: (1) udah lewat `dueDate` tapi sisa masih
+  // > 0 (pengingat tagih), (2) bukan qtyless (semua jalur tulis maksa qtyless:true — beda = ada
+  // penulisan bypass app), (3) sisa piutang > total dipinjamkan (salah input / edit manual).
+  for (const a of state.assets) {
+    if (a.type !== "receivable") continue;
+    const problems = [];
+    const sisa = Number(a.manualPrice) || 0;
+    if (a.dueDate && a.dueDate < today && sisa > 0 && !a.isArchived) problems.push(`udah bisa ditagih sejak ${a.dueDate}, sisa ${sisa.toLocaleString("id-ID")}`);
+    if (a.qtyless !== true) problems.push("piutang tapi qtyless bukan true (harusnya selalu true)");
+    if (sisa > (Number(a.avgBuyPrice) || 0) + 0.5) problems.push("sisa piutang > total dipinjamkan — cek input");
+    if (problems.length > 0) issues.push({ kind: "asset", ref: a, problems });
+  }
+
   // Qtyless ("Jumlah N/A") — quantity WAJIB selalu persis 1 (dipaksa di semua jalur tulis: form
   // Edit Asset, openQtylessTradeSheet, reversal-nya di db.js). Kalau ketemu beda, itu tanda ada
   // penulisan langsung yang bypass app (mis. Firestore console) — read-only info, bukan auto-fix.

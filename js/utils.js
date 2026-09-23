@@ -54,11 +54,15 @@ export const parseAmount = (s) => {
   return parseFloat(clean) || 0;
 };
 
-// Live thousand-separator for inputs
-export const attachThousands = (input) => {
+// Live thousand-separator for inputs. `allowNegative` (default false) pertahanin tanda minus di
+// DEPAN — default-nya SENGAJA di-strip (input nominal transaksi ga boleh negatif), tapi reconcile
+// saldo (accounts.js) butuh angka minus (rekening overdraft / kartu kredit kelebihan bayar) —
+// dulu minus-nya kebuang diam-diam di sini, jadi saldo aktual ga pernah bisa diketik negatif.
+export const attachThousands = (input, { allowNegative = false } = {}) => {
   input.addEventListener("input", () => {
+    const neg = allowNegative && /^\s*-/.test(input.value);
     const raw = input.value.replace(/[^\d]/g, "");
-    input.value = raw ? Number(raw).toLocaleString("id-ID") : "";
+    input.value = (neg ? "-" : "") + (raw ? Number(raw).toLocaleString("id-ID") : "");
   });
 };
 

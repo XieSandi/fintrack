@@ -145,7 +145,7 @@ export function openAcctSheet(existing) {
   const syncType = () => {
     const isCredit = typeSel.value === "credit";
     el.querySelector("#ac-credit-wrap").classList.toggle("hidden", !isCredit);
-    el.querySelector("#ac-init-label").textContent = isCredit ? "Saldo awal (utang berjalan)" : "Saldo awal";
+    el.querySelector("#ac-init-label").textContent = isCredit ? "Saldo awal (minus = utang terpakai)" : "Saldo awal (boleh minus)";
     el.querySelector("#ac-num-label").textContent = isCredit ? "No. Kartu (opsional)" : "No. Rekening (opsional)";
   };
   typeSel.onchange = syncType;
@@ -200,15 +200,31 @@ export function openAcctSheet(existing) {
 // Saldo akun TIDAK PERNAH di-overwrite — penyesuaian dicatat sebagai 1 transaksi
 // adjustment (expense/income) sebesar selisihnya, biar ada audit trail di History
 // dan tetap konsisten sama accountBalances() yang selalu dihitung dari jurnal.
+//
+// Angka MINUS BOLEH (rekening overdraft, dll) — dulu ga bisa karena `attachThousands()` nge-strip
+// tanda minus diam-diam (sekarang opsi `allowNegative`), plus keyboard numerik HP sering ga punya
+// tombol "-" → ada tombol ± eksplisit di samping input. Akun KARTU KREDIT beda presentasi (pola
+// sama semua tampilan CC lain di app: "Terpakai", bukan saldo signed): input-nya = TAGIHAN
+// TERPAKAI aktual (angka positif = utang), internal-nya dibalik jadi saldo negatif; minus di sini
+// artinya kelebihan bayar (saldo kartu plus).
 function openReconcileSheet(account) {
   const recorded = accountBalances()[account.id] || 0;
   const isUSD = account.currency === "USD";
+  const isCredit = isCreditAccount(account);
+  const recordedLabel = isCredit
+    ? (recorded <= 0
+      ? `terpakai <b>${fmtMoney(-recorded, account.currency)}</b>`
+      : `saldo plus <b>${fmtMoney(recorded, account.currency)}</b> (kelebihan bayar)`)
+    : `saldo tercatat: <b>${fmtMoney(recorded, account.currency)}</b>`;
 
   const el = openSheet(`
     ${sheetHead(`Sesuaikan Saldo`)}
-    <div class="sub" style="margin-bottom:10px">${escapeHtml(account.name)} · saldo tercatat: <b>${fmtMoney(recorded, account.currency)}</b></div>
-    <label>Saldo aktual sekarang</label>
-    <input id="rc-actual" class="amount-input" inputmode="decimal" placeholder="0" autocomplete="off" />
+    <div class="sub" style="margin-bottom:10px">${escapeHtml(account.name)} · ${recordedLabel}</div>
+    <label>${isCredit ? "Tagihan terpakai aktual (minus = kelebihan bayar)" : "Saldo aktual sekarang (boleh minus)"}</label>
+    <div style="display:flex; gap:8px; align-items:center">
+      <input id="rc-actual" class="amount-input" inputmode="decimal" placeholder="0" autocomplete="off" style="flex:1" />
+      <button id="rc-sign" class="btn" type="button" aria-label="Balik tanda" style="flex:0 0 auto">±</button>
+    </div>
     <div id="rc-diff" class="sub" style="margin-top:6px; min-height:14px"></div>
     <div class="row">
       <div><label>Tanggal</label><input id="rc-date" type="date" value="${todayStr()}" /></div>
@@ -220,16 +236,26 @@ function openReconcileSheet(account) {
   `);
 
   const actualInput = el.querySelector("#rc-actual");
-  if (!isUSD) attachThousands(actualInput);
+  if (!isUSD) attachThousands(actualInput, { allowNegative: true });
   setTimeout(() => actualInput.focus(), 250);
 
-  const parseActual = () => (isUSD
+  // Tombol ± = toggle tanda minus di depan input (keyboard numerik HP sering ga punya "-").
+  el.querySelector("#rc-sign").onclick = () => {
+    const v = actualInput.value.trim();
+    actualInput.value = v.startsWith("-") ? v.slice(1) : (v ? `-${v}` : "-");
+    actualInput.dispatchEvent(new Event("input"));
+    actualInput.focus();
+  };
+
+  // Nilai yang diketik user (signed). Buat CC dibalik: "terpakai 500rb" = saldo -500rb.
+  const parseTyped = () => (isUSD
     ? parseFloat(String(actualInput.value).replace(",", ".")) || 0
     : parseAmount(actualInput.value));
+  const parseActual = () => (isCredit ? -parseTyped() : parseTyped());
 
   const diffEl = el.querySelector("#rc-diff");
   const updateDiff = () => {
-    if (!actualInput.value) { diffEl.textContent = ""; return; }
+    if (!actualInput.value || actualInput.value === "-") { diffEl.textContent = ""; return; }
     const diff = parseActual() - recorded;
     if (diff === 0) {
       diffEl.textContent = "Saldo udah sesuai ✓";
@@ -247,7 +273,7 @@ function openReconcileSheet(account) {
   el.querySelector("[data-close]").onclick = closeSheet;
 
   el.querySelector("#rc-save").onclick = async () => {
-    if (!actualInput.value) return toast("Isi saldo aktual dulu");
+    if (!actualInput.value || actualInput.value === "-") return toast(isCredit ? "Isi tagihan terpakai aktual dulu" : "Isi saldo aktual dulu");
     const date = el.querySelector("#rc-date").value;
     const time = el.querySelector("#rc-time").value || DEFAULT_TX_TIME;
     if (!date) return toast("Tanggal belum diisi");
@@ -277,10 +303,13 @@ function openReconcileSheet(account) {
 // Transfer BIASA (accountId = sumber/cash, toAccountId = kartu) — pola SAMA persis kayak transfer
 // akun-ke-akun generik (bukan jalur khusus kayak topup goal/beli asset), cuma sheet-nya pre-filled
 // biar cepet. type:"transfer" otomatis TIDAK masuk monthSummary().expense (lihat calc.js).
+// Sumber dibatasi akun SE-CURRENCY sama kartunya — sheet ini ga punya field kurs/`toAmount` kayak
+// tx-sheet.js, jadi transfer lintas mata uang di sini bakal ngredit kartu angka mentah. Kalau
+// butuh bayar CC USD dari rekening IDR, pakai Transfer biasa (FAB) yang punya field kurs.
 function openPayCreditSheet(ccAccount) {
-  const sources = activeAccounts().filter((a) => a.id !== ccAccount.id && !isCreditAccount(a));
+  const sources = activeAccounts().filter((a) => a.id !== ccAccount.id && !isCreditAccount(a) && a.currency === ccAccount.currency);
   if (sources.length === 0) {
-    toast("Belum ada akun cash buat sumber bayar — buat dulu akun bank/e-wallet/cash");
+    toast(`Belum ada akun cash ${ccAccount.currency} buat sumber bayar — atau pakai Transfer biasa (ada field kurs)`);
     return;
   }
   const bal = accountBalances();

@@ -4,6 +4,7 @@ import {
   capexLocalValue, bondLocalValue, bondNextCouponHint, effectiveRate, monthSummary, milestoneProgress, recentAvgSurplus,
   monthsBetween, projectSeries, snapshotNetWorth,
   isCreditAccount, creditUsed, creditRemaining, totalCreditDebtIDR,
+  activeAssets, isReceivable, receivableLocalValue, totalReceivablesIDR, includeReceivablesSetting,
 } from "../store.js";
 import { add, patch, remove, updateSettings } from "../db.js";
 import {
@@ -28,6 +29,7 @@ export const ASSET_TYPES = {
   gold: "Emas",
   crypto: "Crypto",
   bond: "Obligasi / SBN",
+  receivable: "Piutang",
   capex: "CAPEX (Barang Susut)",
   other: "Lainnya",
 };
@@ -36,6 +38,9 @@ export const ASSET_TYPES = {
 // manual yang belum punya model single-unit sendiri (CAPEX/Bond udah, qty selalu 1 dipaksa tanpa
 // toggle). Saham/US/crypto DIKELUARIN — auto-refresh perlu qty×harga/unit.
 const QTYLESS_TYPES = ["mutual_fund", "deposito", "gold", "other"];
+// Nilai khusus `assetFilter` buat nampilin asset yang DIARSIPKAN (`isArchived`) — bukan tipe asset,
+// jadi jangan dipakai sebagai default tipe di openAssetSheet().
+const ARCHIVED_FILTER = "__archived";
 
 const destroyCharts = () => { charts.forEach((c) => c.destroy()); charts = []; };
 
@@ -104,9 +109,14 @@ function renderTotal(root) {
   const assetsRaw = totalAssetsIDR(); // termasuk CAPEX apa adanya
   const capex = totalCapexIDR();
   const includeCapex = state.settings.includeCapexInNetWorth === true;
-  const investAssets = assetsRaw - capex; // baris "Assets" di breakdown SELALU exclude CAPEX,
+  const investAssets = assetsRaw - capex - totalReceivablesIDR(); // baris "Assets" di breakdown SELALU exclude CAPEX (& piutang),
   // CAPEX ditampilin baris terpisah (di bawah) supaya breakdown-nya tetap sum persis ke NET WORTH
   // baik toggle include-nya ON maupun OFF (lihat CLAUDE.md bullet CAPEX).
+  // Piutang (receivable) pola SAMA persis kayak CAPEX: udah termasuk di assetsRaw, dipisah jadi
+  // baris sendiri (cuma ikut disum kalau toggle ON) biar breakdown tetap sum persis ke NET WORTH.
+  const receivables = totalReceivablesIDR();
+  const includeReceivables = includeReceivablesSetting();
+  const hasReceivables = state.assets.some(isReceivable);
   const goalSavings = totalGoalSavingsIDR();
   const debt = totalDebtIDR();
   const milestone = milestoneProgress();
@@ -142,6 +152,7 @@ function renderTotal(root) {
         ${totalRow("💧 Liquid", cash, "var(--blue)")}
         ${totalRow("📈 Assets", investAssets, "var(--green)")}
         ${capex > 0 && includeCapex ? totalRow("🏗️ CAPEX", capex, "#d9bc7f") : ""}
+        ${receivables > 0 && includeReceivables ? totalRow("🤝 Piutang", receivables, "#7fbfba") : ""}
         ${goalSavings > 0 ? totalRow("🎯 Goals", goalSavings, "#b09ac9") : ""}
         ${hasCreditAccounts ? totalRow("🪪 Kartu Kredit", -totalCreditDebt, "var(--red)") : ""}
         ${totalRow(hasCreditAccounts ? "💳 Cicilan" : "💳 Debt", -debtsOnly, "var(--red)")}
@@ -154,6 +165,11 @@ function renderTotal(root) {
       <label style="display:flex; align-items:center; gap:8px; margin-top:12px; font-size:12px; text-transform:none; letter-spacing:0; color:var(--muted2)">
         <input type="checkbox" id="capex-toggle" style="width:auto" ${includeCapex ? "checked" : ""}/>
         🏗️ Sertakan CAPEX (${fmtIDR(capex)}) di Net Worth
+      </label>` : ""}
+      ${hasReceivables ? `
+      <label style="display:flex; align-items:center; gap:8px; margin-top:${hasCapexAssets ? 6 : 12}px; font-size:12px; text-transform:none; letter-spacing:0; color:var(--muted2)">
+        <input type="checkbox" id="recv-toggle" style="width:auto" ${includeReceivables ? "checked" : ""}/>
+        🤝 Sertakan Piutang (${fmtIDR(receivables)}) di Net Worth
       </label>` : ""}
     </div>
 
@@ -182,6 +198,14 @@ function renderTotal(root) {
     };
   }
 
+  const recvToggle = root.querySelector("#recv-toggle");
+  if (recvToggle) {
+    recvToggle.onchange = async (e) => {
+      await updateSettings({ includeReceivablesInNetWorth: e.target.checked });
+      toast(e.target.checked ? "Piutang ikut dihitung di Net Worth ✓" : "Piutang di luar Net Worth ✓");
+    };
+  }
+
   renderChart(root, milestone);
 }
 
@@ -207,6 +231,9 @@ function renderChart(root, milestone) {
     renderProjectionChart(root, canvas, gridColor, milestone);
   } else if (chartTab === "nw") {
     const snaps = state.snapshots.slice(-12);
+    // Piutang ngikut toggle SEKARANG buat DUA garis (bukan nambah garis lagi — chart-nya udah
+    // 3 garis); yang dibandingin di chart ini tetap cuma soal CAPEX.
+    const includeReceivablesNow = includeReceivablesSetting();
     if (snaps.length === 0) {
       root.querySelector("#chart-wrap").innerHTML = `<div class="empty">Belum ada snapshot.</div>`;
       return;
@@ -223,9 +250,9 @@ function renderChart(root, milestone) {
       data: {
         labels: snaps.map((s) => monthLabel(s.month || s.id)),
         datasets: [
-          { label: "Net Worth (+ CAPEX)", data: snaps.map((s) => snapshotNetWorth(s, true)), borderColor: "#8bacd0",
+          { label: "Net Worth (+ CAPEX)", data: snaps.map((s) => snapshotNetWorth(s, true, includeReceivablesNow)), borderColor: "#8bacd0",
             backgroundColor: "rgba(139,172,208,.12)", fill: true, tension: .3, pointRadius: 3 },
-          { label: "Net Worth (tanpa CAPEX)", data: snaps.map((s) => snapshotNetWorth(s, false)), borderColor: "#d9bc7f",
+          { label: "Net Worth (tanpa CAPEX)", data: snaps.map((s) => snapshotNetWorth(s, false, includeReceivablesNow)), borderColor: "#d9bc7f",
             fill: false, tension: .3, pointRadius: 2 },
           { label: "Target", data: snaps.map(() => target), borderColor: "#8fbe9f",
             borderDash: [6, 5], pointRadius: 0, fill: false },
@@ -289,8 +316,9 @@ function renderProjectionChart(root, canvas, gridColor, milestone) {
   // juga toggle-aware). Beda dari chart Tren Net Worth yang sengaja nampilin DUA garis; di sini
   // cuma SATU (ngikut toggle) biar chart 5-garis ini ga makin padat.
   const includeCapexNow = state.settings.includeCapexInNetWorth === true;
+  const includeReceivablesNow = includeReceivablesSetting();
   const firstSnapMonth = state.snapshots[0].month || state.snapshots[0].id;
-  const actualHist = state.snapshots.map((s) => ({ month: s.month || s.id, value: snapshotNetWorth(s, includeCapexNow) }));
+  const actualHist = state.snapshots.map((s) => ({ month: s.month || s.id, value: snapshotNetWorth(s, includeCapexNow, includeReceivablesNow) }));
 
   const nw = netWorthIDR();
   const avgSurplus = recentAvgSurplus(nowMonth, 3) ?? 0;
@@ -370,9 +398,15 @@ function renderAssets(root) {
   // Firestore (jejak riwayat, lihat calc.js bullet Bond), cuma difilter dari list/filter-dropdown/
   // summary tab ini. Nilai net worth-nya sendiri udah 0 otomatis (bondValueIDR), jadi filter di
   // sini murni declutter tampilan, BUKAN yang bikin net worth benar.
-  const all = state.assets.filter((a) => !(a.type === "bond" && a.redeemed === true));
+  // Asset diarsipkan (`isArchived` — posisi kosong abis dijual habis, dll) juga difilter dari list
+  // aktif, tapi TETAP bisa dilihat lewat opsi "Arsip" di dropdown filter (buat un-archive lewat
+  // Edit Asset) — beda dari bond redeemed yang ga punya jalan balik dari list ini.
+  const archivedAll = state.assets.filter((a) => a.isArchived);
+  if (assetFilter === ARCHIVED_FILTER && archivedAll.length === 0) assetFilter = "";
+  const showArchived = assetFilter === ARCHIVED_FILTER;
+  const all = activeAssets().filter((a) => !(a.type === "bond" && a.redeemed === true));
   const typesPresent = [...new Set(all.map((a) => a.type))];
-  const rows = assetFilter ? all.filter((a) => a.type === assetFilter) : all;
+  const rows = showArchived ? archivedAll : assetFilter ? all.filter((a) => a.type === assetFilter) : all;
   const filteredTotal = rows.reduce((s, a) => s + assetValueIDR(a), 0);
   const filteredCost = rows.reduce((s, a) => s + assetCostIDR(a), 0);
   const filteredPnl = filteredTotal - filteredCost;
@@ -384,6 +418,7 @@ function renderAssets(root) {
       <select id="asset-filter">
         <option value="">Semua tipe (${all.length})</option>
         ${typesPresent.map((t) => `<option value="${t}" ${t === assetFilter ? "selected" : ""}>${ASSET_TYPES[t] || t} (${all.filter((a) => a.type === t).length})</option>`).join("")}
+        ${archivedAll.length > 0 ? `<option value="${ARCHIVED_FILTER}" ${showArchived ? "selected" : ""}>📦 Arsip (${archivedAll.length})</option>` : ""}
       </select>
       <button id="btn-refresh-prices" class="btn" style="flex:0 0 auto" ${nRefreshable === 0 ? "disabled" : ""}>🔄 Harga</button>
     </div>
@@ -397,7 +432,7 @@ function renderAssets(root) {
       </div>` : ""}
       <div id="asset-list">
         ${all.length === 0 ? `<div class="empty">Belum ada asset.</div>` : ""}
-        ${all.length > 0 && rows.length === 0 ? `<div class="empty">Ga ada asset di tipe ini.</div>` : ""}
+        ${(all.length > 0 || showArchived) && rows.length === 0 ? `<div class="empty">Ga ada asset di tipe ini.</div>` : ""}
       </div>
     </div>
     <button id="btn-add-asset" class="btn btn-primary btn-block">＋ Tambah Asset</button>
@@ -457,6 +492,7 @@ function assetRow(a) {
   const pnlPct = cost > 0 ? (pnl / cost) * 100 : 0;
   const isCapex = a.type === "capex";
   const isBond = a.type === "bond";
+  const isRecv = isReceivable(a);
   const isQtyless = a.qtyless === true;
   // Jumlah unit ikut blur mode juga (bukan cuma nilai Rp) — "berapa lot/lembar yang gue punya"
   // sama sensitifnya buat disembunyiin pas layar keliatan orang lain. blurNum() manual di sini
@@ -482,6 +518,18 @@ function assetRow(a) {
     staleLine = isPastMaturity
       ? `⚠️ Jatuh tempo ${a.maturityDate} — cairkan pokok`
       : `jatuh tempo ${a.maturityDate || "?"}${monthsLeft !== null ? ` · ${monthsLeft} bln lagi` : ""}`;
+  } else if (isRecv) {
+    // Piutang: nilai = sisa piutang, meta = siapa + total dipinjamkan, stale line = status tagih
+    // (lunas / udah bisa ditagih / tanggal tagih). P&L ga relevan (selalu 0, lihat calc.js).
+    const sisa = receivableLocalValue(a);
+    const isPaid = sisa <= 0;
+    const isDue = !!a.dueDate && a.dueDate <= todayStr();
+    metaLine = `🤝 ${escapeHtml(a.debtorName || "?")} · dipinjamkan ${fmtMoney(a.avgBuyPrice, a.currency)}`;
+    staleLine = isPaid
+      ? `✅ Lunas${a.isArchived ? "" : " — arsipkan di Edit Asset"}`
+      : isDue
+      ? `⚠️ Udah bisa ditagih sejak ${a.dueDate}`
+      : `bisa ditagih ${a.dueDate || "?"} · sisa per ${a.manualPriceUpdatedAt || "?"}`;
   } else if (isQtyless) {
     // Qtyless (lump-sum, "Jumlah N/A") — quantity SELALU 1 di data, tapi ga ada artinya buat
     // ditampilin ke user (bukan "punya 1 unit", ini posisi tunggal yang dilacak via nilai
@@ -496,13 +544,15 @@ function assetRow(a) {
   div.className = "asset-item";
   div.innerHTML = `
     <div>
-      <div class="asset-sym">${escapeHtml(a.name || a.symbol)}</div>
+      <div class="asset-sym">${escapeHtml(a.name || a.symbol)}${a.isArchived ? ' <span class="badge badge-yellow">arsip</span>' : ""}</div>
       <div class="asset-meta">${metaLine}</div>
       <div class="stale-note">${staleLine}</div>
     </div>
     <div class="asset-right">
       <div class="asset-val">${fmtIDR(val)}</div>
-      <div class="${pnl >= 0 ? "pnl-pos" : "pnl-neg"}">${pnl >= 0 ? "+" : ""}${fmtIDR(pnl)} (${pnlPct.toFixed(1)}%)</div>
+      ${isRecv
+        ? `<div class="stale-note">${val > 0 ? "sisa piutang" : "lunas"}</div>`
+        : `<div class="${pnl >= 0 ? "pnl-pos" : "pnl-neg"}">${pnl >= 0 ? "+" : ""}${fmtIDR(pnl)} (${pnlPct.toFixed(1)}%)</div>`}
     </div>`;
   div.onclick = () => openAssetSheet(a, div.closest("#group-content"));
   return div;
@@ -510,12 +560,15 @@ function assetRow(a) {
 
 export function openAssetSheet(existing, contentRoot) {
   const a = existing || {
-    type: assetFilter || "stock_id", symbol: "", name: "", quantity: "", avgBuyPrice: "",
+    type: (assetFilter && assetFilter !== ARCHIVED_FILTER) ? assetFilter : "stock_id", symbol: "", name: "", quantity: "", avgBuyPrice: "",
     currency: "IDR", manualPrice: "", purchaseDate: todayStr(), depreciationPctMonth: "",
     principal: "", couponRatePA: "", couponPeriodMonths: 1, maturityDate: "",
-    couponAccountId: "", maturityAccountId: "",
+    couponAccountId: "", maturityAccountId: "", debtorName: "", dueDate: "",
   };
   const accountsForBond = activeAccounts();
+  // Buat hint arsip: asset yang masih punya nilai TETAP keitung net worth walau diarsipkan
+  // (lihat calc.js activeAssets()) — kasih tau eksplisit biar ga disangka "ilang".
+  const existingValue = existing ? assetValueIDR(existing) : 0;
 
   const el = openSheet(`
     ${sheetHead(existing ? "Edit Asset" : "Tambah Asset")}
@@ -566,6 +619,10 @@ export function openAssetSheet(existing, contentRoot) {
       <label>Akun Jatuh Tempo</label>
       <select id="a-bond-maturity-acct">${accountsForBond.map((acc) => `<option value="${acc.id}" ${acc.id === a.maturityAccountId ? "selected" : ""}>${escapeHtml(acc.name)}</option>`).join("")}</select>
     </div>
+    <div class="row hidden" id="a-recv-row">
+      <div><label>Siapa (peminjam)</label><input id="a-recv-debtor" placeholder="cth: Budi" value="${escapeHtml(a.debtorName || "")}" /></div>
+      <div><label>Bisa ditagih (tgl)</label><input id="a-recv-due" type="date" value="${a.dueDate || ""}" /></div>
+    </div>
     <label id="a-manual-wrap" style="margin-top:12px; font-size:12px; text-transform:none; letter-spacing:0; color:var(--muted2)">
       <input type="checkbox" id="a-manual-only" style="width:auto" ${a.manualOnly === true ? "checked" : ""}/>
       🔒 Harga manual (skip auto-refresh)
@@ -580,6 +637,11 @@ export function openAssetSheet(existing, contentRoot) {
       <button id="a-bond-redeem" class="btn" style="flex:1">🏁 Cairkan Pokok</button>
     </div>
     ${existing && existing.type === "bond" && existing.redeemed === true ? `<div class="sub" style="margin-top:10px">✅ Pokok udah dicairkan</div>` : ""}
+    ${existing ? `
+    <label style="margin-top:14px; font-size:12px; text-transform:none; letter-spacing:0; color:var(--muted2)">
+      <input type="checkbox" id="a-arch" style="width:auto" ${a.isArchived ? "checked" : ""}/> 📦 Arsipkan asset
+    </label>
+    ${existingValue > 0 ? `<div class="sub" id="a-arch-hint">⚠️ Nilai masih ${fmtIDR(existingValue)} — tetap kehitung net worth walau diarsipkan</div>` : ""}` : ""}
     <div style="margin-top:18px; display:flex; gap:8px;">
       ${existing ? `<button id="a-delete" class="btn btn-danger">Hapus</button>` : ""}
       <button id="a-save" class="btn btn-primary" style="flex:1">Simpan</button>
@@ -602,13 +664,16 @@ export function openAssetSheet(existing, contentRoot) {
     const t = typeSel.value;
     const isCapexType = t === "capex";
     const isBondType = t === "bond";
+    // Piutang REUSE mesin qtyless (qty dipaksa 1, nilai = manualPrice, modal = avgBuyPrice) tanpa
+    // checkbox — lihat calc.js blok Piutang. Field-nya di-relabel di bawah.
+    const isRecvType = t === "receivable";
     // Toggle "Jumlah N/A" cuma masuk akal buat tipe manual yang ga punya model single-unit
     // sendiri kayak CAPEX/Bond — posisi lump-sum (1 rekening deposito, 1 batangan emas dilebur
     // jadi 1 posisi, 1 investasi bisnis) yang biasa ditambah/ditarik nominal langsung, bukan
     // qty×harga/unit. Saham/US/crypto DIKELUARIN karena auto-refresh butuh qty×harga/unit buat
     // ngitung nilai — kombinasi qtyless+auto-refresh ga make sense.
     const qtylessEligible = QTYLESS_TYPES.includes(t);
-    const isQtyless = qtylessEligible && qtylessCheckbox.checked;
+    const isQtyless = (qtylessEligible && qtylessCheckbox.checked) || isRecvType;
     qtyLabel.textContent = t === "stock_id" ? "Jumlah (lot)" : "Jumlah";
     if (t === "stock_id") curSel.value = "IDR";
     if (t === "stock_us") curSel.value = "USD";
@@ -616,14 +681,15 @@ export function openAssetSheet(existing, contentRoot) {
     const isAuto = !!AUTO_HINTS[t];
     el.querySelector("#a-auto-hint").textContent = AUTO_HINTS[t] || "";
     el.querySelector("#a-manual-wrap").classList.toggle("hidden", !isAuto);
+    el.querySelector("#a-recv-row").classList.toggle("hidden", !isRecvType);
 
     // Symbol field DIREUSE jadi "Series Name" buat bond (mis. "ORI030T3") — bukan field baru,
     // biar `a.symbol || a.name` yang udah dipakai di mana-mana (assetRow, goal-link list,
     // snapshot) otomatis jalan tanpa kode baru.
-    el.querySelector("#a-symbol-wrap").classList.toggle("hidden", isCapexType);
+    el.querySelector("#a-symbol-wrap").classList.toggle("hidden", isCapexType || isRecvType);
     el.querySelector("#a-symbol-label").textContent = isBondType ? "Series Name" : "Symbol / Kode";
     el.querySelector("#a-symbol").placeholder = isBondType ? "ORI030T3" : "BBCA / VOO";
-    el.querySelector("#a-name-label").textContent = isCapexType ? "Nama Barang" : "Nama (opsional)";
+    el.querySelector("#a-name-label").textContent = isCapexType ? "Nama Barang" : isRecvType ? "Nama Piutang" : "Nama (opsional)";
     el.querySelector("#a-qtyless-wrap").classList.toggle("hidden", !qtylessEligible);
     // Capex/Bond hide SELURUH row (qty+currency, currency-nya di-force lewat curSel.value di
     // atas) — qtyless CUMA nyembunyiin input qty-nya doang (`a-qty-wrap`), currency TETAP bisa
@@ -632,12 +698,14 @@ export function openAssetSheet(existing, contentRoot) {
     el.querySelector("#a-qty-wrap").classList.toggle("hidden", isQtyless);
     el.querySelector("#a-avg-wrap").classList.toggle("hidden", isBondType);
     el.querySelector("#a-price-wrap").classList.toggle("hidden", isCapexType);
-    el.querySelector("#a-price-label").textContent = isBondType ? "Harga pasar (opsional)" : isQtyless ? "Nilai Sekarang" : "Harga sekarang / unit";
+    el.querySelector("#a-price-label").textContent = isBondType ? "Harga pasar (opsional)" : isRecvType ? "Sisa Piutang" : isQtyless ? "Nilai Sekarang" : "Harga sekarang / unit";
     el.querySelector("#a-capex-row").classList.toggle("hidden", !isCapexType);
     ["a-bond-row1", "a-bond-row2", "a-bond-row3", "a-bond-row4"].forEach((id) =>
       el.querySelector(`#${id}`).classList.toggle("hidden", !isBondType));
-    el.querySelector("#a-avg-label").textContent = isCapexType ? "Harga Beli" : isQtyless ? "Modal" : "Avg Buy / unit";
+    el.querySelector("#a-avg-label").textContent = isCapexType ? "Harga Beli" : isRecvType ? "Total Dipinjamkan" : isQtyless ? "Modal" : "Avg Buy / unit";
     el.querySelector("#a-trade-buttons").style.display = (existing && !isCapexType && !isBondType) ? "flex" : "none";
+    el.querySelector("#a-buy").textContent = isRecvType ? "🤝 Kasih Pinjaman" : "💰 Catat Pembelian";
+    el.querySelector("#a-sell").textContent = isRecvType ? "💵 Terima Pembayaran" : "💸 Catat Penjualan";
     el.querySelector("#a-bond-buttons").style.display = (existing && isBondType && existing.redeemed !== true) ? "flex" : "none";
   };
   typeSel.onchange = syncType;
@@ -669,7 +737,8 @@ export function openAssetSheet(existing, contentRoot) {
     const parseDec = (v) => parseFloat(String(v).replace(",", ".")) || 0;
     const isCapexNow = typeSel.value === "capex";
     const isBondNow = typeSel.value === "bond";
-    const isQtylessNow = QTYLESS_TYPES.includes(typeSel.value) && qtylessCheckbox.checked;
+    const isRecvNow = typeSel.value === "receivable";
+    const isQtylessNow = (QTYLESS_TYPES.includes(typeSel.value) && qtylessCheckbox.checked) || isRecvNow;
     const data = {
       type: typeSel.value,
       // Symbol DIPAKAI juga buat "Series Name" bond (relabeled di syncType) — cuma capex yang
@@ -680,6 +749,11 @@ export function openAssetSheet(existing, contentRoot) {
       avgBuyPrice: isBondNow ? 0 : parseDec(el.querySelector("#a-avg").value),
       currency: curSel.value,
       qtyless: isQtylessNow,
+      // Arsip (pola sama accounts/goals) — cuma bisa di-set dari sheet edit (existing).
+      isArchived: existing ? !!el.querySelector("#a-arch")?.checked : false,
+      // Field piutang — `null` kecuali tipe receivable (pola sama bond/capex).
+      debtorName: isRecvNow ? el.querySelector("#a-recv-debtor").value.trim() : null,
+      dueDate: isRecvNow ? (el.querySelector("#a-recv-due").value || null) : null,
     };
     if (isCapexNow) {
       data.purchaseDate = el.querySelector("#a-purchase-date").value || todayStr();
@@ -705,7 +779,11 @@ export function openAssetSheet(existing, contentRoot) {
         data.manualPriceUpdatedAt = existing?.manualPriceUpdatedAt || todayStr();
       }
     }
-    if (!data.symbol && !data.name) return toast("Isi symbol atau nama");
+    if (!data.symbol && !data.name) return toast(isRecvNow ? "Isi nama piutang" : "Isi symbol atau nama");
+    if (isRecvNow && !data.debtorName) return toast("Isi siapa peminjamnya");
+    // Piutang dibuat langsung dari form (posisi lama, tanpa transaksi "Kasih Pinjaman") dengan cuma
+    // sisa yang diisi → total dipinjamkan default = sisa, biar ga ke-flag integrity "sisa > total".
+    if (isRecvNow && !data.avgBuyPrice) data.avgBuyPrice = data.manualPrice;
     if (!isBondNow && !data.quantity) return toast("Isi jumlah");
     if (isCapexNow && !data.avgBuyPrice) return toast("Isi harga beli");
     if (isBondNow && !data.principal) return toast("Isi nilai pokok/principal");
@@ -1060,7 +1138,9 @@ function openAssetTradeSheet(asset, dir, existingTx, opts = {}) {
       note: note || `${isBuy ? "Beli" : "Jual"} ${asset.symbol || asset.name}`,
     });
     opts.onSaved?.();
-    toast(isBuy ? "Pembelian tercatat ✓" : "Penjualan tercatat ✓");
+    // Jual habis → posisi kosong tapi asset-nya ga bisa dihapus (punya jejak transaksi) — arahkan
+    // ke arsip biar ga nggantung di list (lihat calc.js activeAssets()).
+    toast(isBuy ? "Pembelian tercatat ✓" : newQty <= 0 ? "Penjualan tercatat ✓ — posisi kosong, arsipkan di Edit Asset" : "Penjualan tercatat ✓", newQty <= 0 && !isBuy ? 4000 : 2200);
   };
 }
 
@@ -1072,13 +1152,40 @@ function openAssetTradeSheet(asset, dir, existingTx, opts = {}) {
 // `manualPrice` doang, `avgBuyPrice` TETAP — pola SAMA kayak konvensi jual asset biasa (cost basis
 // ga ikut di-reverse pas jual, lihat openAssetTradeSheet). `quantity` SELALU 1, ga pernah
 // disentuh oleh sheet ini sama sekali (baik buy maupun sell).
+// Piutang (tipe `receivable`, lihat calc.js) LEWAT SHEET INI JUGA (qtyless dipaksa true) — cuma
+// label-nya yang beda: "buy" = kasih pinjaman (akun didebit, sisa piutang & total dipinjamkan
+// naik), "sell" = terima pembayaran (akun dikredit, sisa piutang turun). Mekanisme, guard, reversal
+// (db.js), dan bulkDelete SAMA PERSIS — jangan bikin sheet terpisah buat piutang.
 function openQtylessTradeSheet(asset, dir, existingTx, opts = {}) {
   const isBuy = dir === "buy";
+  const isRecv = isReceivable(asset);
+  const who = asset.debtorName || asset.name || asset.symbol;
+  const L = isRecv ? {
+    detailTitle: isBuy ? "Detail Pinjaman Keluar" : "Detail Pembayaran Piutang",
+    title: isBuy ? `Kasih Pinjaman: ${escapeHtml(who)}` : `Terima Pembayaran: ${escapeHtml(who)}`,
+    amountLabel: isBuy ? "Nominal Pinjaman" : "Nominal Pembayaran",
+    valueWord: "Sisa piutang", costWord: "Total dipinjamkan",
+    notePh: isBuy ? "cth: pinjam buat modal" : "cth: cicilan pertama",
+    defaultNote: isBuy ? `Pinjamkan ke ${who}` : `Pembayaran piutang ${who}`,
+    overMsg: "Ga bisa terima lebih dari sisa piutang",
+    okToast: isBuy ? "Pinjaman tercatat ✓" : "Pembayaran tercatat ✓",
+    deleteConfirm: `Hapus transaksi ${isBuy ? "pinjaman" : "pembayaran"} ini? Sisa piutang bakal disesuaikan lagi.`,
+  } : {
+    detailTitle: isBuy ? "Detail Pembelian" : "Detail Penjualan/Penarikan",
+    title: isBuy ? `Catat Pembelian: ${escapeHtml(asset.symbol || asset.name)}` : `Catat Penjualan/Penarikan: ${escapeHtml(asset.symbol || asset.name)}`,
+    amountLabel: isBuy ? "Nominal Pembelian" : "Nominal Penjualan/Penarikan",
+    valueWord: "Nilai", costWord: "Modal",
+    notePh: isBuy ? "cth: nambah setoran" : "cth: tarik sebagian",
+    defaultNote: `${isBuy ? "Setor" : "Tarik"} ${asset.symbol || asset.name}`,
+    overMsg: null,
+    okToast: isBuy ? "Pembelian tercatat ✓" : "Penjualan/penarikan tercatat ✓",
+    deleteConfirm: `Hapus transaksi ${isBuy ? "pembelian" : "penjualan/penarikan"} ini? Nilai${isBuy ? " & modal" : ""} asset bakal disesuaikan lagi.`,
+  };
 
   if (existingTx) {
     const acct = state.accounts.find((a) => a.id === existingTx.accountId);
     const el = openSheet(`
-      ${sheetHead(isBuy ? "Detail Pembelian" : "Detail Penjualan/Penarikan")}
+      ${sheetHead(L.detailTitle)}
       <div class="sub" style="margin-bottom:10px">Ga bisa diedit — hapus &amp; catat ulang.</div>
       <div class="table-like">
         <div style="display:flex; justify-content:space-between; padding:6px 0"><span class="sub">Asset</span><span>${escapeHtml(asset.symbol || asset.name)}</span></div>
@@ -1090,7 +1197,7 @@ function openQtylessTradeSheet(asset, dir, existingTx, opts = {}) {
     `);
     el.querySelector("[data-close]").onclick = closeSheet;
     el.querySelector("#qt-delete").onclick = async () => {
-      if (!confirmDialog(`Hapus transaksi ${isBuy ? "pembelian" : "penjualan/penarikan"} ini? Nilai${isBuy ? " & modal" : ""} asset bakal disesuaikan lagi.`)) return;
+      if (!confirmDialog(L.deleteConfirm)) return;
       closeSheet();
       // Reversal DIPUSATKAN di db.js remove() (hook applyAssetQtyEffect, cabang qtyless) — bukan
       // manual di sini, pola sama trade biasa/redeem.
@@ -1110,8 +1217,8 @@ function openQtylessTradeSheet(asset, dir, existingTx, opts = {}) {
   const curCost = Number(asset.avgBuyPrice) || 0;
 
   const el = openSheet(`
-    ${sheetHead(isBuy ? `Catat Pembelian: ${escapeHtml(asset.symbol || asset.name)}` : `Catat Penjualan/Penarikan: ${escapeHtml(asset.symbol || asset.name)}`)}
-    <label>Nominal ${isBuy ? "Pembelian" : "Penjualan/Penarikan"} (${asset.currency})</label>
+    ${sheetHead(L.title)}
+    <label>${L.amountLabel} (${asset.currency})</label>
     <input id="qt-amount" class="amount-input" inputmode="numeric" placeholder="0" autocomplete="off" />
     <div id="qt-hint" class="sub" style="margin-top:4px"></div>
     <label>${isBuy ? "Dari Akun" : "Ke Akun"}</label>
@@ -1123,7 +1230,7 @@ function openQtylessTradeSheet(asset, dir, existingTx, opts = {}) {
       <div><label>Jam</label><input id="qt-time" type="time" value="${nowTimeStr()}" /></div>
     </div>
     <label>Catatan (opsional)</label>
-    <input id="qt-note" type="text" placeholder="${isBuy ? "cth: nambah setoran" : "cth: tarik sebagian"}" />
+    <input id="qt-note" type="text" placeholder="${L.notePh}" />
     <button id="qt-save" class="btn btn-primary btn-block" style="margin-top:18px">Simpan</button>
   `);
 
@@ -1136,13 +1243,13 @@ function openQtylessTradeSheet(asset, dir, existingTx, opts = {}) {
   const updateHint = () => {
     const amt = parseAmount(amountInput.value);
     if (!amt) {
-      hint.innerHTML = `Nilai sekarang: ${blurNum(fmtMoneyPlain(curValue, asset.currency))} · Modal: ${blurNum(fmtMoneyPlain(curCost, asset.currency))}`;
+      hint.innerHTML = `${L.valueWord} sekarang: ${blurNum(fmtMoneyPlain(curValue, asset.currency))} · ${L.costWord}: ${blurNum(fmtMoneyPlain(curCost, asset.currency))}`;
       return;
     }
     if (isBuy) {
-      hint.innerHTML = `Nilai: ${blurNum(fmtMoneyPlain(curValue, asset.currency))} → ${blurNum(fmtMoneyPlain(curValue + amt, asset.currency))} · Modal: ${blurNum(fmtMoneyPlain(curCost, asset.currency))} → ${blurNum(fmtMoneyPlain(curCost + amt, asset.currency))}`;
+      hint.innerHTML = `${L.valueWord}: ${blurNum(fmtMoneyPlain(curValue, asset.currency))} → ${blurNum(fmtMoneyPlain(curValue + amt, asset.currency))} · ${L.costWord}: ${blurNum(fmtMoneyPlain(curCost, asset.currency))} → ${blurNum(fmtMoneyPlain(curCost + amt, asset.currency))}`;
     } else {
-      hint.innerHTML = `Nilai: ${blurNum(fmtMoneyPlain(curValue, asset.currency))} → ${blurNum(fmtMoneyPlain(Math.max(0, curValue - amt), asset.currency))} (modal tetep ${blurNum(fmtMoneyPlain(curCost, asset.currency))})`;
+      hint.innerHTML = `${L.valueWord}: ${blurNum(fmtMoneyPlain(curValue, asset.currency))} → ${blurNum(fmtMoneyPlain(Math.max(0, curValue - amt), asset.currency))}${isRecv ? (curValue - amt <= 0.5 ? " · lunas ✓" : "") : ` (modal tetep ${blurNum(fmtMoneyPlain(curCost, asset.currency))})`}`;
     }
   };
   amountInput.addEventListener("input", updateHint);
@@ -1158,7 +1265,7 @@ function openQtylessTradeSheet(asset, dir, existingTx, opts = {}) {
     if (!amount || amount <= 0) return toast("Isi nominalnya dulu");
     if (!date) return toast("Tanggal belum diisi");
     if (!isBuy && amount > curValue + 0.5) {
-      return toast(`Ga bisa tarik lebih dari nilai sekarang (${fmtMoneyPlain(curValue, asset.currency)})`);
+      return toast(L.overMsg ? `${L.overMsg} (${fmtMoneyPlain(curValue, asset.currency)})` : `Ga bisa tarik lebih dari nilai sekarang (${fmtMoneyPlain(curValue, asset.currency)})`);
     }
 
     const newValue = isBuy ? curValue + amount : Math.max(0, curValue - amount);
@@ -1174,10 +1281,12 @@ function openQtylessTradeSheet(asset, dir, existingTx, opts = {}) {
       type: "transfer", amount, date, time, month: monthOf(date),
       accountId, toAccountId: null, categoryId: null,
       assetId: asset.id, assetDir: dir,
-      note: note || `${isBuy ? "Setor" : "Tarik"} ${asset.symbol || asset.name}`,
+      note: note || L.defaultNote,
     });
     opts.onSaved?.();
-    toast(isBuy ? "Pembelian tercatat ✓" : "Penjualan/penarikan tercatat ✓");
+    // Posisi/piutang abis → arahkan ke arsip (ga bisa dihapus, punya jejak transaksi).
+    const emptied = !isBuy && newValue <= 0;
+    toast(emptied ? `${L.okToast} — ${isRecv ? "lunas" : "posisi kosong"}, arsipkan di Edit Asset` : L.okToast, emptied ? 4000 : 2200);
   };
 }
 

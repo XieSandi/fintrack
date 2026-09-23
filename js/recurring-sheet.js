@@ -1,7 +1,7 @@
 // "Awal Bulan" ritual — prompt konfirmasi buat post recurring transactions yang jatuh
 // tempo, plus opsi salin budget bulan lalu. Dipanggil sekali per sesi dari app.js.
 // JANGAN auto-post: semuanya nunggu klik "Catat Semua" dari user.
-import { state, budgetsOfMonth } from "./store.js";
+import { state, budgetsOfMonth, effectiveRate } from "./store.js";
 import { add, patch } from "./db.js";
 import { copyBudgetFromLastMonth } from "./views/budget.js";
 import { openAssetBuySheet } from "./views/wealth.js";
@@ -168,6 +168,20 @@ function openRitualSheet(due) {
 
       for (const r of toPost) {
         const date = dateForDay(r.dayOfMonth);
+        // Transfer akun-ke-akun lintas mata uang (IDR <-> USD): template cuma nyimpen `amount`
+        // (currency akun sumber), jadi `toAmount` dihitung pakai kurs efektif SAAT posting
+        // (fxRate = "1 USD = X IDR", pola sama tx-sheet.js) — tanpa ini tujuan dikredit angka
+        // mentah lintas currency. Transfer se-currency / ke goal → null (perilaku lama).
+        let toAmount = null, fxRate = null;
+        if (r.type === "transfer" && !r.toGoalId && r.toAccountId) {
+          const from = state.accounts.find((a) => a.id === r.accountId);
+          const to = state.accounts.find((a) => a.id === r.toAccountId);
+          if (from && to && from.currency !== to.currency) {
+            fxRate = effectiveRate();
+            const amt = Number(r.amount) || 0;
+            toAmount = from.currency === "USD" ? Math.round(amt * fxRate) : Math.round((amt / fxRate) * 100) / 100;
+          }
+        }
         // Time SENGAJA 00:01 (bukan nowTimeStr()) — pola sama alasan `date` pakai dayOfMonth
         // template, bukan tanggal user konfirmasi: recurring representasi kejadian riil yang
         // "seharusnya" udah kejadian dari awal hari itu, bukan kapan usernya sempet klik "Catat
@@ -176,6 +190,7 @@ function openRitualSheet(due) {
           type: r.type, amount: r.amount, date, time: DEFAULT_TX_TIME, month: date.slice(0, 7),
           accountId: r.accountId,
           toAccountId: r.type === "transfer" && !r.toGoalId ? r.toAccountId : null,
+          toAmount, fxRate,
           toGoalId: r.type === "transfer" ? (r.toGoalId || null) : null,
           categoryId: r.type === "transfer" ? null : r.categoryId,
           debtId: r.type === "expense" ? (r.debtId || null) : null,
