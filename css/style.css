@@ -389,10 +389,11 @@ canvas { max-width: 100%; }
 .budget-mini .bm-nums { font-size: 10px; color: var(--muted2); margin-top: 6px; }
 
 /* Grouping finansial (Wealth) */
-.sumtabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 14px; }
+/* 5 kolom (Total · Assets · Liquid · Debt · Piutang) — gap & padding dikecilin dikit biar muat di HP. */
+.sumtabs { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-bottom: 14px; }
 .sumtabs button {
   background: var(--card); border: 1px solid var(--border); border-radius: 10px;
-  padding: 10px 6px; text-align: center; color: var(--muted2);
+  padding: 10px 4px; text-align: center; color: var(--muted2); min-width: 0;
 }
 .sumtabs button .st-label { display: block; font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 3px; }
 .sumtabs button .st-val { display: block; font-size: 11px; font-weight: 800; }

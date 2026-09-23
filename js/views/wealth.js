@@ -16,7 +16,7 @@ import {
 import { refreshPrices, refreshableAssets } from "../prices.js";
 import { openAcctSheet } from "./accounts.js";
 
-let groupTab = "total";   // total | assets | liquid | debt
+let groupTab = "total";   // total | assets | liquid | debt | receivable
 let chartTab = "nw";      // nw | cashflow | projection
 let assetFilter = "";     // "" = semua tipe
 let charts = [];
@@ -69,7 +69,10 @@ export function render(root) {
 
   const nw = netWorthIDR();
   const cash = totalCashIDR();
-  const assets = totalAssetsIDR();
+  const receivables = totalReceivablesIDR();
+  // Piutang punya tab sendiri (samping Debt) — angka "Assets" di sini EXCLUDE piutang biar
+  // ga dobel kebaca; `totalAssetsIDR()` sendiri tetap termasuk piutang (konsep net worth).
+  const assets = totalAssetsIDR() - receivables;
   const debt = totalDebtIDR();
 
   root.innerHTML = `
@@ -78,6 +81,7 @@ export function render(root) {
       ${sumBtn("assets", "Assets", blurNum(fmtShort(assets)), "var(--green)")}
       ${sumBtn("liquid", "Liquid", blurNum(fmtShort(cash)), "var(--blue)")}
       ${sumBtn("debt", "Debt", blurNum(fmtShort(debt)), "var(--red)")}
+      ${sumBtn("receivable", "Piutang", blurNum(fmtShort(receivables)), "#7fbfba")}
     </div>
     <div id="group-content"></div>
   `;
@@ -90,6 +94,7 @@ export function render(root) {
   if (groupTab === "total") renderTotal(content);
   else if (groupTab === "assets") renderAssets(content);
   else if (groupTab === "liquid") renderLiquid(content);
+  else if (groupTab === "receivable") renderReceivables(content);
   else renderDebts(content);
 }
 
@@ -395,7 +400,8 @@ function renderAssets(root) {
   // Firestore (jejak riwayat, lihat calc.js bullet Bond), cuma difilter dari list/filter-dropdown/
   // summary tab ini. Nilai net worth-nya sendiri udah 0 otomatis (bondValueIDR), jadi filter di
   // sini murni declutter tampilan, BUKAN yang bikin net worth benar.
-  const all = state.assets.filter((a) => !(a.type === "bond" && a.redeemed === true));
+  // Piutang (receivable) ga masuk tab ini — punya tab sendiri (renderReceivables).
+  const all = state.assets.filter((a) => !(a.type === "bond" && a.redeemed === true) && !isReceivable(a));
   const typesPresent = [...new Set(all.map((a) => a.type))];
   const rows = assetFilter ? all.filter((a) => a.type === assetFilter) : all;
   const filteredTotal = rows.reduce((s, a) => s + assetValueIDR(a), 0);
@@ -549,8 +555,12 @@ function assetRow(a) {
 }
 
 export function openAssetSheet(existing, contentRoot) {
+  // `{__newType}` = sentinel dari tombol "Tambah" tab tertentu (mis. Piutang) buat pre-select tipe
+  // TANPA dianggap existing (ga ada id, bukan edit).
+  const presetType = existing?.__newType || null;
+  if (presetType) existing = null;
   const a = existing || {
-    type: assetFilter || "stock_id", symbol: "", name: "", quantity: "", avgBuyPrice: "",
+    type: presetType || assetFilter || "stock_id", symbol: "", name: "", quantity: "", avgBuyPrice: "",
     currency: "IDR", manualPrice: "", purchaseDate: todayStr(), depreciationPctMonth: "",
     principal: "", couponRatePA: "", couponPeriodMonths: 1, maturityDate: "",
     couponAccountId: "", maturityAccountId: "", debtorName: "", dueDate: "",
@@ -1277,6 +1287,63 @@ function openQtylessTradeSheet(asset, dir, existingTx, opts = {}) {
     const emptied = !isBuy && newValue <= 0;
     toast(emptied ? `${L.okToast} — ${isRecv ? "lunas" : "posisi kosong"}, bisa dihapus di Edit Asset` : L.okToast, emptied ? 4000 : 2200);
   };
+}
+
+// ================= PIUTANG =================
+// Tab sendiri (samping Debt) — piutang itu asset (tipe `receivable`, lihat calc.js) tapi SENGAJA
+// dipisah dari tab Assets: bukan investasi, ga punya P&L, dan owner mau liat "siapa utang ke gue"
+// sebagai daftar sendiri (kebalikan tab Debt). Data & sheet-nya TETAP yang sama (openAssetSheet /
+// openQtylessTradeSheet), cuma tampilannya di sini. Urutan: yang udah bisa ditagih dulu, lalu
+// tanggal tagih terdekat, yang lunas paling bawah.
+function renderReceivables(root) {
+  const today = todayStr();
+  const rows = state.assets.filter(isReceivable).slice().sort((a, b) => {
+    const pa = receivableLocalValue(a) <= 0 ? 2 : (a.dueDate && a.dueDate <= today ? 0 : 1);
+    const pb = receivableLocalValue(b) <= 0 ? 2 : (b.dueDate && b.dueDate <= today ? 0 : 1);
+    if (pa !== pb) return pa - pb;
+    return (a.dueDate || "9999").localeCompare(b.dueDate || "9999");
+  });
+  const total = totalReceivablesIDR();
+  const includeReceivables = includeReceivablesSetting();
+  const nOverdue = rows.filter((a) => receivableLocalValue(a) > 0 && a.dueDate && a.dueDate <= today).length;
+
+  root.innerHTML = `
+    <div class="card">
+      ${rows.length > 0 ? `<div class="sub" style="margin-bottom:4px">Total piutang: <b style="color:#7fbfba">${fmtIDR(total)}</b>${includeReceivables ? "" : " · di luar Net Worth"}</div>` : ""}
+      ${nOverdue > 0 ? `<div class="sub" style="margin-bottom:10px; color:var(--yellow)">⚠️ ${nOverdue} piutang udah bisa ditagih</div>` : ""}
+      <div id="recv-list">
+        ${rows.length === 0 ? `<div class="empty">Ga ada piutang. 🎉</div>` : ""}
+      </div>
+    </div>
+    <button id="btn-add-recv" class="btn btn-primary btn-block">＋ Tambah Piutang</button>
+  `;
+
+  const list = root.querySelector("#recv-list");
+  rows.forEach((a) => {
+    const sisa = receivableLocalValue(a);
+    const isPaid = sisa <= 0;
+    const isDue = !isPaid && !!a.dueDate && a.dueDate <= today;
+    const div = document.createElement("div");
+    div.className = "budget-item";
+    div.innerHTML = `
+      <div class="budget-top">
+        <span class="budget-name">🤝 ${escapeHtml(a.debtorName || "?")} ${isPaid ? '<span class="badge badge-green">Lunas 🎉</span>' : isDue ? '<span class="badge badge-yellow">TAGIH</span>' : ""}</span>
+        <span class="budget-nums" style="color:${isPaid ? "var(--green)" : "#7fbfba"}">${fmtMoney(sisa, a.currency)}</span>
+      </div>
+      <div class="sub">${escapeHtml(a.name || "")}${a.name ? " · " : ""}dipinjamkan ${fmtMoney(a.avgBuyPrice, a.currency)}${a.currency === "USD" ? ` · ≈ ${fmtIDR(assetValueIDR(a))}` : ""}</div>
+      <div class="stale-note">${isPaid ? "lunas — bisa dihapus lewat Edit" : isDue ? `⚠️ udah bisa ditagih sejak ${a.dueDate}` : `bisa ditagih ${a.dueDate || "?"} · sisa per ${a.manualPriceUpdatedAt || "?"}`}</div>
+      <div style="margin-top:8px; display:flex; gap:8px;">
+        ${isPaid ? "" : `<button class="btn btn-sm" data-pay style="flex:1">💵 Terima Pembayaran</button>`}
+        <button class="btn btn-sm" data-lend style="flex:1">🤝 Kasih Pinjaman</button>
+        <button class="btn btn-sm" data-edit>✎</button>
+      </div>`;
+    div.querySelector("[data-pay]")?.addEventListener("click", () => openAssetSellSheet(a));
+    div.querySelector("[data-lend]").onclick = () => openAssetBuySheet(a);
+    div.querySelector("[data-edit]").onclick = () => openAssetSheet(a, root);
+    list.appendChild(div);
+  });
+
+  root.querySelector("#btn-add-recv").onclick = () => openAssetSheet({ __newType: "receivable" }, root);
 }
 
 // ================= LIQUID =================
