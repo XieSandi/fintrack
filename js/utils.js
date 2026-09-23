@@ -216,6 +216,38 @@ export const setBlurred = (on) => {
   window.dispatchEvent(new CustomEvent("blurchange", { detail: { blurred: on } }));
 };
 
+// ---------- Foto lampiran: kompres di client ----------
+// Foto (bukti transfer/pembayaran piutang) disimpan sebagai data URL JPEG di Firestore (collection
+// `attachments`, lihat db.js) — BUKAN Firebase Storage (ga di-init di firebase.js, dan upload-nya
+// ga ikut offline persistence Firestore). Dokumen Firestore maks 1 MiB → WAJIB dikompres: resize
+// sisi terpanjang ke `maxDim` + JPEG quality, turun bertahap sampai ≤ `maxBytes`. Browser modern
+// udah apply orientasi EXIF pas decode <img>, jadi hasil canvas-nya ga kebalik.
+export async function compressImage(file, { maxDim = 1280, maxBytes = 700_000 } = {}) {
+  const dataUrl = await new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result);
+    r.onerror = () => rej(new Error("gagal baca file"));
+    r.readAsDataURL(file);
+  });
+  const img = await new Promise((res, rej) => {
+    const i = new Image();
+    i.onload = () => res(i);
+    i.onerror = () => rej(new Error("bukan gambar valid"));
+    i.src = dataUrl;
+  });
+  const attempts = [[maxDim, 0.75], [maxDim, 0.55], [960, 0.5], [720, 0.42]];
+  for (const [dim, q] of attempts) {
+    const scale = Math.min(1, dim / Math.max(img.width, img.height));
+    const c = document.createElement("canvas");
+    c.width = Math.max(1, Math.round(img.width * scale));
+    c.height = Math.max(1, Math.round(img.height * scale));
+    c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+    const out = c.toDataURL("image/jpeg", q);
+    if (out.length <= maxBytes) return out;
+  }
+  throw new Error("Foto masih terlalu besar setelah dikompres");
+}
+
 // ---------- Hard refresh (user-triggered) ----------
 // Unregister semua SW + hapus semua Cache Storage, baru reload — buat lepas dari
 // versi app yang nyangkut (SW lama/cache basi) tanpa nunggu update otomatis.

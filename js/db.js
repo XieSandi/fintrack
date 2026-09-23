@@ -44,6 +44,11 @@ export async function remove(name, id) {
   if (name === "transactions" && before?.assetId) {
     await applyAssetQtyEffect(before);
   }
+  // Foto lampiran (collection `attachments`, lihat blok Lampiran di bawah) ikut kehapus bareng
+  // transaksinya — pola sama biaya tambahan di bawah, biar ga nyisain blob yatim.
+  if (name === "transactions" && before?.attachmentId) {
+    await deleteDoc(docRef("attachments", before.attachmentId)).catch((e) => console.warn("attachment:", e));
+  }
   // Biaya tambahan (transaksi expense ber-`feeOfTxId`) ikut kehapus bareng induknya — biar ga
   // nyisain biaya yatim yang transaksi aslinya udah ga ada. DIPUSATKAN di sini (pola sama
   // applyDebtEffect/applyAssetQtyEffect) biar jalur hapus manapun otomatis konsisten.
@@ -138,6 +143,30 @@ async function applyAssetQtyEffect(t) {
   const delta = t.assetDir === "buy" ? -qty : qty;
   const newQty = Math.max(0, (Number(asset.quantity) || 0) + delta);
   await patch("assets", t.assetId, { quantity: newQty });
+}
+
+// ================= Lampiran foto (attachments) =================
+// `users/{uid}/attachments/{id}` = {txId, mime, data (data URL JPEG hasil compressImage() utils.js),
+// createdAt}. Transaksi nyimpen `attachmentId` (opsional/additive). SENGAJA collection TERPISAH
+// (bukan field di dokumen transaksi): state.transactions di-listen SEMUA lewat onSnapshot — kalau
+// blob-nya nempel di situ, tiap foto ikut ke-load ke memori di semua sesi & bikin snapshot listener
+// berat; di collection terpisah cuma di-`getDoc` pas detailnya dibuka (tetap kena offline cache
+// Firestore kalau pernah dibuka). Firebase Storage SENGAJA ga dipakai — lihat DECISIONS.md.
+// Ikut backup (`COLLECTIONS`) biar restore ga ngilangin fotonya.
+export async function addAttachment(txId, dataUrl) {
+  const ref = await addDoc(col("attachments"), { txId, mime: "image/jpeg", data: dataUrl, createdAt: serverTimestamp() });
+  await updateDoc(docRef("transactions", txId), { attachmentId: ref.id, updatedAt: serverTimestamp() });
+  return ref.id;
+}
+
+export async function getAttachment(id) {
+  const snap = await getDoc(docRef("attachments", id));
+  return snap.exists() ? snap.data() : null;
+}
+
+export async function removeAttachment(txId, attachmentId) {
+  await deleteDoc(docRef("attachments", attachmentId));
+  await updateDoc(docRef("transactions", txId), { attachmentId: null, updatedAt: serverTimestamp() });
 }
 
 // ================= Hapus asset TANPA hapus transaksinya =================
@@ -375,7 +404,7 @@ export async function backfillCapexToSnapshots() {
 }
 
 // ================= Backup / Restore =================
-const COLLECTIONS = ["accounts", "categories", "transactions", "budgets", "assets", "debts", "goals", "recurring", "snapshots"];
+const COLLECTIONS = ["accounts", "categories", "transactions", "budgets", "assets", "debts", "goals", "recurring", "snapshots", "attachments"];
 
 export async function exportAll() {
   const out = { app: "fintrack", schemaVersion: 2, exportedAt: new Date().toISOString(), data: {} };
@@ -591,6 +620,9 @@ export async function bulkDelete({ mode, month, year, includeMaster, keepApiKeys
     transactions: await deleteChunked("transactions", scope.transactions),
     budgets: await deleteChunked("budgets", scope.budgets),
     snapshots: await deleteChunked("snapshots", scope.snapshots),
+    // Foto lampiran transaksi yang kehapus ikut dibersihin (id-nya dari `attachmentId` transaksi
+    // di scope — collection attachments ga di-listen ke state).
+    attachments: await deleteChunked("attachments", scope.transactions.filter((t) => t.attachmentId).map((t) => ({ id: t.attachmentId }))),
   };
 
   // Recurring yang lastPostedMonth-nya masuk periode yang baru dihapus → reset, biar sheet

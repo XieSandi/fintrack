@@ -6,12 +6,12 @@ import {
   isCreditAccount, creditUsed, creditRemaining, totalCreditDebtIDR,
   isReceivable, receivableLocalValue, totalReceivablesIDR, includeReceivablesSetting,
 } from "../store.js";
-import { add, patch, remove, updateSettings, deleteAssetKeepHistory } from "../db.js";
+import { add, patch, remove, updateSettings, deleteAssetKeepHistory, addAttachment, getAttachment } from "../db.js";
 import {
   fmtIDR, fmtMoney, fmtNum, fmtIDRPlain, fmtMoneyPlain, escapeHtml, toast, openSheet, closeSheet, sheetHead,
   parseAmount, attachThousands, lastNMonths, monthLabel, todayStr, confirmDialog, monthOf,
   fmtShort, milestonePaceLine, currentMonth, addMonths, isBlurred, blurNum, BLUR_MASK,
-  nowTimeStr, DEFAULT_TX_TIME,
+  nowTimeStr, DEFAULT_TX_TIME, compressImage,
 } from "../utils.js";
 import { refreshPrices, refreshableAssets } from "../prices.js";
 import { openAcctSheet } from "./accounts.js";
@@ -555,12 +555,8 @@ function assetRow(a) {
 }
 
 export function openAssetSheet(existing, contentRoot) {
-  // `{__newType}` = sentinel dari tombol "Tambah" tab tertentu (mis. Piutang) buat pre-select tipe
-  // TANPA dianggap existing (ga ada id, bukan edit).
-  const presetType = existing?.__newType || null;
-  if (presetType) existing = null;
   const a = existing || {
-    type: presetType || assetFilter || "stock_id", symbol: "", name: "", quantity: "", avgBuyPrice: "",
+    type: assetFilter || "stock_id", symbol: "", name: "", quantity: "", avgBuyPrice: "",
     currency: "IDR", manualPrice: "", purchaseDate: todayStr(), depreciationPctMonth: "",
     principal: "", couponRatePA: "", couponPeriodMonths: 1, maturityDate: "",
     couponAccountId: "", maturityAccountId: "", debtorName: "", dueDate: "",
@@ -1193,9 +1189,11 @@ function openQtylessTradeSheet(asset, dir, existingTx, opts = {}) {
         <div style="display:flex; justify-content:space-between; padding:6px 0"><span class="sub">${isBuy ? "Dari" : "Ke"} Akun</span><span>${escapeHtml(acct?.name || "?")}</span></div>
         <div style="display:flex; justify-content:space-between; padding:6px 0"><span class="sub">Tanggal</span><span>${existingTx.date}</span></div>
       </div>
+      ${isRecv ? `<div id="qt-photo-wrap" style="margin-top:10px"></div>` : ""}
       <button id="qt-delete" class="btn btn-danger btn-block" style="margin-top:18px">Hapus Transaksi</button>
     `);
     el.querySelector("[data-close]").onclick = closeSheet;
+    if (isRecv) renderTxPhoto(el.querySelector("#qt-photo-wrap"), existingTx);
     el.querySelector("#qt-delete").onclick = async () => {
       if (!confirmDialog(L.deleteConfirm)) return;
       closeSheet();
@@ -1231,6 +1229,7 @@ function openQtylessTradeSheet(asset, dir, existingTx, opts = {}) {
     </div>
     <label>Catatan (opsional)</label>
     <input id="qt-note" type="text" placeholder="${L.notePh}" />
+    ${isRecv ? photoFieldHtml("qt") : ""}
     <button id="qt-save" class="btn btn-primary btn-block" style="margin-top:18px">Simpan</button>
   `);
 
@@ -1239,6 +1238,7 @@ function openQtylessTradeSheet(asset, dir, existingTx, opts = {}) {
   attachThousands(amountInput);
   setTimeout(() => amountInput.focus(), 250);
   el.querySelector("[data-close]").onclick = closeSheet;
+  const photo = isRecv ? attachPhotoInput(el, "qt") : null;
 
   const updateHint = () => {
     const amt = parseAmount(amountInput.value);
@@ -1277,12 +1277,13 @@ function openQtylessTradeSheet(asset, dir, existingTx, opts = {}) {
       avgBuyPrice: newCost,
       manualPriceUpdatedAt: todayStr(),
     });
-    await add("transactions", {
+    const txRef = await add("transactions", {
       type: "transfer", amount, date, time, month: monthOf(date),
       accountId, toAccountId: null, categoryId: null,
       assetId: asset.id, assetDir: dir,
       note: note || L.defaultNote,
     });
+    if (photo) await savePhoto(photo.get(), txRef.id);
     opts.onSaved?.();
     const emptied = !isBuy && newValue <= 0;
     toast(emptied ? `${L.okToast} — ${isRecv ? "lunas" : "posisi kosong"}, bisa dihapus di Edit Asset` : L.okToast, emptied ? 4000 : 2200);
@@ -1325,6 +1326,7 @@ function renderReceivables(root) {
     const isDue = !isPaid && !!a.dueDate && a.dueDate <= today;
     const div = document.createElement("div");
     div.className = "budget-item";
+    div.style.cursor = "pointer";
     div.innerHTML = `
       <div class="budget-top">
         <span class="budget-name">🤝 ${escapeHtml(a.debtorName || "?")} ${isPaid ? '<span class="badge badge-green">Lunas 🎉</span>' : isDue ? '<span class="badge badge-yellow">TAGIH</span>' : ""}</span>
@@ -1337,13 +1339,203 @@ function renderReceivables(root) {
         <button class="btn btn-sm" data-lend style="flex:1">🤝 Kasih Pinjaman</button>
         <button class="btn btn-sm" data-edit>✎</button>
       </div>`;
-    div.querySelector("[data-pay]")?.addEventListener("click", () => openAssetSellSheet(a));
-    div.querySelector("[data-lend]").onclick = () => openAssetBuySheet(a);
-    div.querySelector("[data-edit]").onclick = () => openAssetSheet(a, root);
+    div.onclick = () => openReceivableDetailSheet(a);
+    div.querySelector("[data-pay]")?.addEventListener("click", (e) => { e.stopPropagation(); openAssetSellSheet(a); });
+    div.querySelector("[data-lend]").onclick = (e) => { e.stopPropagation(); openAssetBuySheet(a); };
+    div.querySelector("[data-edit]").onclick = (e) => { e.stopPropagation(); openAssetSheet(a, root); };
     list.appendChild(div);
   });
 
-  root.querySelector("#btn-add-recv").onclick = () => openAssetSheet({ __newType: "receivable" }, root);
+  root.querySelector("#btn-add-recv").onclick = () => openNewReceivableSheet();
+}
+
+// ---- Lampiran foto (cuma jalur piutang: bukti transfer / nota pembayaran) ----
+// Input file → dikompres LANGSUNG pas dipilih (compressImage, utils.js) & disimpan di closure;
+// baru di-upload (`addAttachment`, db.js) SETELAH transaksinya beneran tersimpan, jadi kalau user
+// batal ga ada blob yatim. Gagal kompres/upload = transaksi TETAP tersimpan (foto opsional).
+const photoFieldHtml = (prefix) => `
+    <label style="margin-top:12px">📎 Foto bukti (opsional)</label>
+    <input id="${prefix}-photo" type="file" accept="image/*" />
+    <div id="${prefix}-photo-hint" class="sub"></div>`;
+
+// `onReady(dataUrl)` opsional — dipanggil tiap foto selesai dikompres (dipakai jalur "tambah foto
+// belakangan" di renderTxPhoto, yang langsung upload tanpa nunggu tombol Simpan).
+function attachPhotoInput(el, prefix, onReady) {
+  const input = el.querySelector(`#${prefix}-photo`);
+  const hint = el.querySelector(`#${prefix}-photo-hint`);
+  let dataUrl = null;
+  input.onchange = async () => {
+    const file = input.files?.[0];
+    dataUrl = null;
+    if (!file) { hint.textContent = ""; return; }
+    hint.textContent = "⏳ kompres foto...";
+    try {
+      dataUrl = await compressImage(file);
+      hint.textContent = `📎 siap (${Math.round(dataUrl.length / 1024)} KB)`;
+      if (onReady) await onReady(dataUrl);
+    } catch (e) {
+      console.warn("photo:", e);
+      input.value = "";
+      hint.textContent = "⚠️ foto gagal diproses — disimpan tanpa foto";
+    }
+  };
+  return { get: () => dataUrl };
+}
+
+async function savePhoto(dataUrl, txId) {
+  if (!dataUrl) return null;
+  try { return await addAttachment(txId, dataUrl); }
+  catch (e) { console.warn("attachment:", e); toast("Transaksi tersimpan, tapi foto gagal diupload", 3500); return null; }
+}
+
+// Render foto lampiran transaksi ke dalam `wrap` (fetch on demand dari collection attachments).
+// Kalau belum ada foto, kasih input buat nambahin belakangan (bukti nyusul).
+async function renderTxPhoto(wrap, tx) {
+  if (tx.attachmentId) {
+    wrap.innerHTML = `<div class="sub">⏳ memuat foto...</div>`;
+    try {
+      const att = await getAttachment(tx.attachmentId);
+      wrap.innerHTML = att?.data
+        ? `<img src="${att.data}" alt="bukti" style="display:block; width:100%; border-radius:10px; margin-top:8px" />`
+        : `<div class="sub">⚠️ foto ga ketemu</div>`;
+    } catch (e) {
+      console.warn("attachment:", e);
+      wrap.innerHTML = `<div class="sub">⚠️ foto gagal dimuat (offline & belum pernah dibuka?)</div>`;
+    }
+    return;
+  }
+  wrap.innerHTML = photoFieldHtml("late");
+  attachPhotoInput(wrap, "late", async (dataUrl) => {
+    const id = await savePhoto(dataUrl, tx.id);
+    if (id) { toast("Foto tersimpan ✓"); renderTxPhoto(wrap, { ...tx, attachmentId: id }); }
+  });
+}
+
+// ================= Piutang baru: potong akun → jadi piutang =================
+// Bikin piutang = SATU aksi: dokumen asset `receivable` + transaksi transfer `assetDir:"buy"`
+// (akun sumber didebit sebesar pinjaman) — sama persis kayak "Kasih Pinjaman" di piutang yang
+// udah ada, cuma asset-nya dibikin dulu. Sumber dana WAJIB dipilih (uang beneran keluar dari akun).
+// Piutang yang dibuat lewat form generik Tambah Asset (tipe Piutang, tanpa transaksi) tetap bisa —
+// itu buat posisi lama yang uangnya udah keluar sebelum pakai app.
+function openNewReceivableSheet() {
+  const accounts = activeAccounts().filter((a) => !isCreditAccount(a));
+  if (accounts.length === 0) {
+    toast("Buat akun dulu di Settings ⚙️");
+    location.hash = "#/settings";
+    return;
+  }
+  const el = openSheet(`
+    ${sheetHead("🤝 Piutang Baru")}
+    <input id="nr-amount" class="amount-input" inputmode="numeric" placeholder="0" autocomplete="off" />
+    <label>Siapa (peminjam)</label>
+    <input id="nr-debtor" placeholder="cth: Budi" />
+    <label>Keterangan (opsional)</label>
+    <input id="nr-name" placeholder="cth: modal usaha" />
+    <label>Dari Akun (sumber dana)</label>
+    <select id="nr-account">
+      ${accounts.map((a) => `<option value="${a.id}">${escapeHtml(a.name)} (${a.currency})</option>`).join("")}
+    </select>
+    <div class="row">
+      <div><label>Tanggal</label><input id="nr-date" type="date" value="${todayStr()}" /></div>
+      <div><label>Jam</label><input id="nr-time" type="time" value="${nowTimeStr()}" /></div>
+    </div>
+    <label>Bisa ditagih (tgl, opsional)</label>
+    <input id="nr-due" type="date" />
+    <label>Catatan (opsional)</label>
+    <input id="nr-note" type="text" placeholder="cth: transfer via BCA" />
+    ${photoFieldHtml("nr")}
+    <button id="nr-save" class="btn btn-primary btn-block" style="margin-top:18px">Simpan</button>
+  `);
+  const amountInput = el.querySelector("#nr-amount");
+  attachThousands(amountInput);
+  setTimeout(() => amountInput.focus(), 250);
+  el.querySelector("[data-close]").onclick = closeSheet;
+  const photo = attachPhotoInput(el, "nr");
+
+  el.querySelector("#nr-save").onclick = async () => {
+    const amount = parseAmount(amountInput.value);
+    const debtorName = el.querySelector("#nr-debtor").value.trim();
+    const name = el.querySelector("#nr-name").value.trim();
+    const accountId = el.querySelector("#nr-account").value;
+    const acct = accounts.find((a) => a.id === accountId);
+    const date = el.querySelector("#nr-date").value;
+    const time = el.querySelector("#nr-time").value || DEFAULT_TX_TIME;
+    const dueDate = el.querySelector("#nr-due").value || null;
+    const note = el.querySelector("#nr-note").value.trim();
+    if (!amount || amount <= 0) return toast("Isi nominal pinjamannya");
+    if (!debtorName) return toast("Isi siapa peminjamnya");
+    if (!date) return toast("Tanggal belum diisi");
+    if (dueDate && dueDate < date) return toast("Tanggal tagih sebelum tanggal pinjam");
+    closeSheet();
+    const assetRef = await add("assets", {
+      type: "receivable", symbol: "", name, debtorName, dueDate,
+      quantity: 1, qtyless: true, currency: acct?.currency || "IDR",
+      manualPrice: amount, avgBuyPrice: amount, manualPriceUpdatedAt: date, manualOnly: false,
+    });
+    const txRef = await add("transactions", {
+      type: "transfer", amount, date, time, month: monthOf(date),
+      accountId, toAccountId: null, categoryId: null,
+      assetId: assetRef.id, assetDir: "buy",
+      note: note || `Pinjamkan ke ${debtorName}`,
+    });
+    await savePhoto(photo.get(), txRef.id);
+    toast(`Piutang ${debtorName} dicatat ✓ — ${acct?.name || "akun"} kepotong ${fmtMoneyPlain(amount, acct?.currency)}`, 3500);
+  };
+}
+
+// ================= Detail satu piutang: progress + riwayat =================
+// Klik item di tab Piutang. Riwayat = semua transaksi ber-assetId piutang ini (pinjaman keluar /
+// pembayaran masuk, bisa dicicil berkali-kali — tiap cicilan satu transaksi), klik baris → detail
+// transaksi read-only (openAssetBuy/SellSheet path existingTx) yang bisa nampilin foto & hapus.
+function openReceivableDetailSheet(a) {
+  const sisa = receivableLocalValue(a);
+  const lent = Number(a.avgBuyPrice) || 0;
+  const paid = Math.max(0, lent - sisa);
+  const pct = lent > 0 ? Math.min(100, (paid / lent) * 100) : 0;
+  const isPaid = sisa <= 0;
+  const today = todayStr();
+  const isDue = !isPaid && !!a.dueDate && a.dueDate <= today;
+  const txs = state.transactions.filter((t) => t.assetId === a.id);
+  const row = (label, val) => `<div style="display:flex; justify-content:space-between; padding:5px 0"><span class="sub">${label}</span><span>${val}</span></div>`;
+
+  const el = openSheet(`
+    ${sheetHead(`🤝 ${escapeHtml(a.debtorName || "?")}`)}
+    ${a.name ? `<div class="sub" style="margin-bottom:8px">${escapeHtml(a.name)}</div>` : ""}
+    <div class="progress"><div class="${isPaid ? "p-green" : pct >= 50 ? "p-yellow" : "p-red"}" style="width:${pct}%"></div></div>
+    <div class="sub" style="margin-top:4px">Dibayar ${fmtMoney(paid, a.currency)} dari ${fmtMoney(lent, a.currency)} · ${pct.toFixed(0)}%</div>
+    <div class="table-like" style="margin-top:10px">
+      ${row("Sisa piutang", `<b style="color:${isPaid ? "var(--green)" : "#7fbfba"}">${fmtMoney(sisa, a.currency)}</b>`)}
+      ${row("Total dipinjamkan", fmtMoney(lent, a.currency))}
+      ${row("Bisa ditagih", isPaid ? "✅ Lunas" : isDue ? `<span style="color:var(--yellow)">⚠️ ${a.dueDate} (udah lewat)</span>` : (a.dueDate || "—"))}
+    </div>
+    <div class="card-title" style="margin-top:14px">Riwayat (${txs.length})</div>
+    <div id="rd-list">${txs.length === 0 ? `<div class="empty">Belum ada transaksi.</div>` : ""}</div>
+    <div style="margin-top:14px; display:flex; gap:8px;">
+      ${isPaid ? "" : `<button id="rd-pay" class="btn btn-primary" style="flex:1">💵 Terima Pembayaran</button>`}
+      <button id="rd-lend" class="btn" style="flex:1">🤝 Kasih Pinjaman</button>
+      <button id="rd-edit" class="btn">✎</button>
+    </div>
+  `);
+  el.querySelector("[data-close]").onclick = closeSheet;
+  const list = el.querySelector("#rd-list");
+  txs.forEach((t) => {
+    const isPay = t.assetDir === "sell";
+    const acct = state.accounts.find((x) => x.id === t.accountId);
+    const div = document.createElement("div");
+    div.className = "tx-item";
+    div.innerHTML = `
+      <div class="tx-ic">${isPay ? "💵" : "🤝"}</div>
+      <div class="tx-main">
+        <div class="tx-cat">${isPay ? "Pembayaran" : "Pinjaman keluar"}${t.attachmentId ? " 📎" : ""}</div>
+        <div class="tx-note">${escapeHtml(t.date)}${t.time ? ` · ${escapeHtml(t.time)}` : ""} · ${escapeHtml(acct?.name || "?")}${t.note ? ` · ${escapeHtml(t.note)}` : ""}</div>
+      </div>
+      <div class="tx-amt ${isPay ? "income" : "expense"}">${isPay ? "+" : "−"} ${fmtMoney(t.amount, acct?.currency)}</div>`;
+    div.onclick = () => (isPay ? openAssetSellSheet(a, t) : openAssetBuySheet(a, t));
+    list.appendChild(div);
+  });
+  el.querySelector("#rd-pay")?.addEventListener("click", () => openAssetSellSheet(a));
+  el.querySelector("#rd-lend").onclick = () => openAssetBuySheet(a);
+  el.querySelector("#rd-edit").onclick = () => openAssetSheet(a);
 }
 
 // ================= LIQUID =================

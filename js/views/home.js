@@ -297,7 +297,11 @@ export function txRow(t) {
   const toAcct = t.toAccountId ? acctById(t.toAccountId) : null;
   const div = document.createElement("div");
   div.className = "tx-item";
-  const sign = t.type === "expense" ? "−" : t.type === "income" ? "+" : "⇄";
+  // Piutang: pembayaran masuk ditampilin kayak income (+, hijau), pinjaman keluar kayak expense
+  // (−, merah) — TAMPILAN doang; tipe datanya tetap transfer (ga masuk Income/Expense cashflow,
+  // lihat CLAUDE.md bullet `receivable`).
+  const amtClass = isRecv ? (isSell ? "income" : "expense") : t.type;
+  const sign = amtClass === "expense" ? "−" : amtClass === "income" ? "+" : "⇄";
   div.innerHTML = `
     <div class="tx-ic">${asset ? (isRedeem ? "🏁" : isRecv ? "🤝" : "📈") : goal ? "🎯" : t.type === "transfer" ? "🔁" : (cat?.icon || "📦")}</div>
     <div class="tx-main">
@@ -308,7 +312,7 @@ export function txRow(t) {
         : goal
         ? `${isWithdraw ? "Pencairan" : "Topup"}: ${escapeHtml(goal.name)}`
         : t.type === "transfer" ? `Transfer` : escapeHtml(cat?.name || "—")}${
-        asset?.deleted ? ` <span class="badge badge-yellow">asset dihapus</span>` : ""}${
+        asset?.deleted ? ` <span class="badge badge-yellow">asset dihapus</span>` : ""}${t.attachmentId ? " 📎" : ""}${
         // Transaksi biaya tambahan (ber-feeOfTxId) dikasih badge biar kelihatan dia nempel ke
         // transaksi lain, bukan expense berdiri sendiri — induknya persis di sebelahnya di list
         // (tanggal & jam-nya sama). Sengaja badge doang, ga lookup induknya per baris (O(n) per
@@ -317,7 +321,7 @@ export function txRow(t) {
       <div class="tx-note">${escapeHtml(t.note || dateLabel(t.date))}${t.time ? ` · ${escapeHtml(t.time)}` : ""}</div>
     </div>
     <div>
-      <div class="tx-amt ${t.type}">${sign} ${fmtMoney(t.amount, acct?.currency)}</div>
+      <div class="tx-amt ${amtClass}">${sign} ${fmtMoney(t.amount, acct?.currency)}</div>
       <div class="tx-acct">${asset
         ? isRecv
           ? (assetInflow ? `🤝 ${escapeHtml(recvWho)} → ${escapeHtml(acct?.name || "?")}` : `${escapeHtml(acct?.name || "?")} → 🤝 ${escapeHtml(recvWho)}`)
