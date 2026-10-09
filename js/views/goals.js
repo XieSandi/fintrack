@@ -1,9 +1,9 @@
 import { state, activeAccounts, goalSavedIDR, goalLinkedAssetsValueIDR, goalProgressIDR, assetValueIDR, effectiveRate } from "../store.js";
-import { add, patch, remove } from "../db.js";
+import { add, patch, remove, saveOrder } from "../db.js";
 import {
   fmtIDR, fmtNum, fmtMoney, escapeHtml, toast, openSheet, closeSheet, sheetHead,
   parseAmount, attachThousands, confirmDialog, monthLabel, todayStr, monthOf,
-  nowTimeStr, DEFAULT_TX_TIME,
+  nowTimeStr, DEFAULT_TX_TIME, makeSortable,
 } from "../utils.js";
 
 const COLORS = ["#8bacd0", "#8fbe9f", "#d9bc7f", "#d99494", "#b09ac9", "#d3a17f", "#7fbfba"];
@@ -46,9 +46,8 @@ export function goalDisplayStats(g) {
 // berarti dihapus/uangnya ilang — cuma didorong ke bawah list + tombol Topup disembunyiin
 // (nudge biar ga terus-terusan ditambahin kalau udah dianggap "beres").
 export function render(root) {
-  const goals = state.goals.slice().sort((a, b) =>
-    (a.isArchived === true) - (b.isArchived === true) || (a.targetAmount || 0) - (b.targetAmount || 0)
-  );
+  // Urutan = manual (sortOrder, udah di-sort di store.js), arsip didorong ke bawah (sort stabil).
+  const goals = state.goals.slice().sort((a, b) => (a.isArchived === true) - (b.isArchived === true));
 
   root.innerHTML = `
     <div class="card">
@@ -64,9 +63,10 @@ export function render(root) {
     const { target, saved, linkedValue, progress, pct, cls } = goalDisplayStats(g);
     const div = document.createElement("div");
     div.className = "budget-item";
+    div.dataset.id = g.id;
     div.innerHTML = `
       <div class="budget-top">
-        <span class="budget-name" style="color:${g.color || "#8bacd0"}">● ${escapeHtml(g.name)} ${g.isArchived ? '<span class="badge badge-yellow">arsip</span>' : ""}</span>
+        <span class="budget-name" style="color:${g.color || "#8bacd0"}"><span class="drag-handle" data-drag-handle aria-label="Geser urutan">⠿</span>● ${escapeHtml(g.name)} ${g.isArchived ? '<span class="badge badge-yellow">arsip</span>' : ""}</span>
         <span class="budget-nums">${pct.toFixed(0)}%</span>
       </div>
       <div class="progress"><div class="${cls}" style="width:${pct}%"></div></div>
@@ -86,6 +86,9 @@ export function render(root) {
     div.querySelector("[data-edit]").onclick = () => openGoalSheet(g);
     list.appendChild(div);
   });
+
+  // Urutan manual via drag handle ⠿ → sortOrder (pola sama accounts.js). Home preview ngikut.
+  makeSortable(list, { onReorder: (ids) => saveOrder("goals", ids) });
 
   root.querySelector("#btn-add-goal").onclick = () => openGoalSheet(null);
 }

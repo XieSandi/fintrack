@@ -197,7 +197,7 @@ function renderTotal(root) {
       ${hasFixedAssets ? `
       <label style="display:flex; align-items:center; gap:8px; margin-top:12px; font-size:12px; text-transform:none; letter-spacing:0; color:var(--muted2)">
         <input type="checkbox" id="capex-toggle" style="width:auto" ${includeFixed ? "checked" : ""}/>
-        🏗️ Sertakan Fixed Assets — CAPEX + JHT (${fmtIDR(fixed)}) di Net Worth
+        🏗️ Sertakan FA (${fmtIDR(fixed)}) di Net Worth
       </label>` : ""}
       ${hasReceivables ? `
       <label style="display:flex; align-items:center; gap:8px; margin-top:${hasFixedAssets ? 6 : 12}px; font-size:12px; text-transform:none; letter-spacing:0; color:var(--muted2)">
@@ -435,7 +435,8 @@ function renderAssets(root, group = "invest") {
   // summary tab ini. Nilai net worth-nya sendiri udah 0 otomatis (bondValueIDR), jadi filter di
   // sini murni declutter tampilan, BUKAN yang bikin net worth benar.
   // Piutang (receivable) ga masuk tab ini — punya tab sendiri (renderReceivables).
-  const all = state.assets.filter((a) => !(a.type === "bond" && a.redeemed === true) && inGroup(a));
+  // `redeemed` = bond udah cair / capex udah dijual / jht udah dicairkan penuh → keluar dari list aktif.
+  const all = state.assets.filter((a) => a.redeemed !== true && inGroup(a));
   const typesPresent = [...new Set(all.map((a) => a.type))];
   // Filter tipe yang ga ada di grup ini (sisa dari tab lain) dianggap "semua".
   const groupFilter = typesPresent.includes(assetFilter) ? assetFilter : "";
@@ -673,11 +674,14 @@ export function openAssetSheet(existing, contentRoot, presetType = "") {
       <button id="a-buy" class="btn" style="flex:1">💰 Catat Pembelian</button>
       <button id="a-sell" class="btn" style="flex:1">💸 Catat Penjualan</button>
     </div>
+    <div id="a-fa-buttons" style="margin-top:14px; display:none; gap:8px;">
+      <button id="a-fa-sell" class="btn" style="flex:1">💸 Jual / Cairkan</button>
+    </div>
     <div id="a-bond-buttons" style="margin-top:14px; display:none; gap:8px;">
       <button id="a-bond-coupon" class="btn" style="flex:1">💰 Catat Kupon Masuk</button>
       <button id="a-bond-redeem" class="btn" style="flex:1">🏁 Cairkan Pokok</button>
     </div>
-    ${existing && existing.type === "bond" && existing.redeemed === true ? `<div class="sub" style="margin-top:10px">✅ Pokok udah dicairkan</div>` : ""}
+    ${existing && existing.redeemed === true ? `<div class="sub" style="margin-top:10px">✅ ${existing.type === "bond" ? "Pokok udah dicairkan" : existing.type === "capex" ? "Udah dijual" : "Udah dicairkan"}</div>` : ""}
     <div style="margin-top:18px; display:flex; gap:8px;">
       ${existing && existing.type !== "receivable" ? `<button id="a-delete" class="btn btn-danger">Hapus</button>` : ""}
       <button id="a-save" class="btn btn-primary" style="flex:1">Simpan</button>
@@ -745,6 +749,7 @@ export function openAssetSheet(existing, contentRoot, presetType = "") {
     el.querySelector("#a-buy").textContent = isRecvType ? "🤝 Kasih Pinjaman" : "💰 Catat Pembelian";
     el.querySelector("#a-sell").textContent = isRecvType ? "💵 Terima Pembayaran" : "💸 Catat Penjualan";
     el.querySelector("#a-bond-buttons").style.display = (existing && isBondType && existing.redeemed !== true) ? "flex" : "none";
+    el.querySelector("#a-fa-buttons").style.display = (existing && (isCapexType || isJhtType) && existing.redeemed !== true) ? "flex" : "none";
   };
   typeSel.onchange = syncType;
   qtylessCheckbox.onchange = () => {
@@ -838,6 +843,7 @@ export function openAssetSheet(existing, contentRoot, presetType = "") {
   if (existing) {
     el.querySelector("#a-buy").onclick = () => openAssetBuySheet(existing);
     el.querySelector("#a-sell").onclick = () => openAssetSellSheet(existing);
+    el.querySelector("#a-fa-sell").onclick = () => openFixedAssetSellSheet(existing);
     el.querySelector("#a-bond-coupon").onclick = () => openBondCouponSheet(existing);
     el.querySelector("#a-bond-redeem").onclick = () => openBondRedeemSheet(existing);
     // Hapus asset yang PUNYA transaksi BOLEH, asal nilainya udah 0 (posisi habis dijual / piutang
@@ -1007,6 +1013,108 @@ export function openBondRedeemSheet(asset, existingTx = null) {
       note: note || `Cairkan pokok ${asset.symbol || asset.name}`,
     });
     toast("Pokok obligasi dicairkan ✓");
+  };
+}
+
+// ================= Fixed Assets: Jual (CAPEX) / Cairkan (JHT) =================
+// Nominal default = nilai terakhir (capex: nilai buku susut; jht: saldo), BISA diedit — harga jual
+// barang bisa di atas/bawah nilai buku. CAPEX selalu dijual PENUH → `redeemed:true` + transfer
+// `assetDir:"redeem"` (akun dikredit; flag & reversal reuse jalur bond). JHT: nominal < saldo =
+// pencairan SEBAGIAN (`manualPrice` dikurangi, transfer `assetDir:"sell"` tanpa qty, reversal
+// db.js cabang jht); nominal ≥ saldo = penuh (`redeemed`). Selisih vs nilai buku CAPEX cuma
+// ditampilin sebagai insight, ga dilacak sebagai realized P&L (v1). Export — dipakai home.js
+// openTxDetail() buat SEMUA transaksi ber-assetId milik capex/jht.
+export function openFixedAssetSellSheet(asset, existingTx = null) {
+  const isCapex = asset.type === "capex";
+  const verb = isCapex ? "Jual" : "Cairkan";
+  if (existingTx) {
+    const acct = state.accounts.find((a) => a.id === existingTx.accountId);
+    const partial = existingTx.assetDir === "sell";
+    const el = openSheet(`
+      ${sheetHead(`Detail ${verb}: ${escapeHtml(asset.name || asset.symbol)}`)}
+      <div class="sub" style="margin-bottom:10px">Ga bisa diedit — hapus &amp; catat ulang.</div>
+      <div class="table-like">
+        <div style="display:flex; justify-content:space-between; padding:6px 0"><span class="sub">Jenis</span><span>${partial ? "Pencairan sebagian" : isCapex ? "Dijual (penuh)" : "Pencairan penuh"}</span></div>
+        <div style="display:flex; justify-content:space-between; padding:6px 0"><span class="sub">Nominal</span><span>${fmtMoney(existingTx.amount, acct?.currency)}</span></div>
+        <div style="display:flex; justify-content:space-between; padding:6px 0"><span class="sub">Ke Akun</span><span>${escapeHtml(acct?.name || "?")}</span></div>
+        <div style="display:flex; justify-content:space-between; padding:6px 0"><span class="sub">Tanggal</span><span>${existingTx.date}${existingTx.time ? ` ${existingTx.time}` : ""}</span></div>
+        ${existingTx.note ? `<div style="display:flex; justify-content:space-between; padding:6px 0"><span class="sub">Catatan</span><span>${escapeHtml(existingTx.note)}</span></div>` : ""}
+      </div>
+      <button id="fs-delete" class="btn btn-danger btn-block" style="margin-top:18px">Hapus Transaksi</button>
+    `);
+    el.querySelector("[data-close]").onclick = closeSheet;
+    el.querySelector("#fs-delete").onclick = async () => {
+      if (!confirmDialog(partial ? "Hapus pencairan ini? Saldo JHT dibalikin." : `Hapus transaksi ini? Asset bakal aktif lagi (belum ${isCapex ? "dijual" : "dicairkan"}).`)) return;
+      closeSheet();
+      await remove("transactions", existingTx.id); // reversal lewat hook db.js
+      toast("Dihapus, asset disesuaikan");
+    };
+    return;
+  }
+
+  const accounts = activeAccounts().filter((a) => !isCreditAccount(a));
+  if (accounts.length === 0) {
+    toast("Buat akun dulu di Settings ⚙️");
+    location.hash = "#/settings";
+    return;
+  }
+  const bookValue = isCapex ? capexLocalValue(asset) : Number(asset.manualPrice) || 0;
+  const el = openSheet(`
+    ${sheetHead(`${verb}: ${escapeHtml(asset.name || asset.symbol)}`)}
+    <label>${isCapex ? "Harga jual" : "Nominal dicairkan"} (${asset.currency})</label>
+    <input id="fs-amount" class="amount-input" inputmode="numeric" value="${fmtNum(Math.round(bookValue))}" autocomplete="off" />
+    <div id="fs-hint" class="sub" style="margin-top:4px"></div>
+    <label>Ke Akun</label>
+    <select id="fs-account">${accounts.map((a) => `<option value="${a.id}">${escapeHtml(a.name)} (${a.currency})</option>`).join("")}</select>
+    <div class="row">
+      <div><label>Tanggal</label><input id="fs-date" type="date" value="${todayStr()}" /></div>
+      <div><label>Jam</label><input id="fs-time" type="time" value="${nowTimeStr()}" /></div>
+    </div>
+    <label>Catatan (opsional)</label>
+    <input id="fs-note" type="text" placeholder="${isCapex ? "cth: dijual ke teman" : "cth: klaim JHT"}" />
+    <button id="fs-save" class="btn btn-primary btn-block" style="margin-top:18px">${isCapex ? "Catat Penjualan" : "Catat Pencairan"}</button>
+  `);
+  const amountInput = el.querySelector("#fs-amount");
+  const hint = el.querySelector("#fs-hint");
+  attachThousands(amountInput);
+  el.querySelector("[data-close]").onclick = closeSheet;
+  const updateHint = () => {
+    const amt = parseAmount(amountInput.value);
+    if (isCapex) {
+      const diff = amt - bookValue;
+      hint.innerHTML = `Nilai buku ${blurNum(fmtMoneyPlain(bookValue, asset.currency))} → selisih ${diff >= 0 ? "+" : "−"}${blurNum(fmtMoneyPlain(Math.abs(diff), asset.currency))}`;
+    } else {
+      const full = amt >= bookValue - 0.5;
+      hint.innerHTML = full
+        ? `Saldo ${blurNum(fmtMoneyPlain(bookValue, asset.currency))} dicairkan PENUH`
+        : `Sebagian — sisa saldo ${blurNum(fmtMoneyPlain(bookValue - amt, asset.currency))}`;
+    }
+  };
+  amountInput.addEventListener("input", updateHint);
+  updateHint();
+
+  el.querySelector("#fs-save").onclick = async () => {
+    const amount = parseAmount(amountInput.value);
+    const accountId = el.querySelector("#fs-account").value;
+    const date = el.querySelector("#fs-date").value;
+    const time = el.querySelector("#fs-time").value || DEFAULT_TX_TIME;
+    const note = el.querySelector("#fs-note").value.trim();
+    if (!amount || amount <= 0) return toast("Isi nominalnya dulu");
+    if (!date) return toast("Tanggal belum diisi");
+    const full = isCapex || amount >= bookValue - 0.5;
+    if (!confirmDialog(full
+      ? `${verb} ${asset.name || asset.symbol} ${fmtMoneyPlain(amount, asset.currency)}? Asset ditandai ${isCapex ? "terjual" : "dicairkan"}.`
+      : `Cairkan ${fmtMoneyPlain(amount, asset.currency)}? Sisa saldo ${fmtMoneyPlain(bookValue - amount, asset.currency)}.`)) return;
+    closeSheet();
+    if (full) await patch("assets", asset.id, { redeemed: true });
+    else await patch("assets", asset.id, { manualPrice: bookValue - amount, manualPriceUpdatedAt: date });
+    await add("transactions", {
+      type: "transfer", amount, date, time, month: monthOf(date),
+      accountId, toAccountId: null, categoryId: null,
+      assetId: asset.id, assetDir: full ? "redeem" : "sell",
+      note: note || `${verb} ${asset.name || asset.symbol}`,
+    });
+    toast(full ? `${isCapex ? "Penjualan" : "Pencairan"} tercatat ✓ — asset kosong, bisa dihapus di Edit Asset` : "Pencairan sebagian tercatat ✓", 3500);
   };
 }
 

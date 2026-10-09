@@ -133,7 +133,13 @@ async function applyAssetQtyEffect(t) {
   const asset = state.assets.find((a) => a.id === t.assetId);
   if (!asset) return; // asset-nya udah kehapus duluan — ga ada yang bisa disesuaikan
   if (t.assetDir === "redeem") {
+    // Bond (pokok), CAPEX (dijual), JHT (dicairkan penuh) — semua pakai flag yang sama.
     await patch("assets", t.assetId, { redeemed: false });
+    return;
+  }
+  // JHT dicairkan SEBAGIAN (assetDir:"sell", tanpa qty) → balikin saldo-nya.
+  if (asset.type === "jht" && t.assetDir === "sell") {
+    await patch("assets", t.assetId, { manualPrice: (Number(asset.manualPrice) || 0) + (Number(t.amount) || 0) });
     return;
   }
   if (asset.qtyless === true) {
@@ -154,6 +160,16 @@ async function applyAssetQtyEffect(t) {
   const delta = t.assetDir === "buy" ? -qty : qty;
   const newQty = Math.max(0, (Number(asset.quantity) || 0) + delta);
   await patch("assets", t.assetId, { quantity: newQty });
+}
+
+// ================= Urutan manual (drag) =================
+// Simpan urutan baru sekaligus (satu batch): `sortOrder` = index di array. Dipakai makeSortable()
+// (utils.js) lewat callback onReorder di accounts.js & goals.js. Dokumen yang ga ada di `ids`
+// (mis. yang lagi difilter) ga disentuh — tetap di bawah lewat compareSortOrder() calc.js.
+export async function saveOrder(name, ids) {
+  const batch = writeBatch(db);
+  ids.forEach((id, i) => batch.update(docRef(name, id), { sortOrder: i, updatedAt: serverTimestamp() }));
+  await batch.commit();
 }
 
 // ================= Lampiran foto (attachments) =================
@@ -301,7 +317,7 @@ export async function upsertSnapshot() {
     // report-md.js live branch) — "hilang dari asset aktif", nilainya udah 0 di net worth
     // (bondValueIDR), snapshot ga perlu nyimpen baris Rp0 yang ga informatif.
     // Piutang arsip (ditutup) juga di-exclude — nilainya udah 0 (receivableLocalValue), pola sama.
-    assets: state.assets.filter((a) => !(a.type === "bond" && a.redeemed === true) && !(a.type === "receivable" && a.isArchived === true)).map((a) => ({
+    assets: state.assets.filter((a) => a.redeemed !== true && !(a.type === "receivable" && a.isArchived === true)).map((a) => ({
       symbol: a.symbol || a.name, type: a.type, currency: a.currency,
       quantity: Number(a.quantity) || 0,
       avgBuyPrice: Number(a.avgBuyPrice) || 0,
@@ -627,7 +643,10 @@ export async function bulkDelete({ mode, month, year, includeMaster, keepApiKeys
       if (asset.qtyless === true) {
         data.manualPrice = Math.max(0, (Number(asset.manualPrice) || 0) - agg.netValueAmount);
         data.avgBuyPrice = Math.max(0, (Number(asset.avgBuyPrice) || 0) - agg.buyAmount);
-      } else {
+      } else if (asset.type === "jht") {
+        // Pencairan sebagian (sell) di-reverse: saldo balik naik (netValueAmount = Σbuy − Σsell, negatif).
+        data.manualPrice = Math.max(0, (Number(asset.manualPrice) || 0) - agg.netValueAmount);
+      } else if (asset.type !== "capex") {
         data.quantity = Math.max(0, (Number(asset.quantity) || 0) - agg.netQty);
       }
       await patch("assets", assetId, data);

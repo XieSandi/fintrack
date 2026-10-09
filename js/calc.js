@@ -12,6 +12,13 @@
 import { addMonths, toDateStr } from "./utils.js";
 
 export const activeAccounts = (state) => state.accounts.filter((a) => !a.isArchived);
+
+// Urutan manual (drag di #/accounts & #/goals): field `sortOrder` (integer, additive). Dokumen
+// tanpa sortOrder (lama / baru dibuat) ngumpul di BAWAH yang udah diurutin, urutan relatif mereka
+// dipertahankan (sort stabil). Dipasang di store.js `track()` buat accounts & goals, jadi SEMUA
+// consumer (Home, dropdown tx-sheet, recurring, report) otomatis ngikut tanpa sort ulang sendiri.
+const orderOf = (x) => (Number.isFinite(x.sortOrder) ? x.sortOrder : Number.MAX_SAFE_INTEGER);
+export const compareSortOrder = (a, b) => orderOf(a) - orderOf(b);
 export const catById = (state, id) => state.categories.find((c) => c.id === id);
 export const acctById = (state, id) => state.accounts.find((a) => a.id === id);
 
@@ -144,7 +151,10 @@ export function assetCostIDR(state, a) {
 // ga ada konsep qty buat barang fisik satuan). `avgBuyPrice` DIREUSE sebagai harga beli awal
 // (bukan field baru) — biar assetCostIDR() otomatis jalan tanpa perubahan, jadi P&L existing di
 // assetRow()/report-md.js otomatis kebaca sebagai "kerugian" dari penyusutan tanpa kode baru.
+// `redeemed:true` = barangnya udah DIJUAL (`openFixedAssetSellSheet()` wealth.js, transfer
+// `assetDir:"redeem"` — reuse flag & reversal yang sama kayak bond) → nilai 0, dokumen tetap ada.
 export function capexLocalValue(state, a, nowMonth) {
+  if (a.redeemed === true) return 0;
   const price = Number(a.avgBuyPrice) || 0;
   const pct = Number(a.depreciationPctMonth) || 0;
   const purchaseMonth = (a.purchaseDate || "").slice(0, 7);
@@ -273,7 +283,11 @@ export const totalReceivablesIDR = (state) =>
 // kenaikannya TIDAK dianggap gain/revenue: cost = value → P&L selalu 0, ga ada transaksi
 // beli/jual (iuran dipotong dari gaji, ga lewat akun manapun di app). Ikut net worth & tab Assets
 // kayak asset biasa; ga auto-refresh.
+// `redeemed:true` = saldo udah dicairkan PENUH (`openFixedAssetSellSheet()`); pencairan SEBAGIAN
+// = transaksi `assetDir:"sell"` yang ngurangin `manualPrice` (reversal: db.js applyAssetQtyEffect
+// cabang jht nambahin balik).
 export function jhtLocalValue(a) {
+  if (a.redeemed === true) return 0;
   return Math.max(0, Number(a.manualPrice) || 0);
 }
 

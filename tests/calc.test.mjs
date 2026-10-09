@@ -824,6 +824,9 @@ function makeState() {
   assertEqual(calc.netWorthIDR(s, "2026-10"), calc.totalCashIDR(s) + 12_500_000, "jht: toggle FA on → ikut net worth");
   assertEqual(calc.totalFixedAssetsIDR(s, "2026-10"), 12_500_000, "totalFixedAssetsIDR: jht termasuk");
   assertEqual(calc.totalInvestAssetsIDR(s, "2026-10"), 0, "totalInvestAssetsIDR: jht bukan invest");
+  // Dicairkan penuh (redeemed) → nilai 0, dokumen tetap.
+  assertEqual(calc.jhtLocalValue({ ...s.assets[0], redeemed: true }), 0, "jht: redeemed → nilai 0");
+  assertEqual(calc.capexLocalValue(s, { type: "capex", avgBuyPrice: 5_000_000, depreciationPctMonth: 0.02, purchaseDate: "2026-01-01", redeemed: true }, "2026-10"), 0, "capex: dijual (redeemed) → nilai 0");
 }
 {
   // Klasifikasi Invest vs FA: capex+jht = FA, receivable bukan dua-duanya, sisanya invest.
@@ -869,6 +872,15 @@ function makeState() {
   assertEqual(calc.debtOutstanding(s.debts[1]), 0, "debtOutstanding: hutang arsip = 0");
   assertEqual(calc.activeDebts(s).length, 1, "activeDebts: arsip ga ikut");
   assertEqual(calc.totalDebtIDR(s), 5_000_000, "totalDebtIDR: hutang arsip ga ikut");
+}
+
+// ================= compareSortOrder (urutan manual drag) =================
+{
+  const list = [
+    { id: "no1" }, { id: "b", sortOrder: 1 }, { id: "no2" }, { id: "a", sortOrder: 0 }, { id: "c", sortOrder: 2 },
+  ];
+  const sorted = list.slice().sort(calc.compareSortOrder).map((x) => x.id);
+  assertEqual(sorted.join(","), "a,b,c,no1,no2", "compareSortOrder: ber-sortOrder dulu (asc), tanpa sortOrder di bawah dengan urutan asli");
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

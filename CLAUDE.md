@@ -56,7 +56,7 @@ js/recurring-sheet.js sheet "Awal Bulan": konfirmasi post recurring + salin budg
 js/report-md.js       buildMonthlyReport(month) → laporan .md buat di-paste ke AI
 js/integrity.js       scanIntegrity(state) → cek referensi yatim, read-only
 js/utils.js           format, tanggal, toast, sheet, escapeHtml, blur mode, copyText, hardRefresh,
-                       compressImage
+                       compressImage, makeSortable (drag reorder)
 js/views/             home, transactions, budget, wealth, settings, accounts, categories, goals,
                        recurring, danger
 tests/calc.test.mjs   smoke test calc.js (node tests/calc.test.mjs) — bukan runtime, GA di PRECACHE
@@ -94,7 +94,14 @@ expense/surplus periode + progress 🏆 Milestone → Akun (scroll) → 🎯 Goa
 
 ### `accounts`
 `{name, type: bank|ewallet|cash|rdn|broker|credit, currency: IDR|USD, initialBalance, color,
-accountNumber?, creditLimit?, isArchived?}`.
+accountNumber?, creditLimit?, isArchived?, sortOrder?}`.
+- **Urutan manual** (`sortOrder`, integer additive; juga di `goals`): drag handle ⠿ di `#/accounts`
+  & `#/goals` lewat `makeSortable(listEl, {onReorder})` (utils.js, Pointer Events — BUKAN HTML5
+  DnD yang ga jalan di touch iOS; item = anak `data-id`, handle wajib `.drag-handle`
+  `touch-action:none`), disimpan satu batch `saveOrder(name, ids)` (db.js). Sort-nya dipasang di
+  `track()` store.js (`compareSortOrder`, calc.js: ber-sortOrder dulu, tanpa sortOrder di bawah)
+  jadi Home, dropdown tx-sheet/recurring, dan report otomatis ngikut — JANGAN sort ulang by
+  nama/target di view. Home preview goals & `#/goals` ngikut urutan ini (arsip didorong ke bawah).
 - **Saldo TIDAK disimpan** — `accountBalances()` = initialBalance ± jurnal. Satu-satunya
   `patch("accounts")` = form Edit Akun. Reconcile ("⚖️ Sesuaikan Saldo") TIDAK overwrite: bikin 1
   transaksi adjustment (`cat_adjust_out`/`cat_adjust_in`) sebesar selisih. Saldo aktual boleh
@@ -190,7 +197,15 @@ priceSource, manualOnly, qtyless, ...field per tipe}`. Tipe: `stock_id` (qty LOT
 - **`capex`** (barang susut): nilai auto `avgBuyPrice × (1 − depreciationPctMonth)^bulan sejak
   purchaseDate` (`capexLocalValue()`). `quantity` = 1, `avgBuyPrice` = harga beli (reuse → P&L
   otomatis = penyusutan). Field: `purchaseDate`, `depreciationPctMonth` (desimal, form persen).
-  Ga auto-refresh, ga ada Catat Pembelian/Penjualan. **Toggle Fixed Assets**
+  Ga auto-refresh, ga ada Catat Pembelian. **"💸 Jual / Cairkan"** (`openFixedAssetSellSheet()`,
+  exported; tombol di Edit Asset buat capex & jht yang belum `redeemed`): nominal default = nilai
+  terakhir (capex: nilai buku, jht: saldo), BISA diedit. CAPEX selalu PENUH → `redeemed:true` +
+  transfer `assetDir:"redeem"` (akun dikredit; `capexLocalValue()` → 0, reversal & bulkDelete
+  reuse jalur bond); JHT nominal < saldo = SEBAGIAN (`manualPrice` dikurangi, transfer
+  `assetDir:"sell"` tanpa qty — reversal db.js cabang jht, integrity skip syarat qty), ≥ saldo =
+  penuh (`redeemed`). `openTxDetail()` route SEMUA transaksi ber-assetId capex/jht ke sheet ini.
+  Selisih harga jual vs nilai buku cuma insight, bukan realized P&L. `redeemed` sekarang generik
+  (bond/capex/jht) buat filter list aktif/snapshot/report. **Toggle Fixed Assets**
   `settings.includeCapexInNetWorth` (NAMA FIELD LAMA dipertahankan, artinya SEKARANG "sertakan
   FA = CAPEX + JHT", `includeFixedAssetsSetting()`; checkbox Wealth → Total, default FALSE —
   keputusan owner: JHT ga cepat dicairkan, jangan langsung dianggap net worth) — exclude CUMA
@@ -207,7 +222,8 @@ priceSource, manualOnly, qtyless, ...field per tipe}`. Tipe: `stock_id` (qty LOT
   (`cat_bunga`, TANPA assetId); "🏁 Cairkan Pokok" (`openBondRedeemSheet()`, exported) = transfer
   `assetDir:"redeem"` (tanpa assetQty/Price), sheet nge-patch `redeemed:true` sendiri, reversal
   di `applyAssetQtyEffect()` (balikin `redeemed:false`). `redeemed` → value/cost 0, doc TETAP
-  ADA, difilter dari list/snapshot/report. Integrity punya cabang khusus arah `"redeem"` — arah
+  ADA, difilter dari list/snapshot/report (filter `a.redeemed !== true` generik — dipakai juga
+  capex/jht yang udah dijual/dicairkan). Integrity punya cabang khusus arah `"redeem"` — arah
   baru = update integrity juga. Bond SENGAJA ga masuk recurring.
 - **`jht`** (Jaminan Hari Tua): saldo lump-sum, nilai = `manualPrice` apa adanya
   (`jhtLocalValue()`/`jhtValueIDR()`, `quantity` dipaksa 1 & diabaikan), diupdate MANUAL tiap
@@ -280,7 +296,7 @@ arsip).
   expense (masuk cashflow/budget) — alasan `DECISIONS.md` "Hutang v2".
 
 ### `goals`
-`{name, targetAmount, targetDate? ("YYYY-MM"), color, linkedAssetIds?, isArchived?}`. Saldo =
+`{name, targetAmount, targetDate? ("YYYY-MM"), color, linkedAssetIds?, isArchived?, sortOrder?}`. Saldo =
 topup − pencairan (`goalSavedIDR()`). Ga bisa dihapus kalau punya riwayat topup/pencairan.
 **GA ADA status "Selesai 🎉"** (`DECISIONS.md`).
 - **Link asset** (`linkedAssetIds`, checkbox di Edit Goal): `goalProgressIDR()` = saved +

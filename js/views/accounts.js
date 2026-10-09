@@ -1,8 +1,8 @@
 import { state, accountBalances, activeAccounts, isCreditAccount, creditUsed, creditRemaining } from "../store.js";
-import { add, patch, remove, upsertSnapshot } from "../db.js";
+import { add, patch, remove, upsertSnapshot, saveOrder } from "../db.js";
 import {
   fmtNum, fmtMoney, blurNum, escapeHtml, toast, openSheet, closeSheet, sheetHead, confirmDialog,
-  attachThousands, parseAmount, todayStr, monthOf, nowTimeStr, DEFAULT_TX_TIME, copyText,
+  attachThousands, parseAmount, todayStr, monthOf, nowTimeStr, DEFAULT_TX_TIME, copyText, makeSortable,
 } from "../utils.js";
 
 export const ACCT_TYPES = { bank: "Bank", ewallet: "E-Wallet", cash: "Cash", rdn: "RDN Sekuritas", broker: "Broker (Bibit/Pluang)", credit: "Kartu Kredit" };
@@ -46,12 +46,16 @@ export function render(root) {
   const bal = accountBalances();
   accounts.forEach((a) => {
     if (isCreditAccount(a)) {
-      list.appendChild(creditAcctRow(a, bal));
+      const row = creditAcctRow(a, bal);
+      row.dataset.id = a.id;
+      list.appendChild(row);
       return;
     }
     const div = document.createElement("div");
     div.className = "list-item";
+    div.dataset.id = a.id;
     div.innerHTML = `
+      <span class="drag-handle" data-drag-handle aria-label="Geser urutan">⠿</span>
       <span style="width:10px;height:10px;border-radius:50%;background:${a.color || "#8bacd0"};flex-shrink:0"></span>
       <div style="flex:1; min-width:0">
         <div style="font-size:13px;font-weight:600">${escapeHtml(a.name)} ${a.isArchived ? '<span class="badge badge-yellow">arsip</span>' : ""}</div>
@@ -64,6 +68,10 @@ export function render(root) {
     if (numRow) div.querySelector("[data-num-slot]").replaceWith(numRow);
     list.appendChild(div);
   });
+
+  // Urutan manual: drag dari handle ⠿, disimpan sebagai `sortOrder` (db.js saveOrder) — semua
+  // tampilan akun (Home, dropdown) ngikut lewat sort di store.js.
+  makeSortable(list, { onReorder: (ids) => saveOrder("accounts", ids) });
 
   root.querySelector("#btn-add-acct").onclick = () => openAcctSheet(null);
 }
@@ -82,7 +90,7 @@ function creditAcctRow(a, bal) {
   div.className = "budget-item";
   div.innerHTML = `
     <div class="budget-top">
-      <span class="budget-name" style="color:${a.color || "#8bacd0"}">💳 ${escapeHtml(a.name)} ${a.isArchived ? '<span class="badge badge-yellow">arsip</span>' : ""}</span>
+      <span class="budget-name" style="color:${a.color || "#8bacd0"}"><span class="drag-handle" data-drag-handle aria-label="Geser urutan">⠿</span>💳 ${escapeHtml(a.name)} ${a.isArchived ? '<span class="badge badge-yellow">arsip</span>' : ""}</span>
       <span class="budget-nums">${limit > 0 ? `${pct.toFixed(0)}%` : ""}</span>
     </div>
     ${limit > 0 ? `<div class="progress"><div class="${cls}" style="width:${pct}%"></div></div>` : ""}

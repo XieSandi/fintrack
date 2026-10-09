@@ -9,7 +9,7 @@ import {
 } from "../utils.js";
 import { openTxSheet } from "../tx-sheet.js";
 import { openTopupSheet, openWithdrawSheet, goalDisplayStats } from "./goals.js";
-import { openAssetBuySheet, openAssetSellSheet, openBondRedeemSheet, openDebtBorrowSheet } from "./wealth.js";
+import { openAssetBuySheet, openAssetSellSheet, openBondRedeemSheet, openDebtBorrowSheet, openFixedAssetSellSheet } from "./wealth.js";
 
 // Filter periode Home — persist selama sesi (module-level, bukan di store global)
 const period = { mode: "month", from: null, to: null };
@@ -67,7 +67,8 @@ export function render(root) {
   // activeGoals() — goal yang diarsipkan (goals.js) ga nongol di preview Home, biar "declutter"
   // beneran kerasa (pola sama activeAccounts() dipakai di sini juga). Uangnya tetep kehitung
   // penuh di totalBalance di atas (netWorthIDR/totalCashIDR ga filter archived).
-  const goals = activeGoals().slice().sort((a, b) => (a.targetAmount || 0) - (b.targetAmount || 0));
+  // Urutan ngikut manual sort (sortOrder, store.js) — sama kayak #/goals, bukan by target lagi.
+  const goals = activeGoals();
   const milestone = milestoneProgress();
   const paceLine = milestonePaceLine(milestone);
 
@@ -275,7 +276,9 @@ export function openTxDetail(t) {
   if (borrowDebt) return openDebtBorrowSheet(borrowDebt, t);
   // assetDir "redeem" (TASK-4, bond) — BEDA sheet dari beli/jual biasa (pencairan pokok, bukan
   // trade), lihat wealth.js openBondRedeemSheet().
-  if (asset && t.assetDir === "redeem") openBondRedeemSheet(asset, t);
+  // Fixed asset (capex/jht): jual/cairkan (redeem = penuh, sell = JHT sebagian) → sheet sendiri.
+  if (asset && (asset.type === "capex" || asset.type === "jht")) openFixedAssetSellSheet(asset, t);
+  else if (asset && t.assetDir === "redeem") openBondRedeemSheet(asset, t);
   else if (asset) { t.assetDir === "sell" ? openAssetSellSheet(asset, t) : openAssetBuySheet(asset, t); }
   else if (goal && t.fromGoalId) openWithdrawSheet(goal, t);
   else if (goal) openTopupSheet(goal, t);
@@ -317,7 +320,7 @@ export function txRow(t) {
         : asset
         ? isRecv
           ? `${isSell ? "Pembayaran claim" : "Pinjamkan"}: ${escapeHtml(recvWho)}`
-          : `${isRedeem ? "Cairkan Pokok" : isSell ? "Jual" : "Beli"}: ${escapeHtml(asset.symbol || asset.name)}`
+          : `${isRedeem ? (asset.type === "bond" ? "Cairkan Pokok" : asset.type === "capex" ? "Jual" : "Cairkan") : isSell ? (asset.type === "jht" ? "Cairkan sebagian" : "Jual") : "Beli"}: ${escapeHtml(asset.symbol || asset.name)}`
         : goal
         ? `${isWithdraw ? "Pencairan" : "Topup"}: ${escapeHtml(goal.name)}`
         : t.type === "transfer" ? `Transfer` : escapeHtml(cat?.name || "—")}${

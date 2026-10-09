@@ -216,6 +216,58 @@ export const setBlurred = (on) => {
   window.dispatchEvent(new CustomEvent("blurchange", { detail: { blurred: on } }));
 };
 
+// ---------- Drag-to-reorder (Pointer Events, jalan di touch & mouse) ----------
+// HTML5 drag-and-drop SENGAJA ga dipakai — ga jalan di touch iOS Safari. Item = anak langsung
+// `listEl` yang punya `data-id`; drag cuma dari elemen `handle` (selector) biar row yang clickable
+// (buka sheet edit) tetap bisa di-tap biasa. Handle WAJIB `touch-action:none` (CSS .drag-handle)
+// supaya browser ga ngambil gesture-nya buat scroll. DOM direorder LIVE pas gerak; `onReorder(ids)`
+// dipanggil sekali pas lepas kalau beneran geser (bukan tap). Klik yang nyusul abis drag ditelan
+// (capture) biar onclick row ga ke-trigger.
+export function makeSortable(listEl, { handle = "[data-drag-handle]", onReorder }) {
+  let dragEl = null, startY = 0, lastY = 0, moved = false;
+  const items = () => [...listEl.children].filter((c) => c.dataset.id);
+  listEl.addEventListener("pointerdown", (e) => {
+    const h = e.target.closest(handle);
+    if (!h || !listEl.contains(h)) return;
+    dragEl = h.closest("[data-id]");
+    if (!dragEl) return;
+    e.preventDefault();
+    moved = false; startY = lastY = e.clientY;
+    dragEl.classList.add("dragging");
+    try { h.setPointerCapture(e.pointerId); } catch {}
+  });
+  listEl.addEventListener("pointermove", (e) => {
+    if (!dragEl) return;
+    const y = e.clientY;
+    if (Math.abs(y - startY) > 4) moved = true;
+    const dir = y > lastY ? 1 : y < lastY ? -1 : 0;
+    lastY = y;
+    if (!dir) return;
+    const sib = dir > 0 ? dragEl.nextElementSibling : dragEl.previousElementSibling;
+    if (!sib || !sib.dataset.id) return;
+    const r = sib.getBoundingClientRect();
+    const mid = r.top + r.height / 2;
+    if (dir > 0 && y > mid) sib.after(dragEl);
+    else if (dir < 0 && y < mid) sib.before(dragEl);
+  });
+  const end = async () => {
+    if (!dragEl) return;
+    const el = dragEl;
+    dragEl = null;
+    el.classList.remove("dragging");
+    if (!moved) return;
+    el.dataset.justDragged = "1";
+    setTimeout(() => { delete el.dataset.justDragged; }, 350);
+    await onReorder(items().map((c) => c.dataset.id));
+  };
+  listEl.addEventListener("pointerup", end);
+  listEl.addEventListener("pointercancel", end);
+  listEl.addEventListener("click", (e) => {
+    const el = e.target.closest("[data-id]");
+    if (el?.dataset.justDragged) { e.stopPropagation(); e.preventDefault(); }
+  }, true);
+}
+
 // ---------- Foto lampiran: kompres di client ----------
 // Foto (bukti transfer/pembayaran piutang) disimpan sebagai data URL JPEG di Firestore (collection
 // `attachments`, lihat db.js) — BUKAN Firebase Storage (ga di-init di firebase.js, dan upload-nya

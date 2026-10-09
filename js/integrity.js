@@ -28,7 +28,8 @@ export function scanIntegrity(state) {
         // "redeem" (TASK-4, bond) DAN asset qtyless ("Jumlah N/A") BEDA validasi dari buy/sell
         // biasa — dua-duanya ga pakai assetQty/assetPrice sama sekali (ga ada qty/harga-per-unit
         // yang berarti buat instrumen lump-sum), cukup assetId + assetDir aja.
-        if (t.assetDir === "redeem" || refAsset?.qtyless === true) {
+        // + JHT: pencairan sebagian = sell tanpa qty (lump-sum), pola sama qtyless.
+        if (t.assetDir === "redeem" || refAsset?.qtyless === true || refAsset?.type === "jht") {
           if (t.assetDir !== "redeem" && t.assetDir !== "buy" && t.assetDir !== "sell") {
             problems.push("assetDir invalid");
           }
@@ -71,7 +72,8 @@ export function scanIntegrity(state) {
   // bukan assetQty (yang emang sengaja kosong buat qtyless) — bandingin bakal selalu "selisih 1"
   // palsu buat SETIAP asset qtyless yang punya transaksi, ga informatif sama sekali.
   for (const a of state.assets) {
-    if (a.qtyless === true) continue;
+    // Fixed assets (capex/jht) juga bukan qty-based (transaksinya jual/cairkan tanpa qty).
+    if (a.qtyless === true || a.type === "capex" || a.type === "jht") continue;
     const assetTxs = state.transactions.filter((t) => t.type === "transfer" && t.assetId === a.id);
     if (assetTxs.length === 0) continue;
     const netQty = assetTxs.reduce((sum, t) => {

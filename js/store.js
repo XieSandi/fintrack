@@ -51,7 +51,8 @@ export function startListeners(uid) {
     unsubs.push(unsub);
   };
 
-  track("accounts", query(col("accounts")));
+  // Urutan manual (sortOrder) — lihat calc.js compareSortOrder; sort in-place abis snapshot ke-assign.
+  track("accounts", query(col("accounts")), () => { state.accounts.sort(calc.compareSortOrder); });
   track("categories", query(col("categories")));
   // orderBy("date","desc") dari Firestore doang ga cukup buat urutan final (ga tau soal `time`,
   // dan sengaja ga di-orderBy dua field biar dokumen lama tanpa `time` ga ke-exclude query
@@ -64,7 +65,7 @@ export function startListeners(uid) {
   track("budgets", query(col("budgets")));
   track("assets", query(col("assets")));
   track("debts", query(col("debts")));
-  track("goals", query(col("goals")));
+  track("goals", query(col("goals")), () => { state.goals.sort(calc.compareSortOrder); });
   track("recurring", query(col("recurring")));
   track("snapshots", query(col("snapshots"), orderBy("__name__")));
 

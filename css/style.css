@@ -277,6 +277,10 @@ canvas { max-width: 100%; }
 .set-item:last-child { border-bottom: none; }
 .set-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
 .list-item { display: flex; align-items: center; gap: 10px; padding: 10px 2px; border-bottom: 1px solid var(--border); cursor: pointer; }
+/* Drag-to-reorder (utils.js makeSortable): handle wajib touch-action:none biar gesture-nya ga
+   diambil scroll; item yang lagi di-drag dikasih feedback tipis. */
+.drag-handle { color: var(--muted); cursor: grab; padding: 4px 6px 4px 0; touch-action: none; user-select: none; -webkit-user-select: none; font-size: 14px; flex-shrink: 0; }
+.dragging { opacity: .55; background: var(--card2); }
 .list-item:last-child { border-bottom: none; }
 .gear-link { color: var(--muted2); text-decoration: none; font-size: 13px; }
 

@@ -1116,3 +1116,18 @@ FA ga sepenuhnya FA.
 `fixedAssets ?? capex` jadi snapshot pra-JHT (cuma punya `totalCapex`) angkanya identik — JHT
 belum ada waktu itu. `netWorthComposition()` balikin `fixedAssets` (+ alias `capex`). Backfill
 CAPEX ke snapshot lama tetap jalan apa adanya (cuma ngisi `totalCapex`).
+
+---
+
+## Jual / Cairkan Fixed Assets reuse flag `redeemed` bond (2026-10)
+
+Owner minta tombol jual (CAPEX) / cairkan (JHT) di sheet FA, nominal default nilai terakhir tapi
+bisa diedit (harga jual barang bisa beda dari nilai buku). Daripada bikin flag baru (`sold`,
+`cashedOut`) + reversal + agregasi bulkDelete + filter list masing-masing, dipilih REUSE
+`redeemed` + `assetDir:"redeem"` yang udah ada buat bond — semantiknya sama ("posisi ini udah
+ditutup, uangnya masuk akun, dokumen tetap ada buat riwayat"), jalur reversal/bulk delete/filter
+otomatis jalan. Yang beda cuma label di UI (Pokok cair / Dijual / Dicairkan). JHT sebagian pakai
+`assetDir:"sell"` tanpa qty (pola qtyless) karena JHT emang bisa diklaim sebagian; butuh satu
+cabang reversal khusus jht di `applyAssetQtyEffect()` & `bulkDelete()` (saldo balik naik).
+Selisih harga jual vs nilai buku CAPEX sengaja cuma insight di sheet, bukan realized P&L (roadmap
+TASKS.md #1 masih berlaku).
