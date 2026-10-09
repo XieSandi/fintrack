@@ -15,7 +15,7 @@ Vanilla JS, zero build, Firebase Firestore (offline-first), hosted di GitHub Pag
 - 🔢 Simpan no. rekening / no. kartu per akun + tombol copy (sengaja TIDAK ikut ke laporan .md)
 - 📊 Budget bulanan per kategori + progress bar + salin dari bulan lalu
 - 💰 Assets (saham IDX per lot, US fractional shares, reksa dana, deposito, emas, crypto,
-  obligasi/SBN ritel, CAPEX/barang susut) dengan harga manual/auto + P&L, plus Catat
+  obligasi/SBN ritel, JHT/jaminan hari tua, CAPEX/barang susut) dengan harga manual/auto + P&L, plus Catat
   Pembelian/Penjualan (weighted avg buy price)
 - 🏦 Obligasi/SBN ritel: nilai par (bukan fluktuatif ala saham), hitung mundur jatuh tempo, catat
   kupon masuk & cairkan pokok — kupon sengaja TIDAK auto-post (pajak & timing mutasi beda-beda)

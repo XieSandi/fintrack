@@ -317,6 +317,15 @@ export function buildMonthlyReport(month) {
         ]);
         return;
       }
+      if (type === "jht") {
+        // JHT: saldo manual, tanpa harga beli & P&L (cost = value, lihat calc.js blok JHT).
+        assetRows.push([
+          a.symbol, ASSET_TYPES[a.type], NA, NA,
+          `saldo ${fmtMoneyPlain(a.price, a.currency)} (${a.priceDate || "?"})`,
+          fmtIDRPlain(val), NA, NA,
+        ]);
+        return;
+      }
       if (type === "receivable") {
         // Piutang: Qty ga relevan, Avg Buy = total dipinjamkan, Harga = sisa + tanggal tagih,
         // P&L "—" (piutang ga punya gain/loss, cost = value — lihat calc.js blok Piutang).

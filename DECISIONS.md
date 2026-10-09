@@ -970,3 +970,123 @@ pernah lewat rekening — hutang ada, tapi ga ada transaksi masuk. Beda dari
 piutang yang sumber dananya WAJIB (uang selalu keluar dari akun).
 
 **State operasional sekarang & aturan yang WAJIB dipatuhi:** lihat CLAUDE.md bullet `debts`.
+
+---
+
+## Catatan desain yang dipindah dari CLAUDE.md saat dipangkas (2026-09)
+
+CLAUDE.md sempat ~100KB karena tiap fitur bawa narasi "dulu X, sekarang Y" + alasan panjang.
+Dipangkas jadi aturan + pointer; rasional yang belum ada di entry lain dikumpulin di sini.
+
+**Home: toggle "+ Assets" pernah lupa subtract debt.** Card Total Balance toggle-nya ganti dari
+`totalCashIDR()` ke `netWorthIDR()` penuh. Versi awal cuma nambahin assets tanpa ngurangin debt,
+angkanya nge-gembung. Aturan: toggle itu = net worth beneran, bukan cash + assets.
+
+**Blur mode, detail mekanisme.** Mask asterisk panjang tetap di CSS (bukan JS) supaya mustahil
+ada span yang panjangnya beda; teks asli di-`display:none` (bukan `visibility:hidden`) biar lebar
+box ikut collapse — kalau ngga, ordo angka ketebak dari lebar/posisi asterisk di kolom rata-kanan.
+`fmtShort()` sengaja ga auto-blur karena dipakai juga buat teks non-DOM (`milestonePaceLine()` →
+laporan .md); caller DOM wajib bungkus `blurNum()` sendiri — sumtabs Wealth sempat kelewat. Jumlah
+unit asset (lot/lembar) sama sensitifnya kayak nilai, ikut di-blur. Chart.js canvas ga kena CSS:
+tick sumbu-Y dievaluasi pas gambar (butuh redraw lewat event `blurchange`), tooltip jalan pas
+hover (ga butuh). Awalnya cuma sumbu-Y chart Proyeksi yang blur; dua chart lain + semua tooltip
+bocor, sekarang ketiganya lewat helper yang sama.
+
+**`time` transaksi: kenapa fallback "00:01", bukan "sekarang".** Entry lama tanpa `time` dan
+posting recurring (jam asli ga diketahui) dianggap paling awal hari itu, supaya entry baru yang
+beneran dicatat hari yang sama selalu di atasnya. Kenapa sort-nya client-side: lihat entry "Jam
+transaksi".
+
+**`qtyless` ("Jumlah N/A", TASK-6).** Toggle lintas-tipe (bukan tipe baru) buat posisi lump-sum
+(1 rekening deposito, emas dilebur jadi 1 posisi, investasi bisnis). `quantity` dipaksa 1 selamanya
+sehingga formula generik `qty × manualPrice` / `qty × avgBuyPrice` otomatis jadi nilai total /
+modal total — ga ada cabang kalkulasi baru. Saham/US/crypto dikeluarin karena auto-refresh butuh
+qty×harga/unit. Beli nambah nilai DAN modal (asumsi "abis nambah duit, nilai hari itu minimal
+segitu"), jual ngurangin nilai doang (cost basis ga di-reverse, konvensi sama jual qty-based).
+Toggle ON dari asset ber-qty > 1 auto-konversi harga per-unit jadi total (dikali qty lama) biar
+angkanya ga diam-diam kesalahartikan; toggle OFF sengaja ga di-reverse (ga ada "1 unit" valid
+buat dibagi balik). Pas nambah agregasi qtyless di `bulkDelete()`, sekalian ketemu gap lama:
+transaksi `assetDir:"redeem"` yang kehapus lewat bulk delete ga ngebalikin flag `redeemed`.
+
+**Arsip goal ≠ arsip akun.** `activeAccounts()` dipakai langsung di `totalCashIDR()` (akun
+arsip = ditutup, saldo berhenti dihitung). Goal diarsipin bukan berarti uangnya ilang, jadi
+`totalGoalSavingsIDR()`/net worth sengaja ga difilter; `activeGoals()` cuma filter tampilan.
+Halaman `#/goals` tetap nampilin semua (flat + badge) karena itu halaman kelola. Topup
+disembunyiin buat goal arsip (nudge, bukan hard block), Cairkan tetap ada kalau masih ada saldo.
+
+**Recurring: bond sengaja ga diintegrasikan.** `dayOfMonth` recurring = "tiap bulan di tanggal
+X", periode kupon bond bisa multi-bulan → butuh field interval baru + logic "udah due berdasar N
+bulan sejak terakhir" yang recurring ga punya. Reminder cukup dari hitung mundur maturity di list
+Assets. DCA asset beda: reuse `dayOfMonth` apa adanya, tapi TIDAK auto-post karena qty harus
+diturunkan dari harga aktual bulan itu (auto-post = ngarang qty); `lastPostedMonth` baru di-patch
+lewat callback `onSaved` setelah transaksi beneran tersimpan.
+
+**Snapshot cuma ke-capture kalau app dibuka online bulan itu — konsekuensi desain, bukan bug.**
+Ga ada scheduler server-side, jangan ditutupin pakai background sync SW dsb. Backfill manual
+"Snapshot Historis" sengaja minimal (`{month, netWorth, manual:true}`, tanpa breakdown) —
+`isSnapshotComplete()` tetap false, laporan bulan itu tetap fallback posisi terkini. (Roadmap
+TASKS.md #11: cash/debt/goal sebenernya bisa direkonstruksi dari jurnal.)
+
+**Backfill CAPEX ke snapshot lama.** Snapshot pra-fitur CAPEX ga punya `totalCapex`, bikin garis
+"+ CAPEX"/"tanpa CAPEX" identik buat bulan lama. Backfill best-effort: cocokin `breakdown.assets[i].symbol`
+vs asset yang sekarang bertipe capex, jumlahin `valueIDR` yang udah kesimpen (bukan dikarang).
+Sengaja ga ngubah `breakdown.assets[i].type` (historis dibiarin) — section 6 report bulan lama
+tetap ngelompokkin item itu ke tipe lamanya. Snapshot tanpa breakdown di-skip.
+
+**Budget doughnut.** Ditaruh di `#/budget` (satu-satunya route ber-month-picker selain History),
+bukan di Wealth yang chart-nya lintas-bulan. `cat_adjust_out` tetap tampil tapi warna abu-abu
+(bareng bucket "Lainnya"); slot warna kategorikal cuma 7 karena warna ke-8 palet referensi merah,
+reserved buat makna danger/over budget.
+
+**Danger zone.** Preview dan eksekusi satu sumber scope (`bulkDeleteScope()`) biar preview ga
+pernah bohong. Online dicek di view DAN di dalam `bulkDelete()` (defense-in-depth). Type-to-confirm
+teksnya beda per mode. `lastPostedMonth` recurring di-reset kalau masuk periode yang dihapus, biar
+sheet Awal Bulan nawarin lagi.
+
+**Integrity: kenapa cuma asset ber-transaksi yang dicek qty-nya.** Asset tanpa transaksi = posisi
+lama pra-fitur beli/jual, legit manual. Selisih bisa disengaja (posisi lama + transaksi baru
+bercampur) → wording informatif, bukan tuduhan. `openBudgetSheet()` dibenerin sekalian: dulu nolak
+buka kalau `categoryId` orphan dengan toast yang salah ("Semua kategori sudah punya budget").
+
+---
+
+## Git history di-rewrite buat nyabut data personal (2026-09-23)
+
+Repo `XieSandi/fintrack` public (GitHub Pages plan gratis), dan versi lama `CLAUDE.md`,
+`DECISIONS.md`, `TASKS.md`, plus file lama `TASKS2.md`/`TASKS3.md` nyimpen konteks personal owner
+(gaji, tanggal gajian, nama bank & kartu, portfolio, nominal utang). Ngehapus dari HEAD doang ga
+cukup — commit lama tetap kebuka lewat history.
+
+**Yang dikerjain:** `git filter-repo --invert-paths` buat kelima file itu (seluruh history-nya
+dicabut, 77 → 72 commit), tiga file yang masih dipakai dicommit ulang dari versi bersih, lalu
+`git push --force origin main`. Sebelumnya `git log --all -- CLAUDE.local.md` dicek kosong (file
+lokal ga pernah ke-commit). Verifikasi: grep seluruh `git log -p --all` buat gaji/gajian/nama
+kartu/nominal utang/saldo goal/Δ net worth/symbol portfolio = nol, kecuali fixture angka di
+`tests/calc.test.mjs` (delta bulanan tanpa konteks) dan placeholder teks di kode (`cth: KTA Bank /
+Shopee BNPL`), yang bukan data personal.
+
+**Yang TIDAK bisa dijamin dari sini:** GitHub masih bisa nyimpen commit lama sebagai dangling
+object sampai garbage collection mereka jalan (bisa diminta hapus lewat GitHub Support), dan fork/
+clone pihak lain (kalau ada) tetap punya history lama. Clone lokal lain harus di-clone ulang,
+bukan pull. Bundle backup history lama SENGAJA ga disimpan (isinya persis yang mau dihapus).
+
+**Aturan ke depan:** CLAUDE.md ATURAN WAJIB #12 + section Konteks Owner — data personal cuma di
+`CLAUDE.local.md` (gitignore), angka riil di narasi insiden ditulis generik.
+
+---
+
+## Tipe asset JHT: saldo manual tanpa harga beli (2026-10)
+
+Owner minta tipe asset buat Jaminan Hari Tua: lump-sum, saldonya naik tiap bulan dari iuran
+potong gaji, diupdate manual, dan kenaikannya TIDAK boleh kebaca sebagai gain/revenue.
+
+Opsi yang ditolak: (a) pakai `qtyless` biasa — modal (`avgBuyPrice`) bakal 0 atau harus diisi
+tiap bulan, dan P&L-nya jadi "untung" sebesar seluruh saldo; (b) catat iuran bulanan sebagai
+transaksi beli — iurannya ga pernah lewat akun manapun di app (dipotong sebelum gaji masuk), jadi
+transaksi itu bakal ngedebit akun yang salah.
+
+Dipilih: tipe `jht` dengan pola sama Claim buat P&L (cost = value → selalu 0) tapi TANPA mesin
+trade sama sekali — nilai cuma dari field "Saldo JHT sekarang" di form Edit Asset. Konsekuensi:
+Δ net worth dari JHT muncul sebagai "Assets naik" di komposisi bulanan (benar — saldonya emang
+nambah), tapi ga pernah muncul sebagai income/P&L. Ikut net worth tanpa toggle (beda dari
+CAPEX/Claim) karena ini beneran aset keuangan milik owner, cuma belum bisa dicairkan.

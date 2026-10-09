@@ -113,6 +113,7 @@ export function assetValueIDR(state, a, nowMonth) {
   if (a.type === "capex") return capexValueIDR(state, a, nowMonth);
   if (a.type === "bond") return bondValueIDR(state, a);
   if (a.type === "receivable") return receivableValueIDR(state, a);
+  if (a.type === "jht") return jhtValueIDR(state, a);
   const rate = effectiveRate(state);
   const qty = Number(a.quantity) || 0;
   const price = Number(a.manualPrice) || 0;
@@ -125,6 +126,8 @@ export function assetCostIDR(state, a) {
   if (a.type === "bond") return bondCostIDR(state, a);
   // Piutang ga punya konsep gain/loss — cost = value, P&L selalu 0 (lihat blok Piutang di bawah).
   if (a.type === "receivable") return receivableValueIDR(state, a);
+  // JHT juga: ga ada harga beli, saldo bukan gain — cost = value (lihat blok JHT di bawah).
+  if (a.type === "jht") return jhtValueIDR(state, a);
   const rate = effectiveRate(state);
   const qty = Number(a.quantity) || 0;
   const avg = Number(a.avgBuyPrice) || 0;
@@ -262,6 +265,23 @@ export function receivableValueIDR(state, a) {
 // termasuk piutang apa adanya, exclude-nya cuma lewat `netWorthFromParts()`.
 export const totalReceivablesIDR = (state) =>
   state.assets.filter(isReceivable).reduce((s, a) => s + receivableValueIDR(state, a), 0);
+
+// ============== JHT (Jaminan Hari Tua) — saldo lump-sum yang diupdate manual ==============
+// Saldo program hari tua (iuran potong gaji tiap bulan). Nilai = `manualPrice` apa adanya (saldo
+// total, BUKAN qty×harga/unit — `quantity` dipaksa 1, diabaikan di sini), diupdate MANUAL lewat
+// form Edit Asset tiap bulan. TIDAK ada harga beli (`avgBuyPrice` dipaksa 0 & di-hide) dan
+// kenaikannya TIDAK dianggap gain/revenue: cost = value → P&L selalu 0, ga ada transaksi
+// beli/jual (iuran dipotong dari gaji, ga lewat akun manapun di app). Ikut net worth & tab Assets
+// kayak asset biasa; ga auto-refresh.
+export function jhtLocalValue(a) {
+  return Math.max(0, Number(a.manualPrice) || 0);
+}
+
+export function jhtValueIDR(state, a) {
+  const rate = effectiveRate(state);
+  const val = jhtLocalValue(a);
+  return a.currency === "USD" ? val * rate : val;
+}
 
 export const totalAssetsIDR = (state, nowMonth) =>
   state.assets.reduce((s, a) => s + assetValueIDR(state, a, nowMonth), 0);

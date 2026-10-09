@@ -48,6 +48,7 @@ export const ASSET_TYPES = {
   gold: "Emas",
   crypto: "Crypto",
   bond: "Obligasi / SBN",
+  jht: "JHT (Jaminan Hari Tua)",
   receivable: "Claim",
   capex: "CAPEX (Barang Susut)",
   other: "Lainnya",
@@ -508,6 +509,7 @@ function assetRow(a) {
   const isCapex = a.type === "capex";
   const isBond = a.type === "bond";
   const isRecv = isReceivable(a);
+  const isJht = a.type === "jht";
   const isQtyless = a.qtyless === true;
   // Jumlah unit ikut blur mode juga (bukan cuma nilai Rp) — "berapa lot/lembar yang gue punya"
   // sama sensitifnya buat disembunyiin pas layar keliatan orang lain. blurNum() manual di sini
@@ -533,6 +535,10 @@ function assetRow(a) {
     staleLine = isPastMaturity
       ? `⚠️ Jatuh tempo ${a.maturityDate} — cairkan pokok`
       : `jatuh tempo ${a.maturityDate || "?"}${monthsLeft !== null ? ` · ${monthsLeft} bln lagi` : ""}`;
+  } else if (isJht) {
+    // JHT: saldo lump-sum diupdate manual, tanpa harga beli & tanpa P&L (lihat calc.js blok JHT).
+    metaLine = `Saldo program hari tua · tanpa harga beli`;
+    staleLine = `saldo ${fmtMoney(a.manualPrice, a.currency)} per ${a.manualPriceUpdatedAt || "?"} · update manual`;
   } else if (isRecv) {
     // Piutang: nilai = sisa piutang, meta = siapa + total dipinjamkan, stale line = status tagih
     // (lunas / udah bisa ditagih / tanggal tagih). P&L ga relevan (selalu 0, lihat calc.js).
@@ -567,6 +573,8 @@ function assetRow(a) {
       <div class="asset-val">${fmtIDR(val)}</div>
       ${isRecv
         ? `<div class="stale-note">${val > 0 ? "sisa claim" : "lunas"}</div>`
+        : isJht
+        ? `<div class="stale-note">saldo</div>`
         : `<div class="${pnl >= 0 ? "pnl-pos" : "pnl-neg"}">${pnl >= 0 ? "+" : ""}${fmtIDR(pnl)} (${pnlPct.toFixed(1)}%)</div>`}
     </div>`;
   div.onclick = () => openAssetSheet(a, div.closest("#group-content"));
@@ -678,13 +686,15 @@ export function openAssetSheet(existing, contentRoot) {
     // Piutang REUSE mesin qtyless (qty dipaksa 1, nilai = manualPrice, modal = avgBuyPrice) tanpa
     // checkbox — lihat calc.js blok Piutang. Field-nya di-relabel di bawah.
     const isRecvType = t === "receivable";
+    // JHT: lump-sum tanpa harga beli — qty dipaksa 1, avg di-hide, nilai = saldo total (manual).
+    const isJhtType = t === "jht";
     // Toggle "Jumlah N/A" cuma masuk akal buat tipe manual yang ga punya model single-unit
     // sendiri kayak CAPEX/Bond — posisi lump-sum (1 rekening deposito, 1 batangan emas dilebur
     // jadi 1 posisi, 1 investasi bisnis) yang biasa ditambah/ditarik nominal langsung, bukan
     // qty×harga/unit. Saham/US/crypto DIKELUARIN karena auto-refresh butuh qty×harga/unit buat
     // ngitung nilai — kombinasi qtyless+auto-refresh ga make sense.
     const qtylessEligible = QTYLESS_TYPES.includes(t);
-    const isQtyless = (qtylessEligible && qtylessCheckbox.checked) || isRecvType;
+    const isQtyless = (qtylessEligible && qtylessCheckbox.checked) || isRecvType || isJhtType;
     qtyLabel.textContent = t === "stock_id" ? "Jumlah (lot)" : "Jumlah";
     if (t === "stock_id") curSel.value = "IDR";
     if (t === "stock_us") curSel.value = "USD";
@@ -700,21 +710,21 @@ export function openAssetSheet(existing, contentRoot) {
     el.querySelector("#a-symbol-wrap").classList.toggle("hidden", isCapexType || isRecvType);
     el.querySelector("#a-symbol-label").textContent = isBondType ? "Series Name" : "Symbol / Kode";
     el.querySelector("#a-symbol").placeholder = isBondType ? "ORI030T3" : "BBCA / VOO";
-    el.querySelector("#a-name-label").textContent = isCapexType ? "Nama Barang" : isRecvType ? "Nama Claim" : "Nama (opsional)";
+    el.querySelector("#a-name-label").textContent = isCapexType ? "Nama Barang" : isRecvType ? "Nama Claim" : isJhtType ? "Nama (cth: BPJS TK)" : "Nama (opsional)";
     el.querySelector("#a-qtyless-wrap").classList.toggle("hidden", !qtylessEligible);
     // Capex/Bond hide SELURUH row (qty+currency, currency-nya di-force lewat curSel.value di
     // atas) — qtyless CUMA nyembunyiin input qty-nya doang (`a-qty-wrap`), currency TETAP bisa
     // dipilih manual (beda dari bond yang forced IDR, qtyless ga punya currency default yang pasti).
     el.querySelector("#a-qty-row").classList.toggle("hidden", isCapexType || isBondType);
     el.querySelector("#a-qty-wrap").classList.toggle("hidden", isQtyless);
-    el.querySelector("#a-avg-wrap").classList.toggle("hidden", isBondType);
+    el.querySelector("#a-avg-wrap").classList.toggle("hidden", isBondType || isJhtType);
     el.querySelector("#a-price-wrap").classList.toggle("hidden", isCapexType);
-    el.querySelector("#a-price-label").textContent = isBondType ? "Harga pasar (opsional)" : isRecvType ? "Sisa Claim" : isQtyless ? "Nilai Sekarang" : "Harga sekarang / unit";
+    el.querySelector("#a-price-label").textContent = isBondType ? "Harga pasar (opsional)" : isRecvType ? "Sisa Claim" : isJhtType ? "Saldo JHT sekarang" : isQtyless ? "Nilai Sekarang" : "Harga sekarang / unit";
     el.querySelector("#a-capex-row").classList.toggle("hidden", !isCapexType);
     ["a-bond-row1", "a-bond-row2", "a-bond-row3", "a-bond-row4"].forEach((id) =>
       el.querySelector(`#${id}`).classList.toggle("hidden", !isBondType));
     el.querySelector("#a-avg-label").textContent = isCapexType ? "Harga Beli" : isRecvType ? "Total Dipinjamkan" : isQtyless ? "Modal" : "Avg Buy / unit";
-    el.querySelector("#a-trade-buttons").style.display = (existing && !isCapexType && !isBondType) ? "flex" : "none";
+    el.querySelector("#a-trade-buttons").style.display = (existing && !isCapexType && !isBondType && !isJhtType) ? "flex" : "none";
     el.querySelector("#a-buy").textContent = isRecvType ? "🤝 Kasih Pinjaman" : "💰 Catat Pembelian";
     el.querySelector("#a-sell").textContent = isRecvType ? "💵 Terima Pembayaran" : "💸 Catat Penjualan";
     el.querySelector("#a-bond-buttons").style.display = (existing && isBondType && existing.redeemed !== true) ? "flex" : "none";
@@ -749,6 +759,7 @@ export function openAssetSheet(existing, contentRoot) {
     const isCapexNow = typeSel.value === "capex";
     const isBondNow = typeSel.value === "bond";
     const isRecvNow = typeSel.value === "receivable";
+    const isJhtNow = typeSel.value === "jht";
     const isQtylessNow = (QTYLESS_TYPES.includes(typeSel.value) && qtylessCheckbox.checked) || isRecvNow;
     const data = {
       type: typeSel.value,
@@ -756,9 +767,11 @@ export function openAssetSheet(existing, contentRoot) {
       // ga punya symbol sama sekali.
       symbol: isCapexNow ? "" : el.querySelector("#a-symbol").value.trim().toUpperCase(),
       name: el.querySelector("#a-name").value.trim(),
-      quantity: (isCapexNow || isBondNow || isQtylessNow) ? 1 : parseDec(el.querySelector("#a-qty").value),
-      avgBuyPrice: isBondNow ? 0 : parseDec(el.querySelector("#a-avg").value),
+      quantity: (isCapexNow || isBondNow || isQtylessNow || isJhtNow) ? 1 : parseDec(el.querySelector("#a-qty").value),
+      // JHT ga punya harga beli (dipaksa 0, field di-hide) — kenaikan saldo bukan gain.
+      avgBuyPrice: (isBondNow || isJhtNow) ? 0 : parseDec(el.querySelector("#a-avg").value),
       currency: curSel.value,
+      // JHT BUKAN qtyless (ga lewat trade sheet sama sekali) — qty-nya dipaksa 1 di atas doang.
       qtyless: isQtylessNow,
       // Field piutang — `null` kecuali tipe receivable (pola sama bond/capex).
       debtorName: isRecvNow ? el.querySelector("#a-recv-debtor").value.trim() : null,

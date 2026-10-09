@@ -810,6 +810,17 @@ function makeState() {
   assertEqual(compEx.total, comp.total - 2_000_000, "composition: exclude piutang → total beda persis Δ piutang");
 }
 
+// ================= JHT: saldo manual, tanpa harga beli, P&L 0 =================
+{
+  const s = makeState();
+  s.assets = [{ id: "j1", type: "jht", name: "JHT", quantity: 1, avgBuyPrice: 0, manualPrice: 12_500_000, currency: "IDR" }];
+  assertEqual(calc.assetValueIDR(s, s.assets[0], "2026-10"), 12_500_000, "jht: nilai = manualPrice (saldo total)");
+  assertEqual(calc.assetCostIDR(s, s.assets[0]), 12_500_000, "jht: cost = value → P&L 0 (saldo bukan gain)");
+  assertEqual(calc.assetValueIDR(s, { ...s.assets[0], quantity: 7 }, "2026-10"), 12_500_000, "jht: quantity diabaikan");
+  assertEqual(calc.totalAssetsIDR(s, "2026-10"), 12_500_000, "jht: ikut totalAssetsIDR");
+  assertEqual(calc.netWorthIDR(s, "2026-10"), calc.totalCashIDR(s) + 12_500_000, "jht: ikut net worth penuh (tanpa toggle)");
+}
+
 // ================= Hutang v2: borrow transaction, archive, debtTxDelta =================
 {
   const s = makeState();
