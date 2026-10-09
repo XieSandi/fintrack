@@ -1090,3 +1090,29 @@ trade sama sekali — nilai cuma dari field "Saldo JHT sekarang" di form Edit As
 Δ net worth dari JHT muncul sebagai "Assets naik" di komposisi bulanan (benar — saldonya emang
 nambah), tapi ga pernah muncul sebagai income/P&L. Ikut net worth tanpa toggle (beda dari
 CAPEX/Claim) karena ini beneran aset keuangan milik owner, cuma belum bisa dicairkan.
+
+---
+
+## Wealth dipisah Cash · Invest · FA · Debt&Claim, toggle CAPEX jadi toggle Fixed Assets (2026-10)
+
+Owner mau asset yang bisa langsung ngaruh ke net worth dipisah dari yang ga bisa cepat dicairkan.
+Tab lama (Assets · Liquid · Debt · Claim) rancu: "Liquid" artinya cash, padahal saham/reksadana
+juga likuid; CAPEX nyampur sama saham; Claim punya tab sendiri padahal konsepnya kebalikan Debt.
+
+**Klasifikasi:** Cash = akun; Invest = semua tipe asset selain FA & claim — bond/deposito/gold
+MASUK invest (owner: "bentuk investasi lainnya"), walau ada lock period; FA (Fixed Assets) =
+`capex` + `jht`; Claim tetap toggle sendiri, ditampilin satu tab sama Debt dengan DUA angka
+(sengaja ga di-net — "debt − claim" bisa kebaca utang turun padahal cuma ada piutang).
+
+**Toggle CAPEX → toggle FA.** Field `settings.includeCapexInNetWorth` TIDAK di-rename (nilai
+user yang udah ke-set tetap kepakai), artinya aja yang jadi "sertakan Fixed Assets". Konsekuensi
+yang diputuskan eksplisit (opsi 1 dari dua yang ditawarin): JHT ikut toggle, dan karena default
+OFF, JHT yang baru ditambahin minggu sebelumnya langsung keluar dari net worth sampai toggle
+dinyalain. Alasan owner: JHT ga cepat dicairkan, jadi ga bisa langsung dianggap net worth —
+persis definisi FA. Opsi 2 (JHT selalu dihitung, toggle cuma CAPEX) ditolak karena bikin toggle
+FA ga sepenuhnya FA.
+
+**Data:** snapshot nambah `totalFixedAssets` (additive); `netWorthFromParts()` pakai
+`fixedAssets ?? capex` jadi snapshot pra-JHT (cuma punya `totalCapex`) angkanya identik — JHT
+belum ada waktu itu. `netWorthComposition()` balikin `fixedAssets` (+ alias `capex`). Backfill
+CAPEX ke snapshot lama tetap jalan apa adanya (cuma ngisi `totalCapex`).

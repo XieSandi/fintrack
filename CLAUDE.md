@@ -64,8 +64,13 @@ tests/precache.test.mjs cek PRECACHE sw.js lengkap dua arah (node tests/precache
 sw.js                 precache shell, runtime cache gstatic+jsdelivr
 ```
 
-Routing hash (`#/home`). Nav: Home · History · Assets (Wealth: sumtab Total · Assets · Liquid ·
-Debt · Claim) · Setting. Budget/Akun/Kategori/Goals/Recurring/Danger = subpage Setting (`back`
+Routing hash (`#/home`). Nav: Home · History · Assets (Wealth: sumtab Total · Cash · Invest · FA ·
+Debt·Claim) · Setting. **Klasifikasi Wealth** (calc.js `FIXED_ASSET_TYPES`/`isFixedAsset`/
+`isInvestAsset`): Cash = akun non-CC (`totalCashIDR()`); Invest = semua tipe asset kecuali FA &
+claim (`totalInvestAssetsIDR()`, termasuk bond/deposito/gold); FA = `capex` + `jht`
+(`totalFixedAssetsIDR()`); Debt·Claim = satu tab dua angka (cicilan + CC, dan claim), sengaja ga
+di-net. `renderAssets(root, group)` dipakai tab Invest & FA, `renderDebtClaim()` nge-wrap
+`renderDebts()` + `renderReceivables()`. Budget/Akun/Kategori/Goals/Recurring/Danger = subpage Setting (`back`
 di ROUTES). `#/budget` & History satu-satunya route ber-month-picker (`month:true`).
 
 **Home** (`views/home.js`), top→bottom: filter periode (state module-level) → card Total Balance
@@ -185,11 +190,14 @@ priceSource, manualOnly, qtyless, ...field per tipe}`. Tipe: `stock_id` (qty LOT
 - **`capex`** (barang susut): nilai auto `avgBuyPrice × (1 − depreciationPctMonth)^bulan sejak
   purchaseDate` (`capexLocalValue()`). `quantity` = 1, `avgBuyPrice` = harga beli (reuse → P&L
   otomatis = penyusutan). Field: `purchaseDate`, `depreciationPctMonth` (desimal, form persen).
-  Ga auto-refresh, ga ada Catat Pembelian/Penjualan. Toggle `settings.includeCapexInNetWorth`
-  (checkbox Wealth → Total, default FALSE) — exclude CUMA lewat `netWorthFromParts()`,
-  `totalAssetsIDR()` tetap termasuk. Breakdown Total: "📈 Assets" SELALU exclude CAPEX (& claim),
-  baris "🏗️ CAPEX" cuma kalau ON. Snapshot: `totalCapex` top-level + `purchaseDate`/
-  `depreciationPctMonth` di breakdown (lama → 0/null).
+  Ga auto-refresh, ga ada Catat Pembelian/Penjualan. **Toggle Fixed Assets**
+  `settings.includeCapexInNetWorth` (NAMA FIELD LAMA dipertahankan, artinya SEKARANG "sertakan
+  FA = CAPEX + JHT", `includeFixedAssetsSetting()`; checkbox Wealth → Total, default FALSE —
+  keputusan owner: JHT ga cepat dicairkan, jangan langsung dianggap net worth) — exclude CUMA
+  lewat `netWorthFromParts()` (`fixedAssets ?? capex`), `totalAssetsIDR()` tetap termasuk.
+  Breakdown Total: "📈 Invest" = `totalInvestAssetsIDR()`, baris "🏗️ Fixed Assets" cuma kalau ON.
+  Snapshot: `totalCapex` (masih dipakai backfill) + `totalFixedAssets` (basis toggle; snapshot
+  pra-JHT fallback `totalCapex`) + `purchaseDate`/`depreciationPctMonth` di breakdown.
 - **`bond`** (SBN ritel): nilai = `manualPrice > 0 ? manualPrice : principal` (`manualPrice` =
   nilai pasar ABSOLUT, bukan per-unit); cost = `principal` (P&L 0 di par = benar). Field:
   `principal` (WAJIB), `maturityDate` (WAJIB), `couponRatePA` (desimal), `couponPeriodMonths`,
@@ -207,7 +215,8 @@ priceSource, manualOnly, qtyless, ...field per tipe}`. Tipe: `stock_id` (qty LOT
   ada harga beli (`avgBuyPrice` dipaksa 0, field di-hide) dan kenaikan saldo BUKAN gain: cost =
   value → P&L selalu 0 (`assetRow()` nampilin "saldo", report section 6 Qty/Avg/P&L "—"). Ga ada
   Catat Pembelian/Penjualan (iuran potong gaji, ga lewat akun manapun), BUKAN `qtyless`, ga
-  auto-refresh, di-exclude dari dropdown DCA. Ikut net worth & tab Assets penuh, tanpa toggle.
+  auto-refresh, di-exclude dari dropdown DCA. Tampil di tab **FA** dan IKUT toggle Fixed Assets
+  (default OFF → di luar net worth sampai toggle dinyalain, sama kayak CAPEX).
 - **`qtyless`** ("Jumlah N/A", toggle buat `mutual_fund`/`deposito`/`gold`/`other`): `quantity`
   dipaksa 1 SELAMANYA → formula generik otomatis `manualPrice` = nilai total, `avgBuyPrice` =
   modal total (TANPA cabang calc khusus). Trade lewat `openQtylessTradeSheet()` (dispatch otomatis
@@ -325,12 +334,14 @@ nudge set milestone baru (target ga auto-ubah). `milestonePaceLine(mp)` (utils.j
 buat Home, Wealth, report (pace SELALU dari posisi terkini).
 
 ### Formula net worth
-`netWorthFromParts({cash, assets, capex, receivables, goalSavings, debt}, includeCapex,
-includeReceivables = true)` (calc.js, PURE, tanpa `state`) = cash + assets + goalSavings − debt,
-minus capex/receivables kalau toggle OFF. `assets` di sini RAW (termasuk capex & claim).
+`netWorthFromParts({cash, assets, capex, fixedAssets, receivables, goalSavings, debt},
+includeFixedAssets, includeReceivables = true)` (calc.js, PURE, tanpa `state`) = cash + assets +
+goalSavings − debt, minus `fixedAssets ?? capex` / receivables kalau toggle OFF. `assets` di sini
+RAW (termasuk FA & claim).
 `netWorthIDR()` wrapper live; `snapshotNetWorth(s, ...)` dari total* mentah snapshot (fallback
 `s.netWorth` kalau snapshot lama tanpa totals); `netWorthComposition(prev, curr, ...)` balikin
-KONTRIBUSI siap-jumlah (`assets` exclude capex & receivables, `debt` udah dinegasi, `total`
+KONTRIBUSI siap-jumlah (`assets` exclude FA & receivables, `fixedAssets` baris sendiri (alias
+`capex`), `debt` udah dinegasi, `total`
 dihitung langsung dari `netWorthFromParts`) — caller TINGGAL JUMLAH, jangan sign-flip manual
 (riwayat bug: `DECISIONS.md` TASK-1). Goal savings = `goalSavedIDR()` murni. USD ×
 `effectiveRate()` (manual > auto > 16000).
@@ -386,7 +397,7 @@ Kenapa hook: `DECISIONS.md` "efek debt/asset dipusatkan sebagai hook".
   "Versi baru siap" (`#update-bar`) → tap → `postMessage({type:"SKIP_WAITING"})` → reload di
   `controllerchange` dikunci flag `userAccepted`. Banner ga muncul kalau `controller` null
   (install pertama). "Hard Refresh" (Setting, `hardRefresh()`) = palu darurat.
-- **Chart Tren Net Worth**: SELALU dua garis (+CAPEX / tanpa CAPEX) dari `snapshotNetWorth()`
+- **Chart Tren Net Worth**: SELALU dua garis (+FA / tanpa FA) dari `snapshotNetWorth()`
   (total* mentah, bukan `s.netWorth`), claim ngikut toggle sekarang. **Proyeksi**
   (`renderProjectionChart()`): satu garis Aktual (toggle sekarang) + `projectSeries()` (calc.js,
   `annualRate:0` = linear) ×3 (nabung, rate A, rate B), horizon `targetDate` (min 1 bulan) atau
@@ -397,7 +408,7 @@ Kenapa hook: `DECISIONS.md` "efek debt/asset dipusatkan sebagai hook".
   bulan; posisi (section 1/5/6/7/8) lewat `buildPosition()` — bulan berjalan live; bulan lampau
   ber-snapshot lengkap (`isSnapshotComplete()`) dari breakdown ("Posisi akhir {bulan}"); lampau
   tanpa snapshot → posisi terkini + disclaimer (jangan ngarang). Section 1 & 10: DUA angka
-  (+CAPEX / tanpa CAPEX) + baris mana yang dipakai app; "Perubahan komposisi" dari
+  (+FA / tanpa FA) + baris mana yang dipakai app, baris Cash · Invest · Fixed Assets; "Perubahan komposisi" dari
   `netWorthComposition()` dengan pasangan bulan SAMA kayak Δ section 1, skip kalau prevSnap tanpa
   totals. Section 5 CC = Terpakai/Limit/Sisa; section 7 subsection "🪪 Kartu Kredit"; section 8
   header "Terkumpul (tunai+aset)" + kolom Breakdown + catatan likuiditas; section 6 bond & claim

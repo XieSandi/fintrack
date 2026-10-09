@@ -4,7 +4,7 @@ import {
   getDoc, getDocs, serverTimestamp, writeBatch,
 } from "./firebase.js";
 import {
-  state, netWorthIDR, totalCashIDR, totalAssetsIDR, totalCapexIDR, totalReceivablesIDR, totalDebtIDR, totalGoalSavingsIDR,
+  state, netWorthIDR, totalCashIDR, totalAssetsIDR, totalCapexIDR, totalFixedAssetsIDR, totalReceivablesIDR, totalDebtIDR, totalGoalSavingsIDR,
   accountBalances, assetValueIDR, assetCostIDR, capexLocalValue, effectiveRate, goalSavedIDR,
   goalLinkedAssetsValueIDR, activeAccounts, activeGoals, activeDebts, isDebtBorrow, debtTxDelta,
 } from "./store.js";
@@ -360,6 +360,9 @@ export async function upsertSnapshot() {
     totalCash: Math.round(totalCashIDR()),
     totalAssets: Math.round(totalAssetsIDR()),
     totalCapex: Math.round(totalCapexIDR()),
+    // Fixed Assets (CAPEX + JHT) — basis toggle net worth sekarang; snapshot lama tanpa field ini
+    // fallback ke `totalCapex` di snapshotNetWorth() (JHT belum ada waktu itu). Additive.
+    totalFixedAssets: Math.round(totalFixedAssetsIDR()),
     // Piutang — field top-level baru (pola sama totalCapex), snapshot lama ga punya → fallback 0
     // di snapshotNetWorth(). schemaVersion TIDAK naik.
     totalReceivables: Math.round(totalReceivablesIDR()),

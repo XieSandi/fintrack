@@ -24,7 +24,8 @@ Vanilla JS, zero build, Firebase Firestore (offline-first), hosted di GitHub Pag
 - 🎯 Short Term Goals (bisa banyak, topup/pencairan aktif) — bisa juga di-link ke asset yang
   sudah ada, terpisah dari 🏆 Main Milestone (satu target net worth jangka panjang)
 - 📈 Net worth otomatis (cash + assets + goal savings − debt), snapshot bulanan, grafik tren &
-  dashboard proyeksi ke target
+  dashboard proyeksi ke target; tab Wealth dipisah Cash · Invest · Fixed Assets (CAPEX/JHT,
+  toggle ikut net worth) · Debt & Claim
 - 💳 Kartu kredit sebagai akun biasa (utang derived dari saldo negatif) + Debt tracker terpisah
   buat cicilan tetap: hutang baru bisa sekalian catat dana pinjaman masuk ke akun, detail per
   hutang (progress + riwayat), Bayar Cicilan dengan foto/link bukti, arsip (ga pernah dihapus)

@@ -2,7 +2,7 @@
 // Beda dari exportAll() (db.js): itu backup JSON buat restore, ini human/AI-readable.
 // Fungsi murni, ga nulis apa-apa ke Firestore, cuma baca dari store.
 import {
-  state, activeAccounts, activeGoals, activeDebts, accountBalances, totalCashIDR, totalAssetsIDR, totalCapexIDR, totalReceivablesIDR, totalDebtIDR,
+  state, activeAccounts, activeGoals, activeDebts, accountBalances, totalCashIDR, totalAssetsIDR, totalCapexIDR, totalFixedAssetsIDR, includeFixedAssetsSetting, totalReceivablesIDR, totalDebtIDR,
   totalGoalSavingsIDR, netWorthIDR, netWorthFromParts, snapshotNetWorth, netWorthComposition, assetValueIDR, assetCostIDR, capexLocalValue, goalSavedIDR,
   goalLinkedAssetsValueIDR, effectiveRate, monthSummary, spentByCategory, budgetsOfMonth, catById, acctById, milestoneProgress, includeReceivablesSetting,
 } from "./store.js";
@@ -71,6 +71,7 @@ function buildPosition(month, isCurrentMonth) {
       cash: snap.totalCash || 0,
       assetsTotal: snap.totalAssets || 0,
       capexTotal: snap.totalCapex || 0, // snapshot lama (pre-fitur CAPEX) ga punya field ini -> 0
+      fixedTotal: snap.totalFixedAssets ?? snap.totalCapex ?? 0, // FA = capex + jht; pre-JHT fallback capex
       receivablesTotal: snap.totalReceivables || 0, // idem, pre-fitur piutang -> 0
       goalSavingsTotal: snap.totalGoalSavings || 0,
       debtTotal: snap.totalDebt || 0,
@@ -94,6 +95,7 @@ function buildPosition(month, isCurrentMonth) {
     cash: totalCashIDR(),
     assetsTotal: totalAssetsIDR(),
     capexTotal: totalCapexIDR(),
+    fixedTotal: totalFixedAssetsIDR(),
     receivablesTotal: totalReceivablesIDR(),
     goalSavingsTotal: totalGoalSavingsIDR(),
     debtTotal: totalDebtIDR(),
@@ -177,19 +179,19 @@ export function buildMonthlyReport(month) {
   // variant CAPEX di bawah, Δ, trend section 10) — yang dibandingin eksplisit tetap cuma CAPEX;
   // perlakuan piutang disebut di baris terpisah biar AI yang baca tau.
   const includeReceivablesNow = includeReceivablesSetting();
-  const partsNow = { cash: position.cash, assets: position.assetsTotal, capex: position.capexTotal, receivables: position.receivablesTotal, goalSavings: position.goalSavingsTotal, debt: position.debtTotal };
+  const partsNow = { cash: position.cash, assets: position.assetsTotal, capex: position.capexTotal, fixedAssets: position.fixedTotal, receivables: position.receivablesTotal, goalSavings: position.goalSavingsTotal, debt: position.debtTotal };
   const nwWithCapex = netWorthFromParts(partsNow, true, includeReceivablesNow);
   const nwWithoutCapex = netWorthFromParts(partsNow, false, includeReceivablesNow);
-  const includeCapexNow = state.settings.includeCapexInNetWorth === true;
+  const includeCapexNow = includeFixedAssetsSetting(); // toggle Fixed Assets (CAPEX + JHT), nama field lama
   const nwForToggle = includeCapexNow ? nwWithCapex : nwWithoutCapex;
 
   const prevMonthKey = addMonths(month, -1);
   const prevSnap = state.snapshots.find((s) => s.id === prevMonthKey);
   const nwDelta = prevSnap ? nwForToggle - snapshotNetWorth(prevSnap, includeCapexNow, includeReceivablesNow) : null;
 
-  lines.push(`- **Net worth (+ CAPEX): ${fmtIDRPlain(nwWithCapex)}**`);
-  lines.push(`- **Net worth (tanpa CAPEX): ${fmtIDRPlain(nwWithoutCapex)}**`);
-  lines.push(`- Dipakai app sekarang (toggle CAPEX di Wealth → Total): **${includeCapexNow ? "+ CAPEX" : "tanpa CAPEX"}** → ${fmtIDRPlain(nwForToggle)}${nwDelta !== null ? ` (Δ ${signed(nwDelta)} vs ${monthLabel(prevMonthKey)})` : ""}`);
+  lines.push(`- **Net worth (+ Fixed Assets): ${fmtIDRPlain(nwWithCapex)}**`);
+  lines.push(`- **Net worth (tanpa Fixed Assets): ${fmtIDRPlain(nwWithoutCapex)}**`);
+  lines.push(`- Dipakai app sekarang (toggle Fixed Assets di Wealth → Total): **${includeCapexNow ? "+ FA" : "tanpa FA"}** → ${fmtIDRPlain(nwForToggle)}${nwDelta !== null ? ` (Δ ${signed(nwDelta)} vs ${monthLabel(prevMonthKey)})` : ""}`);
   // TASK-2 (2026-08, riwayat: DECISIONS.md): "Goal savings" di sini SENGAJA cuma topup tunai
   // (`goalSavingsTotal`, sumber `totalGoalSavingsIDR()` — TIDAK diubah, itu benar buat net worth,
   // nilai asset ter-link udah kehitung penuh di Assets, nambahin lagi ke sini bakal double count).
@@ -200,7 +202,8 @@ export function buildMonthlyReport(month) {
   const goalSavingsLabel = totalLinkedValue > 0
     ? `${fmtIDRPlain(position.goalSavingsTotal)} (tunai) + ${fmtIDRPlain(totalLinkedValue)} (dari asset ter-link, sudah termasuk di Assets — TIDAK ditambah lagi di net worth)`
     : fmtIDRPlain(position.goalSavingsTotal);
-  lines.push(`- Cash: ${fmtIDRPlain(position.cash)} · Assets (termasuk CAPEX): ${fmtIDRPlain(position.assetsTotal)}${position.capexTotal > 0 ? ` (di dalamnya CAPEX: ${fmtIDRPlain(position.capexTotal)})` : ""} · Goal savings: ${goalSavingsLabel} · Debt: −${fmtIDRPlain(position.debtTotal)}`);
+  const investTotal = position.assetsTotal - position.fixedTotal - position.receivablesTotal;
+  lines.push(`- Cash: ${fmtIDRPlain(position.cash)} · Invest: ${fmtIDRPlain(investTotal)} · Fixed Assets (CAPEX + JHT, ${includeCapexNow ? "ikut" : "TIDAK ikut"} net worth): ${fmtIDRPlain(position.fixedTotal)}${position.capexTotal > 0 ? ` (di dalamnya CAPEX: ${fmtIDRPlain(position.capexTotal)})` : ""} · Goal savings: ${goalSavingsLabel} · Debt: −${fmtIDRPlain(position.debtTotal)}`);
   // Utang kartu kredit lewat DEBT PATH sekarang (v2, 2026-08 — lihat DECISIONS.md; beda dari v1
   // yang lewat cash path) — udah "included" di angka Debt di atas, TIDAK lagi di Cash. Baris ini
   // cuma informasi tambahan, misahin dari cicilan (collection `debts`) biar ga ketuker — detail
@@ -483,14 +486,14 @@ export function buildMonthlyReport(month) {
     fmtIDRPlain(snapshotNetWorth(s, true, includeReceivablesNow)),
     fmtIDRPlain(snapshotNetWorth(s, false, includeReceivablesNow)),
   ]);
-  lines.push(mdTable(["Bulan", "Net Worth (+ CAPEX)", "Net Worth (tanpa CAPEX)"], trendRows));
+  lines.push(mdTable(["Bulan", "Net Worth (+ FA)", "Net Worth (tanpa FA)"], trendRows));
   // "Perubahan komposisi" pakai PASANGAN BULAN YANG SAMA kayak Δ net worth section 1 (`partsNow` +
   // `prevSnap`, BUKAN dua entri terakhir tabel trend 12-bulan di atas — bisa beda pasangan bulan
   // kalau report digenerate buat bulan lampau) + `netWorthComposition()` (calc.js) buat komponennya
   // — SATU sumber angka, dijamin `comp.total` === `nwDelta` section 1 persis (bukan cuma toleransi
   // Rp1 kayak sebelumnya), DAN dijamin Σ komponen === comp.total (TASK-1, riwayat bug: DECISIONS.md).
   if (prevSnap && typeof prevSnap.totalCash === "number" && typeof prevSnap.totalAssets === "number") {
-    const prevParts = { cash: prevSnap.totalCash, assets: prevSnap.totalAssets, capex: prevSnap.totalCapex, receivables: prevSnap.totalReceivables, goalSavings: prevSnap.totalGoalSavings, debt: prevSnap.totalDebt };
+    const prevParts = { cash: prevSnap.totalCash, assets: prevSnap.totalAssets, capex: prevSnap.totalCapex, fixedAssets: prevSnap.totalFixedAssets, receivables: prevSnap.totalReceivables, goalSavings: prevSnap.totalGoalSavings, debt: prevSnap.totalDebt };
     const comp = netWorthComposition(prevParts, partsNow, includeCapexNow, includeReceivablesNow);
     // Field comp.* SEMUA udah representasi kontribusi ke net worth (assets exclude CAPEX, debt
     // udah dinegasi) — tinggal ditampilin apa adanya, JANGAN sign-flip/exclude manual lagi di sini
@@ -499,12 +502,12 @@ export function buildMonthlyReport(month) {
     const parts = [];
     if (comp.cash !== 0) parts.push(`Cash ${signed(comp.cash)}`);
     if (comp.assets !== 0) parts.push(`Assets ${signed(comp.assets)}`);
-    if (includeCapexNow && comp.capex !== 0) parts.push(`CAPEX ${signed(comp.capex)}`);
+    if (includeCapexNow && comp.fixedAssets !== 0) parts.push(`Fixed Assets ${signed(comp.fixedAssets)}`);
     if (includeReceivablesNow && comp.receivables !== 0) parts.push(`Claim ${signed(comp.receivables)}`);
     if (comp.goalSavings !== 0) parts.push(`Goal Savings ${signed(comp.goalSavings)}`);
     if (comp.debt !== 0) parts.push(`Debt ${signed(comp.debt)}`);
     if (parts.length > 0) {
-      lines.push(`- Perubahan komposisi (${monthLabel(prevMonthKey)} → ${monthLabel(month)}, basis ${includeCapexNow ? "+ CAPEX" : "tanpa CAPEX"}, angka = kontribusi ke Δ net worth): ${parts.join(", ")} → **Total Δ ${signed(comp.total)}** (cocok Δ net worth di section 1)`);
+      lines.push(`- Perubahan komposisi (${monthLabel(prevMonthKey)} → ${monthLabel(month)}, basis ${includeCapexNow ? "+ FA" : "tanpa FA"}, angka = kontribusi ke Δ net worth): ${parts.join(", ")} → **Total Δ ${signed(comp.total)}** (cocok Δ net worth di section 1)`);
     }
   }
   lines.push("");

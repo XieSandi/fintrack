@@ -1,6 +1,7 @@
 import {
   state, activeAccounts, accountBalances, netWorthIDR, totalCashIDR,
-  totalAssetsIDR, totalCapexIDR, totalDebtIDR, totalGoalSavingsIDR, assetValueIDR, assetCostIDR,
+  totalAssetsIDR, totalCapexIDR, totalFixedAssetsIDR, totalInvestAssetsIDR, isFixedAsset, isInvestAsset,
+  includeFixedAssetsSetting, totalDebtIDR, totalGoalSavingsIDR, assetValueIDR, assetCostIDR,
   capexLocalValue, bondLocalValue, bondNextCouponHint, effectiveRate, monthSummary, milestoneProgress, recentAvgSurplus,
   monthsBetween, projectSeries, snapshotNetWorth,
   isCreditAccount, creditUsed, creditRemaining, totalCreditDebtIDR,
@@ -35,7 +36,7 @@ import { refreshPrices, refreshableAssets } from "../prices.js";
 import { openAcctSheet } from "./accounts.js";
 import { openTxSheet } from "../tx-sheet.js";
 
-let groupTab = "total";   // total | assets | liquid | debt | receivable
+let groupTab = "total";   // total | cash | invest | fa | debtclaim
 let chartTab = "nw";      // nw | cashflow | projection
 let assetFilter = "";     // "" = semua tipe
 let charts = [];
@@ -92,16 +93,19 @@ export function render(root) {
   const receivables = totalReceivablesIDR();
   // Piutang punya tab sendiri (samping Debt) — angka "Assets" di sini EXCLUDE piutang biar
   // ga dobel kebaca; `totalAssetsIDR()` sendiri tetap termasuk piutang (konsep net worth).
-  const assets = totalAssetsIDR() - receivables;
+  // Tab: Cash (akun) · Invest (investasi cair) · FA (fixed assets: CAPEX+JHT) · Debt & Claim (dua
+  // angka, sengaja ga di-net biar ga kebaca "utang turun" padahal cuma ada claim).
+  const invest = totalInvestAssetsIDR();
+  const fixed = totalFixedAssetsIDR();
   const debt = totalDebtIDR();
 
   root.innerHTML = `
     <div class="sumtabs">
       ${sumBtn("total", "Total", blurNum(fmtShort(nw)), nw >= 0 ? "var(--blue)" : "var(--red)")}
-      ${sumBtn("assets", "Assets", blurNum(fmtShort(assets)), "var(--green)")}
-      ${sumBtn("liquid", "Liquid", blurNum(fmtShort(cash)), "var(--blue)")}
-      ${sumBtn("debt", "Debt", blurNum(fmtShort(debt)), "var(--red)")}
-      ${sumBtn("receivable", "Claim", blurNum(fmtShort(receivables)), "#7fbfba")}
+      ${sumBtn("cash", "Cash", blurNum(fmtShort(cash)), "var(--blue)")}
+      ${sumBtn("invest", "Invest", blurNum(fmtShort(invest)), "var(--green)")}
+      ${sumBtn("fa", "FA", blurNum(fmtShort(fixed)), "#d9bc7f")}
+      ${sumBtn("debtclaim", "Debt·Claim", `<span style="color:var(--red)">${blurNum(fmtShort(debt))}</span><br/><span style="color:#7fbfba">${blurNum(fmtShort(receivables))}</span>`, "inherit")}
     </div>
     <div id="group-content"></div>
   `;
@@ -112,10 +116,18 @@ export function render(root) {
 
   const content = root.querySelector("#group-content");
   if (groupTab === "total") renderTotal(content);
-  else if (groupTab === "assets") renderAssets(content);
-  else if (groupTab === "liquid") renderLiquid(content);
-  else if (groupTab === "receivable") renderReceivables(content);
-  else renderDebts(content);
+  else if (groupTab === "invest") renderAssets(content, "invest");
+  else if (groupTab === "fa") renderAssets(content, "fa");
+  else if (groupTab === "cash") renderCash(content);
+  else renderDebtClaim(content);
+}
+
+// Debt & Claim satu tab: dua section (renderDebts + renderReceivables) di wrapper masing-masing —
+// dua function itu nulis `innerHTML` root-nya sendiri, jadi ga boleh share satu elemen.
+function renderDebtClaim(root) {
+  root.innerHTML = `<div id="dc-debt"></div><div id="dc-claim" style="margin-top:14px"></div>`;
+  renderDebts(root.querySelector("#dc-debt"));
+  renderReceivables(root.querySelector("#dc-claim"));
 }
 
 const sumBtn = (key, label, val, color) => `
@@ -128,12 +140,11 @@ const sumBtn = (key, label, val, color) => `
 function renderTotal(root) {
   const nw = netWorthIDR();
   const cash = totalCashIDR();
-  const assetsRaw = totalAssetsIDR(); // termasuk CAPEX apa adanya
-  const capex = totalCapexIDR();
-  const includeCapex = state.settings.includeCapexInNetWorth === true;
-  const investAssets = assetsRaw - capex - totalReceivablesIDR(); // baris "Assets" di breakdown SELALU exclude CAPEX (& piutang),
-  // CAPEX ditampilin baris terpisah (di bawah) supaya breakdown-nya tetap sum persis ke NET WORTH
-  // baik toggle include-nya ON maupun OFF (lihat CLAUDE.md bullet CAPEX).
+  // Breakdown: Cash · Invest · Fixed Assets (CAPEX+JHT, cuma ikut disum kalau toggle ON) · Claim
+  // (toggle sendiri) · Goals · Debt — rows SELALU sum persis ke NET WORTH apapun toggle-nya.
+  const investAssets = totalInvestAssetsIDR();
+  const fixed = totalFixedAssetsIDR();
+  const includeFixed = includeFixedAssetsSetting();
   // Piutang (receivable) pola SAMA persis kayak CAPEX: udah termasuk di assetsRaw, dipisah jadi
   // baris sendiri (cuma ikut disum kalau toggle ON) biar breakdown tetap sum persis ke NET WORTH.
   const receivables = totalReceivablesIDR();
@@ -144,7 +155,7 @@ function renderTotal(root) {
   const milestone = milestoneProgress();
   const paceLine = milestonePaceLine(milestone);
   const rate = effectiveRate();
-  const hasCapexAssets = state.assets.some((a) => a.type === "capex");
+  const hasFixedAssets = state.assets.some(isFixedAsset);
   // CC lewat DEBT PATH sekarang (`totalCashIDR()` udah EXCLUDE utang kartu, `totalDebtIDR()` udah
   // INCLUDE-nya — lihat calc.js & DECISIONS.md) — jadi `cash` di atas udah "bersih" (ga perlu
   // dikoreksi lagi kayak dulu), tinggal misahin `debt` jadi 2 baris tampilan (cicilan vs kartu)
@@ -171,9 +182,9 @@ function renderTotal(root) {
 
     <div class="card">
       <div class="table-like">
-        ${totalRow("💧 Liquid", cash, "var(--blue)")}
-        ${totalRow("📈 Assets", investAssets, "var(--green)")}
-        ${capex > 0 && includeCapex ? totalRow("🏗️ CAPEX", capex, "#d9bc7f") : ""}
+        ${totalRow("💧 Cash", cash, "var(--blue)")}
+        ${totalRow("📈 Invest", investAssets, "var(--green)")}
+        ${fixed > 0 && includeFixed ? totalRow("🏗️ Fixed Assets", fixed, "#d9bc7f") : ""}
         ${receivables > 0 && includeReceivables ? totalRow("🤝 Claim", receivables, "#7fbfba") : ""}
         ${goalSavings > 0 ? totalRow("🎯 Goals", goalSavings, "#b09ac9") : ""}
         ${hasCreditAccounts ? totalRow("🪪 Kartu Kredit", -totalCreditDebt, "var(--red)") : ""}
@@ -183,13 +194,13 @@ function renderTotal(root) {
           <span style="font-weight:800; font-size:13px; color:var(--blue)">${fmtIDR(nw)}</span>
         </div>
       </div>
-      ${hasCapexAssets ? `
+      ${hasFixedAssets ? `
       <label style="display:flex; align-items:center; gap:8px; margin-top:12px; font-size:12px; text-transform:none; letter-spacing:0; color:var(--muted2)">
-        <input type="checkbox" id="capex-toggle" style="width:auto" ${includeCapex ? "checked" : ""}/>
-        🏗️ Sertakan CAPEX (${fmtIDR(capex)}) di Net Worth
+        <input type="checkbox" id="capex-toggle" style="width:auto" ${includeFixed ? "checked" : ""}/>
+        🏗️ Sertakan Fixed Assets — CAPEX + JHT (${fmtIDR(fixed)}) di Net Worth
       </label>` : ""}
       ${hasReceivables ? `
-      <label style="display:flex; align-items:center; gap:8px; margin-top:${hasCapexAssets ? 6 : 12}px; font-size:12px; text-transform:none; letter-spacing:0; color:var(--muted2)">
+      <label style="display:flex; align-items:center; gap:8px; margin-top:${hasFixedAssets ? 6 : 12}px; font-size:12px; text-transform:none; letter-spacing:0; color:var(--muted2)">
         <input type="checkbox" id="recv-toggle" style="width:auto" ${includeReceivables ? "checked" : ""}/>
         🤝 Sertakan Claim (${fmtIDR(receivables)}) di Net Worth
       </label>` : ""}
@@ -216,7 +227,7 @@ function renderTotal(root) {
       await updateSettings({ includeCapexInNetWorth: e.target.checked });
       // re-render otomatis via store.on() setelah settings berubah — ga perlu manual di sini,
       // tapi toast biar user dapet konfirmasi instan (settings/main patch-nya async).
-      toast(e.target.checked ? "CAPEX ikut dihitung di Net Worth ✓" : "CAPEX di luar Net Worth ✓");
+      toast(e.target.checked ? "Fixed Assets ikut dihitung di Net Worth ✓" : "Fixed Assets di luar Net Worth ✓");
     };
   }
 
@@ -272,9 +283,9 @@ function renderChart(root, milestone) {
       data: {
         labels: snaps.map((s) => monthLabel(s.month || s.id)),
         datasets: [
-          { label: "Net Worth (+ CAPEX)", data: snaps.map((s) => snapshotNetWorth(s, true, includeReceivablesNow)), borderColor: "#8bacd0",
+          { label: "Net Worth (+ FA)", data: snaps.map((s) => snapshotNetWorth(s, true, includeReceivablesNow)), borderColor: "#8bacd0",
             backgroundColor: "rgba(139,172,208,.12)", fill: true, tension: .3, pointRadius: 3 },
-          { label: "Net Worth (tanpa CAPEX)", data: snaps.map((s) => snapshotNetWorth(s, false, includeReceivablesNow)), borderColor: "#d9bc7f",
+          { label: "Net Worth (tanpa FA)", data: snaps.map((s) => snapshotNetWorth(s, false, includeReceivablesNow)), borderColor: "#d9bc7f",
             fill: false, tension: .3, pointRadius: 2 },
           { label: "Target", data: snaps.map(() => target), borderColor: "#8fbe9f",
             borderDash: [6, 5], pointRadius: 0, fill: false },
@@ -337,7 +348,7 @@ function renderProjectionChart(root, canvas, gridColor, milestone) {
   // konsisten sama `nw` (titik awal semua garis proyeksi di bawah, dari `netWorthIDR()` yang
   // juga toggle-aware). Beda dari chart Tren Net Worth yang sengaja nampilin DUA garis; di sini
   // cuma SATU (ngikut toggle) biar chart 5-garis ini ga makin padat.
-  const includeCapexNow = state.settings.includeCapexInNetWorth === true;
+  const includeCapexNow = includeFixedAssetsSetting(); // toggle FA (nama field lama dipertahankan)
   const includeReceivablesNow = includeReceivablesSetting();
   const firstSnapMonth = state.snapshots[0].month || state.snapshots[0].id;
   const actualHist = state.snapshots.map((s) => ({ month: s.month || s.id, value: snapshotNetWorth(s, includeCapexNow, includeReceivablesNow) }));
@@ -415,15 +426,20 @@ function renderProjectionChart(root, canvas, gridColor, milestone) {
 }
 
 // ================= ASSETS =================
-function renderAssets(root) {
+// `group` = "invest" (tipe investasi cair) | "fa" (fixed assets: capex/jht) — lihat calc.js
+// FIXED_ASSET_TYPES. Claim ga pernah masuk sini (tab Debt & Claim).
+function renderAssets(root, group = "invest") {
+  const inGroup = group === "fa" ? isFixedAsset : isInvestAsset;
   // Bond yang udah redeemed (TASK-4) "hilang dari asset aktif" (pola diminta) — TETAP ada di
   // Firestore (jejak riwayat, lihat calc.js bullet Bond), cuma difilter dari list/filter-dropdown/
   // summary tab ini. Nilai net worth-nya sendiri udah 0 otomatis (bondValueIDR), jadi filter di
   // sini murni declutter tampilan, BUKAN yang bikin net worth benar.
   // Piutang (receivable) ga masuk tab ini — punya tab sendiri (renderReceivables).
-  const all = state.assets.filter((a) => !(a.type === "bond" && a.redeemed === true) && !isReceivable(a));
+  const all = state.assets.filter((a) => !(a.type === "bond" && a.redeemed === true) && inGroup(a));
   const typesPresent = [...new Set(all.map((a) => a.type))];
-  const rows = assetFilter ? all.filter((a) => a.type === assetFilter) : all;
+  // Filter tipe yang ga ada di grup ini (sisa dari tab lain) dianggap "semua".
+  const groupFilter = typesPresent.includes(assetFilter) ? assetFilter : "";
+  const rows = groupFilter ? all.filter((a) => a.type === groupFilter) : all;
   const filteredTotal = rows.reduce((s, a) => s + assetValueIDR(a), 0);
   const filteredCost = rows.reduce((s, a) => s + assetCostIDR(a), 0);
   const filteredPnl = filteredTotal - filteredCost;
@@ -434,7 +450,7 @@ function renderAssets(root) {
     <div class="filterbar">
       <select id="asset-filter">
         <option value="">Semua tipe (${all.length})</option>
-        ${typesPresent.map((t) => `<option value="${t}" ${t === assetFilter ? "selected" : ""}>${ASSET_TYPES[t] || t} (${all.filter((a) => a.type === t).length})</option>`).join("")}
+        ${typesPresent.map((t) => `<option value="${t}" ${t === groupFilter ? "selected" : ""}>${ASSET_TYPES[t] || t} (${all.filter((a) => a.type === t).length})</option>`).join("")}
       </select>
       <button id="btn-refresh-prices" class="btn" style="flex:0 0 auto" ${nRefreshable === 0 ? "disabled" : ""}>🔄 Harga</button>
     </div>
@@ -447,7 +463,7 @@ function renderAssets(root) {
         <div class="sub">${filteredPnlPct >= 0 ? "+" : ""}${filteredPnlPct.toFixed(1)}%</div></div>
       </div>` : ""}
       <div id="asset-list">
-        ${all.length === 0 ? `<div class="empty">Belum ada asset.</div>` : ""}
+        ${all.length === 0 ? `<div class="empty">${group === "fa" ? "Belum ada fixed asset (CAPEX / JHT)." : "Belum ada investasi."}</div>` : ""}
         ${all.length > 0 && rows.length === 0 ? `<div class="empty">Ga ada asset di tipe ini.</div>` : ""}
       </div>
     </div>
@@ -489,7 +505,7 @@ function renderAssets(root) {
 
   groups.forEach((g) => {
     const subtotal = g.items.reduce((s, a) => s + assetValueIDR(a), 0);
-    if (!assetFilter) {
+    if (!groupFilter) {
       const head = document.createElement("div");
       head.className = "group-head";
       head.innerHTML = `<span>${ASSET_TYPES[g.type]}</span><span class="gh-total">${fmtIDR(subtotal)}</span>`;
@@ -498,7 +514,8 @@ function renderAssets(root) {
     g.items.forEach((a) => list.appendChild(assetRow(a)));
   });
 
-  root.querySelector("#btn-add-asset").onclick = () => openAssetSheet(null, root);
+  // Default tipe di form ngikut grup tab (FA → capex) kalau filter ga nunjuk tipe spesifik.
+  root.querySelector("#btn-add-asset").onclick = () => openAssetSheet(null, root, groupFilter || (group === "fa" ? "capex" : ""));
 }
 
 function assetRow(a) {
@@ -581,9 +598,9 @@ function assetRow(a) {
   return div;
 }
 
-export function openAssetSheet(existing, contentRoot) {
+export function openAssetSheet(existing, contentRoot, presetType = "") {
   const a = existing || {
-    type: assetFilter || "stock_id", symbol: "", name: "", quantity: "", avgBuyPrice: "",
+    type: presetType || "stock_id", symbol: "", name: "", quantity: "", avgBuyPrice: "",
     currency: "IDR", manualPrice: "", purchaseDate: todayStr(), depreciationPctMonth: "",
     principal: "", couponRatePA: "", couponPeriodMonths: 1, maturityDate: "",
     couponAccountId: "", maturityAccountId: "", debtorName: "", dueDate: "",
@@ -1621,7 +1638,7 @@ function openReceivableDetailSheet(a) {
 // Akun kartu kredit TIDAK muncul di tab ini sama sekali (bukan cuma dikelompokkan terpisah) —
 // CC sekarang lewat DEBT PATH (lihat calc.js `totalCashIDR()`/`totalDebtIDR()` & DECISIONS.md),
 // jadi "Liquid" murni cash beneran, pindahannya (pemakaian kartu) muncul di tab Debt.
-function renderLiquid(root) {
+function renderCash(root) {
   const accounts = activeAccounts().filter((a) => !isCreditAccount(a));
   const bal = accountBalances();
   const rate = effectiveRate();
@@ -1629,7 +1646,7 @@ function renderLiquid(root) {
 
   root.innerHTML = `
     <div class="card">
-      <div class="sub" style="margin-bottom:6px">Total liquid: <b style="color:var(--blue)">${fmtIDR(total)}</b></div>
+      <div class="sub" style="margin-bottom:6px">Total cash: <b style="color:var(--blue)">${fmtIDR(total)}</b></div>
       <div id="liq-list">
         ${accounts.length === 0 ? `<div class="empty">Belum ada akun cash.</div>` : ""}
       </div>

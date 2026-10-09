@@ -818,7 +818,35 @@ function makeState() {
   assertEqual(calc.assetCostIDR(s, s.assets[0]), 12_500_000, "jht: cost = value → P&L 0 (saldo bukan gain)");
   assertEqual(calc.assetValueIDR(s, { ...s.assets[0], quantity: 7 }, "2026-10"), 12_500_000, "jht: quantity diabaikan");
   assertEqual(calc.totalAssetsIDR(s, "2026-10"), 12_500_000, "jht: ikut totalAssetsIDR");
-  assertEqual(calc.netWorthIDR(s, "2026-10"), calc.totalCashIDR(s) + 12_500_000, "jht: ikut net worth penuh (tanpa toggle)");
+  // JHT = Fixed Asset → ikut toggle includeCapexInNetWorth (default OFF → di luar net worth).
+  assertEqual(calc.netWorthIDR(s, "2026-10"), calc.totalCashIDR(s), "jht: default (toggle FA off) DI LUAR net worth");
+  s.settings.includeCapexInNetWorth = true;
+  assertEqual(calc.netWorthIDR(s, "2026-10"), calc.totalCashIDR(s) + 12_500_000, "jht: toggle FA on → ikut net worth");
+  assertEqual(calc.totalFixedAssetsIDR(s, "2026-10"), 12_500_000, "totalFixedAssetsIDR: jht termasuk");
+  assertEqual(calc.totalInvestAssetsIDR(s, "2026-10"), 0, "totalInvestAssetsIDR: jht bukan invest");
+}
+{
+  // Klasifikasi Invest vs FA: capex+jht = FA, receivable bukan dua-duanya, sisanya invest.
+  const s = makeState();
+  s.assets = [
+    { id: "c", type: "capex", avgBuyPrice: 1_000_000, depreciationPctMonth: 0, purchaseDate: "2026-01-01", quantity: 1, currency: "IDR" },
+    { id: "j", type: "jht", manualPrice: 500_000, quantity: 1, currency: "IDR" },
+    { id: "b", type: "bond", principal: 2_000_000, quantity: 1, currency: "IDR" },
+    { id: "g", type: "gold", quantity: 1, manualPrice: 300_000, avgBuyPrice: 300_000, currency: "IDR" },
+    { id: "r", type: "receivable", qtyless: true, quantity: 1, manualPrice: 100_000, avgBuyPrice: 100_000, currency: "IDR" },
+  ];
+  assertEqual(calc.totalFixedAssetsIDR(s, "2026-06"), 1_500_000, "FA = capex + jht");
+  assertEqual(calc.totalInvestAssetsIDR(s, "2026-06"), 2_300_000, "Invest = bond + gold (bukan FA, bukan claim)");
+  assertEqual(calc.totalFixedAssetsIDR(s, "2026-06") + calc.totalInvestAssetsIDR(s, "2026-06") + calc.totalReceivablesIDR(s), calc.totalAssetsIDR(s, "2026-06"), "FA + Invest + Claim = totalAssetsIDR");
+  // Toggle FA off: net worth exclude capex DAN jht sekaligus.
+  assertEqual(calc.netWorthIDR(s, "2026-06"), calc.totalCashIDR(s) + 2_300_000 + 100_000, "toggle FA off → capex & jht sama-sama di luar net worth");
+  // netWorthFromParts: fixedAssets diutamakan, fallback capex kalau ga ada (snapshot lama).
+  assertEqual(calc.netWorthFromParts({ cash: 100, assets: 50, capex: 10, fixedAssets: 20 }, false), 130, "netWorthFromParts: pakai fixedAssets kalau ada");
+  assertEqual(calc.netWorthFromParts({ cash: 100, assets: 50, capex: 10 }, false), 140, "netWorthFromParts: fallback capex kalau fixedAssets ga ada");
+  const comp = calc.netWorthComposition({ cash: 0, assets: 100, capex: 10, fixedAssets: 30 }, { cash: 0, assets: 150, capex: 10, fixedAssets: 60 }, true);
+  assertEqual(comp.fixedAssets, 30, "composition: Δ fixedAssets");
+  assertEqual(comp.assets, 20, "composition: Δ assets exclude FA (bukan cuma capex)");
+  assertEqual(comp.cash + comp.assets + comp.fixedAssets + comp.goalSavings + comp.debt, comp.total, "composition: Σ === total (basis + FA)");
 }
 
 // ================= Hutang v2: borrow transaction, archive, debtTxDelta =================

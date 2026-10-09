@@ -286,10 +286,28 @@ export function jhtValueIDR(state, a) {
 export const totalAssetsIDR = (state, nowMonth) =>
   state.assets.reduce((s, a) => s + assetValueIDR(state, a, nowMonth), 0);
 
-// Total nilai CAPEX doang — dipakai netWorthIDR buat conditional include/exclude (toggle
-// settings.includeCapexInNetWorth) TANPA filter ulang assetValueIDR di dua tempat beda.
+// Total nilai CAPEX doang — masih dipakai snapshot (`totalCapex`, backfill) & breakdown; buat net
+// worth sekarang yang di-toggle adalah SELURUH Fixed Assets (lihat blok di bawah).
 export const totalCapexIDR = (state, nowMonth) =>
   state.assets.filter((a) => a.type === "capex").reduce((s, a) => s + assetValueIDR(state, a, nowMonth), 0);
+
+// ============== Klasifikasi likuiditas asset: Invest vs Fixed Assets (FA) ==============
+// Tab Wealth: Cash (akun) · Invest (investasi yang bisa dicairkan) · FA (fixed assets: CAPEX &
+// JHT — ga bisa cepat dicairkan) · Debt & Claim. Claim (`receivable`) bukan dua-duanya, punya
+// toggle sendiri. Toggle `settings.includeCapexInNetWorth` (nama field dipertahankan buat kompat
+// data lama) SEKARANG berarti "sertakan Fixed Assets" — ngatur CAPEX DAN JHT sekaligus, default
+// OFF (keputusan owner: JHT ga cepat dicairkan, jangan langsung dianggap net worth).
+export const FIXED_ASSET_TYPES = ["capex", "jht"];
+export const isFixedAsset = (a) => FIXED_ASSET_TYPES.includes(a.type);
+export const isInvestAsset = (a) => !isFixedAsset(a) && a.type !== "receivable";
+
+export const totalFixedAssetsIDR = (state, nowMonth) =>
+  state.assets.filter(isFixedAsset).reduce((s, a) => s + assetValueIDR(state, a, nowMonth), 0);
+
+export const totalInvestAssetsIDR = (state, nowMonth) =>
+  state.assets.filter(isInvestAsset).reduce((s, a) => s + assetValueIDR(state, a, nowMonth), 0);
+
+export const includeFixedAssetsSetting = (state) => state.settings.includeCapexInNetWorth === true;
 
 // Utang cicilan (collection `debts`) + utang kartu kredit (`totalCreditDebtIDR()`, saldo negatif
 // akun tipe `credit`) — CC lewat DEBT PATH sekarang (bukan cash path lagi, lihat bullet
@@ -375,9 +393,12 @@ export function goalProgressIDR(state, goalId, nowMonth) {
 // beda dari CAPEX (caller WAJIB kirim eksplisit `includeCapex`, ga ada default) — biar SEMUA caller
 // lama yang belum tau soal piutang (snapshot lama tanpa `totalReceivables` → 0, dsb.) otomatis
 // dapet perilaku "piutang = asset" tanpa perubahan kode.
-export function netWorthFromParts({ cash, assets, capex, receivables, goalSavings, debt }, includeCapex, includeReceivables = true) {
+// `fixedAssets` (CAPEX + JHT) yang di-subtract kalau `includeFixedAssets` false; parts lama yang
+// cuma punya `capex` (snapshot pra-JHT, test lama) fallback ke `capex` — JHT belum ada waktu itu,
+// jadi angkanya emang identik.
+export function netWorthFromParts({ cash, assets, capex, fixedAssets, receivables, goalSavings, debt }, includeFixedAssets, includeReceivables = true) {
   let nw = (cash || 0) + (assets || 0) + (goalSavings || 0) - (debt || 0);
-  if (!includeCapex) nw -= (capex || 0);
+  if (!includeFixedAssets) nw -= (fixedAssets ?? capex ?? 0);
   if (!includeReceivables) nw -= (receivables || 0);
   return nw;
 }
@@ -391,12 +412,12 @@ export function netWorthFromParts({ cash, assets, capex, receivables, goalSaving
 // manapun — ga ada breakdown buat direkonstruksi, jangan ngarang.
 // `includeReceivables` (piutang) default true — snapshot dari sebelum fitur piutang ga punya
 // `totalReceivables` (undefined → 0), jadi flag-nya ga ngefek apa-apa buat data lama.
-export function snapshotNetWorth(s, includeCapex, includeReceivables = true) {
+export function snapshotNetWorth(s, includeFixedAssets, includeReceivables = true) {
   const hasTotals = typeof s.totalCash === "number" && typeof s.totalAssets === "number";
   if (!hasTotals) return Number(s.netWorth) || 0;
   return netWorthFromParts(
-    { cash: s.totalCash, assets: s.totalAssets, capex: s.totalCapex, receivables: s.totalReceivables, goalSavings: s.totalGoalSavings, debt: s.totalDebt },
-    includeCapex, includeReceivables
+    { cash: s.totalCash, assets: s.totalAssets, capex: s.totalCapex, fixedAssets: s.totalFixedAssets, receivables: s.totalReceivables, goalSavings: s.totalGoalSavings, debt: s.totalDebt },
+    includeFixedAssets, includeReceivables
   );
 }
 
@@ -426,17 +447,20 @@ export function snapshotNetWorth(s, includeCapex, includeReceivables = true) {
 // `receivables` (piutang) pola SAMA kayak `capex`: `assets` di sini exclude CAPEX DAN piutang
 // (dua-duanya baris terpisah, cuma ikut disum caller kalau toggle masing-masing ON) — kalau
 // nambah komponen "conditional" lagi ke depan, ikutin pola ini, jangan dijumlah ke `assets`.
-export function netWorthComposition(prevParts, currParts, includeCapex, includeReceivables = true) {
+// `fixedAssets` = Δ Fixed Assets (CAPEX + JHT; fallback `capex` buat parts lama). `capex` TETAP
+// di-return sebagai alias nilai yang sama (kompat caller lama).
+export function netWorthComposition(prevParts, currParts, includeFixedAssets, includeReceivables = true) {
   const num = (parts, key) => Number(parts[key]) || 0;
+  const fa = (parts) => (parts.fixedAssets != null ? Number(parts.fixedAssets) || 0 : num(parts, "capex"));
   const cash = num(currParts, "cash") - num(prevParts, "cash");
-  const capex = num(currParts, "capex") - num(prevParts, "capex");
+  const fixedAssets = fa(currParts) - fa(prevParts);
   const receivables = num(currParts, "receivables") - num(prevParts, "receivables");
-  const assets = (num(currParts, "assets") - num(currParts, "capex") - num(currParts, "receivables"))
-    - (num(prevParts, "assets") - num(prevParts, "capex") - num(prevParts, "receivables"));
+  const assets = (num(currParts, "assets") - fa(currParts) - num(currParts, "receivables"))
+    - (num(prevParts, "assets") - fa(prevParts) - num(prevParts, "receivables"));
   const goalSavings = num(currParts, "goalSavings") - num(prevParts, "goalSavings");
   const debt = -(num(currParts, "debt") - num(prevParts, "debt"));
-  const total = netWorthFromParts(currParts, includeCapex, includeReceivables) - netWorthFromParts(prevParts, includeCapex, includeReceivables);
-  return { cash, assets, capex, receivables, goalSavings, debt, total, includeCapex, includeReceivables };
+  const total = netWorthFromParts(currParts, includeFixedAssets, includeReceivables) - netWorthFromParts(prevParts, includeFixedAssets, includeReceivables);
+  return { cash, assets, fixedAssets, capex: fixedAssets, receivables, goalSavings, debt, total, includeFixedAssets, includeCapex: includeFixedAssets, includeReceivables };
 }
 
 // Goal savings dihitung sebagai bagian net worth (uangnya ga hilang, cuma pindah "kantong").
@@ -453,16 +477,17 @@ export function netWorthComposition(prevParts, currParts, includeCapex, includeR
 export const includeReceivablesSetting = (state) => state.settings.includeReceivablesInNetWorth !== false;
 
 export function netWorthIDR(state, nowMonth) {
-  const includeCapex = state.settings.includeCapexInNetWorth === true;
+  const includeFixedAssets = includeFixedAssetsSetting(state);
   const includeReceivables = includeReceivablesSetting(state);
   return netWorthFromParts({
     cash: totalCashIDR(state),
     assets: totalAssetsIDR(state, nowMonth),
     capex: totalCapexIDR(state, nowMonth),
+    fixedAssets: totalFixedAssetsIDR(state, nowMonth),
     receivables: totalReceivablesIDR(state),
     goalSavings: totalGoalSavingsIDR(state),
     debt: totalDebtIDR(state),
-  }, includeCapex, includeReceivables);
+  }, includeFixedAssets, includeReceivables);
 }
 
 // ============== Dashboard Proyeksi (TASK-1): Nabung vs Aktual vs Return ==============
