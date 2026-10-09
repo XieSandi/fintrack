@@ -12,6 +12,10 @@ let totalSub = "c1"; // "c1" (hapus histori) | "c2" (reset total)
 let keepApiKeys = true;
 let ackChecked = false;
 let confirmInput = "";
+// Jenis data yang dihapus (mode bulan/tahun) — bisa cuma snapshot doang, buat beresin data yang
+// ga konsisten tanpa ngilangin transaksinya. Mode total selalu semua.
+let include = { transactions: true, budgets: true, snapshots: true };
+let presetApplied = "";
 
 function availableYears() {
   const set = new Set([currentMonth().slice(0, 4)]);
@@ -33,10 +37,13 @@ function backupStale() {
 }
 
 export function render(root) {
+  // Deep link dari Setting: #/danger?mode=month|year|total (router cuma baca bagian sebelum "?").
+  const preset = (location.hash.split("?")[1] || "").match(/mode=(month|year|total)/)?.[1];
+  if (preset && presetApplied !== location.hash) { mode = preset; presetApplied = location.hash; confirmInput = ""; }
   const online = navigator.onLine;
   const includeMaster = mode === "total" && totalSub === "c2";
-  const preview = mode === "month" ? previewBulkDelete({ mode: "month", month: selMonth })
-    : mode === "year" ? previewBulkDelete({ mode: "year", year: selYear })
+  const preview = mode === "month" ? previewBulkDelete({ mode: "month", month: selMonth, include })
+    : mode === "year" ? previewBulkDelete({ mode: "year", year: selYear, include })
     : previewBulkDelete({ mode: "total" });
 
   const historyCount = preview.transactions + preview.budgets + preview.snapshots;
@@ -77,6 +84,14 @@ export function render(root) {
         <select id="dg-year">
           ${availableYears().map((y) => `<option value="${y}" ${y === selYear ? "selected" : ""}>${y}</option>`).join("")}
         </select>` : ""}
+
+      ${mode !== "total" ? `
+        <div style="margin-top:10px; display:flex; gap:14px; flex-wrap:wrap">
+          ${[["transactions", "Transaksi"], ["budgets", "Budget"], ["snapshots", "Snapshot"]].map(([k, l]) => `
+          <label style="display:flex; align-items:center; gap:6px; text-transform:none; letter-spacing:0; font-size:13px; color:var(--text); margin:0">
+            <input type="checkbox" data-include="${k}" style="width:auto" ${include[k] ? "checked" : ""} /> ${l}
+          </label>`).join("")}
+        </div>` : ""}
 
       ${mode === "total" ? `
         <div style="margin-top:10px; display:flex; flex-direction:column; gap:8px">
@@ -140,6 +155,9 @@ export function render(root) {
     r.onchange = () => { totalSub = r.value; confirmInput = ""; render(root); };
   });
   root.querySelector("#dg-keepkeys")?.addEventListener("change", (e) => { keepApiKeys = e.target.checked; });
+  root.querySelectorAll("[data-include]").forEach((c) => {
+    c.onchange = () => { include = { ...include, [c.dataset.include]: c.checked }; confirmInput = ""; render(root); };
+  });
   root.querySelector("#dg-ack")?.addEventListener("change", (e) => { ackChecked = e.target.checked; render(root); });
   root.querySelector("#dg-confirm")?.addEventListener("input", (e) => { confirmInput = e.target.value; render(root); });
 
@@ -178,6 +196,7 @@ export function render(root) {
         mode,
         month: mode === "month" ? selMonth : undefined,
         year: mode === "year" ? selYear : undefined,
+        include: mode === "total" ? undefined : include,
         includeMaster,
         keepApiKeys,
         onProgress: (done, total) => {

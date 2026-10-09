@@ -64,6 +64,11 @@ tests/precache.test.mjs cek PRECACHE sw.js lengkap dua arah (node tests/precache
 sw.js                 precache shell, runtime cache gstatic+jsdelivr
 ```
 
+Setting (`views/settings.js`) dikelompokkin: 📒 Data (menu akun/kategori/budget/goals/
+recurring) → 🏆 Target & Kurs → 📄 Laporan & Backup (export .md, backup JSON, snapshot historis,
+backfill CAPEX) → ⚙️ Integrasi & App (API key, integritas, hard refresh) → ⚠️ Zona Bahaya
+(dua link: hapus per bulan/tahun, reset) → akun login. Nambah fitur Setting = taruh di grup yang
+pas, jangan bikin card lepas.
 Routing hash (`#/home`). Nav: Home · History · Assets (Wealth: sumtab Total · Cash · Invest · FA ·
 Debt·Claim) · Setting. **Klasifikasi Wealth** (calc.js `FIXED_ASSET_TYPES`/`isFixedAsset`/
 `isInvestAsset`): Cash = akun non-CC (`totalCashIDR()`); Invest = semua tipe asset kecuali FA &
@@ -438,9 +443,12 @@ Kenapa hook: `DECISIONS.md` "efek debt/asset dipusatkan sebagai hook".
   (dueDate lewat, qtyless bukan true, sisa > total), CC over-limit / saldo plus, goal link ke
   asset hilang. "Buka" → `openTxDetail()` / `openAssetSheet()` / `openAcctSheet()` /
   `openGoalSheet()` / `#/budget` (sheet-sheet itu di-export khusus buat ini).
-- **Zona Bahaya** (`#/danger`, `bulkDelete()`): mode bulan/tahun/total; C1 wipe histori
+- **Zona Bahaya** (`#/danger`, `bulkDelete()`): mode bulan/tahun/total; mode bulan/tahun punya
+  checkbox jenis data (`include: {transactions, budgets, snapshots}` → `bulkDeleteScope()`, buat
+  beresin mis. CUMA snapshot yang ga konsisten tanpa ngilangin transaksi); C1 wipe histori
   (transactions/budgets/snapshots/attachments), C2 reset total (+ master, reseed, `apiKeys` bisa
-  dipertahankan). Safeguard: preview jumlah, warning backup > 24 jam, checkbox, type-to-confirm,
+  dipertahankan). Deep link dari Setting `#/danger?mode=month|year|total` (router cuma baca
+  sebelum `?`, danger.js baca query-nya sendiri sekali per hash). Safeguard: preview jumlah, warning backup > 24 jam, checkbox, type-to-confirm,
   wajib online (dicek di view DAN di db.js). Habis bulk delete saldo berubah → arahkan Reconcile.
 - Chart.js dari jsdelivr; offline & belum ke-cache → pesan fallback. iOS bisa evict storage PWA
   (data master di cloud). `attachThousands()`/`parseAmount()` pasangan format ribuan.

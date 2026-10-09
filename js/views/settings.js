@@ -24,11 +24,15 @@ export function render(root) {
   const milestone = milestoneProgress();
   const capexBackfillRows = previewCapexBackfill();
 
+  // Setting dikelompokkin per fungsi (header kecil di atas tiap grup) — urutan: data master →
+  // target → laporan/backup → integrasi/app → zona bahaya → akun login.
+  const groupHead = (t) => `<div class="card-title" style="margin:14px 2px 8px">${t}</div>`;
   root.innerHTML = `
     ${backupOld ? `<div class="card" style="border-color:#6a5833; background:#211d16">
       <div style="font-size:13px">⚠️ ${lastBackup ? "Backup terakhir > 30 hari" : "Belum pernah backup"}. Export data lo di bawah biar aman.</div>
     </div>` : ""}
 
+    ${groupHead("📒 Data")}
     <div class="card" style="padding: 4px 16px;">
       <a class="menu-item" href="#/accounts">
         <span class="mi-ic">💳</span>
@@ -47,7 +51,7 @@ export function render(root) {
       </a>
       <a class="menu-item" href="#/goals">
         <span class="mi-ic">🎯</span>
-        <span>Short Term Goals<div class="mi-sub">${nGoals} goal aktif</div></span>
+        <span>Short Term Goals<div class="mi-sub">${nGoals} goal</div></span>
         <span class="mi-arrow">›</span>
       </a>
       <a class="menu-item" href="#/recurring">
@@ -57,15 +61,8 @@ export function render(root) {
       </a>
     </div>
 
+    ${groupHead("🏆 Target & Kurs")}
     <div class="card">
-      <div class="card-title">Integrasi Harga (API Keys)</div>
-      <label>Finnhub key — saham/ETF US <a href="https://finnhub.io" target="_blank" rel="noopener" style="color:var(--blue)">↗</a></label>
-      <input id="s-finnhub" type="text" autocomplete="off" placeholder="belum diisi = saham US manual" value="${escapeHtml(state.settings.apiKeys?.finnhub || "")}" />
-      <button id="btn-save-keys" class="btn btn-primary btn-sm" style="margin-top:12px">Simpan Keys</button>
-    </div>
-
-    <div class="card">
-      <div class="card-title">🏆 Main Milestone & Kurs</div>
       ${milestone.achieved ? `<div class="sub" style="color:#d9bc7f; margin-bottom:8px">🏆 Tercapai! Set milestone berikutnya.</div>` : ""}
       <label>Target Net Worth (Rp)</label>
       <input id="s-target" inputmode="numeric" value="${fmtNum(state.settings.targetNetWorth || 100000000)}" />
@@ -81,6 +78,27 @@ export function render(root) {
       <button id="btn-save-settings" class="btn btn-primary btn-sm" style="margin-top:12px">Simpan</button>
     </div>
 
+    ${groupHead("📄 Laporan & Backup")}
+    <div class="card">
+      <div class="card-title">Export Laporan (.md)</div>
+      <label>Bulan</label>
+      <select id="rep-month">
+        ${availableReportMonths().map((m) => `<option value="${m}" ${m === currentMonth() ? "selected" : ""}>${monthLabel(m)}</option>`).join("")}
+      </select>
+      <div class="row" style="margin-top:12px">
+        <button id="btn-download-report" class="btn">⬇️ Download .md</button>
+        <button id="btn-copy-report" class="btn">📋 Salin ke Clipboard</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">Backup & Restore (JSON)</div>
+      <div class="sub" style="margin-bottom:10px">${lastBackup ? `Backup terakhir: ${new Date(lastBackup).toLocaleDateString("id-ID")}` : "Belum pernah backup"}</div>
+      <div class="row">
+        <button id="btn-export" class="btn">⬇️ Export JSON</button>
+        <button id="btn-import" class="btn">⬆️ Import</button>
+      </div>
+      <input type="file" id="import-file" accept=".json,application/json" class="hidden" />
+    </div>
     <div class="card">
       <div class="card-title">Snapshot Historis</div>
       <label>Bulan</label>
@@ -89,7 +107,6 @@ export function render(root) {
       <input id="snap-nw" inputmode="numeric" placeholder="cth: 15000000 atau -2000000" autocomplete="off" />
       <button id="btn-add-snapshot" class="btn btn-primary btn-sm" style="margin-top:12px">Simpan Snapshot</button>
     </div>
-
     ${capexBackfillRows.length > 0 ? `
     <div class="card">
       <div class="card-title">🏗️ Backfill CAPEX ke Snapshot Lama</div>
@@ -104,41 +121,34 @@ export function render(root) {
       <button id="btn-capex-backfill" class="btn btn-primary btn-sm" style="margin-top:12px">Backfill ${capexBackfillRows.length} Snapshot</button>
     </div>` : ""}
 
+    ${groupHead("⚙️ Integrasi & App")}
     <div class="card">
-      <div class="card-title">Backup & Restore</div>
-      <div class="sub" style="margin-bottom:10px">${lastBackup ? `Backup terakhir: ${new Date(lastBackup).toLocaleDateString("id-ID")}` : "Belum pernah backup"}</div>
+      <label>Finnhub key — saham/ETF US <a href="https://finnhub.io" target="_blank" rel="noopener" style="color:var(--blue)">↗</a></label>
+      <input id="s-finnhub" type="text" autocomplete="off" placeholder="belum diisi = saham US manual" value="${escapeHtml(state.settings.apiKeys?.finnhub || "")}" />
+      <button id="btn-save-keys" class="btn btn-primary btn-sm" style="margin-top:12px">Simpan Keys</button>
+    </div>
+    <div class="card">
       <div class="row">
-        <button id="btn-export" class="btn">⬇️ Export JSON</button>
-        <button id="btn-import" class="btn">⬆️ Import</button>
-      </div>
-      <input type="file" id="import-file" accept=".json,application/json" class="hidden" />
-    </div>
-
-    <div class="card">
-      <div class="card-title">📄 Export Laporan (.md)</div>
-      <label>Bulan</label>
-      <select id="rep-month">
-        ${availableReportMonths().map((m) => `<option value="${m}" ${m === currentMonth() ? "selected" : ""}>${monthLabel(m)}</option>`).join("")}
-      </select>
-      <div class="row" style="margin-top:12px">
-        <button id="btn-download-report" class="btn">⬇️ Download .md</button>
-        <button id="btn-copy-report" class="btn">📋 Salin ke Clipboard</button>
+        <button id="btn-integrity" class="btn">🩺 Cek Integritas</button>
+        <button id="btn-hard-refresh" class="btn">🔄 Hard Refresh</button>
       </div>
     </div>
 
-    <div class="card">
-      <div class="card-title">App</div>
-      <button id="btn-hard-refresh" class="btn btn-block">🔄 Hard Refresh</button>
-      <div style="height:10px"></div>
-      <button id="btn-integrity" class="btn btn-block">🩺 Cek Integritas Data</button>
+    ${groupHead(`<span style="color:var(--red)">⚠️ Zona Bahaya</span>`)}
+    <div class="card" style="padding: 4px 16px; border-color:#6a4444; background:#201a1a">
+      <a class="menu-item" href="#/danger?mode=month">
+        <span class="mi-ic">🗓️</span>
+        <span>Hapus data per bulan / tahun<div class="mi-sub">transaksi, budget, atau snapshot bulan tertentu — buat beresin data yang ga konsisten</div></span>
+        <span class="mi-arrow">›</span>
+      </a>
+      <a class="menu-item" href="#/danger?mode=total">
+        <span class="mi-ic">🗑️</span>
+        <span style="color:var(--red)">Reset Data<div class="mi-sub">hapus semua histori / reset total</div></span>
+        <span class="mi-arrow">›</span>
+      </a>
     </div>
 
-    <div class="card" style="border-color:#6a4444; background:#201a1a">
-      <div class="card-title" style="color:var(--red)">⚠️ Zona Bahaya</div>
-      <a href="#/danger" class="btn btn-danger btn-block" style="text-decoration:none; display:flex; align-items:center; justify-content:center">🗑️ Reset Data</a>
-    </div>
-
-    <div class="card">
+    <div class="card" style="margin-top:14px">
       <div class="set-item">
         <div>
           <div>${escapeHtml(auth.currentUser?.displayName || "")}</div>

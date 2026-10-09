@@ -508,20 +508,25 @@ export const updateSettings = (data) => put("settings", "main", data);
 // ================= Bulk Delete / Reset (TASK-9) =================
 // Scope bareng buat preview DAN delete beneran — biar preview ga pernah kebohongan
 // (drift dari logic delete yang sebenarnya jalan).
-function bulkDeleteScope(mode, month, year) {
+// `include` ({transactions, budgets, snapshots}, default semua true) — mode bulan/tahun bisa
+// milih jenis data yang dihapus (mis. CUMA snapshot bulan yang ga konsisten, transaksinya tetap).
+// Mode total SELALU semua (reset ga setengah-setengah).
+const ALL_KINDS = { transactions: true, budgets: true, snapshots: true };
+function bulkDeleteScope(mode, month, year, include = ALL_KINDS) {
+  const pick = (kind, arr) => (include[kind] === false ? [] : arr);
   if (mode === "month") {
     return {
-      transactions: state.transactions.filter((t) => t.month === month),
-      budgets: state.budgets.filter((b) => b.month === month),
-      snapshots: state.snapshots.filter((s) => (s.month || s.id) === month),
+      transactions: pick("transactions", state.transactions.filter((t) => t.month === month)),
+      budgets: pick("budgets", state.budgets.filter((b) => b.month === month)),
+      snapshots: pick("snapshots", state.snapshots.filter((s) => (s.month || s.id) === month)),
     };
   }
   if (mode === "year") {
     const prefix = `${year}-`;
     return {
-      transactions: state.transactions.filter((t) => t.month?.startsWith(prefix)),
-      budgets: state.budgets.filter((b) => b.month?.startsWith(prefix)),
-      snapshots: state.snapshots.filter((s) => (s.month || s.id)?.startsWith(prefix)),
+      transactions: pick("transactions", state.transactions.filter((t) => t.month?.startsWith(prefix))),
+      budgets: pick("budgets", state.budgets.filter((b) => b.month?.startsWith(prefix))),
+      snapshots: pick("snapshots", state.snapshots.filter((s) => (s.month || s.id)?.startsWith(prefix))),
     };
   }
   // "total" (C1/C2) — semua histori
@@ -533,8 +538,8 @@ function bulkDeleteScope(mode, month, year) {
 }
 
 // Pure, ga nyentuh Firestore — dipakai UI buat preview sebelum eksekusi.
-export function previewBulkDelete({ mode, month, year }) {
-  const scope = bulkDeleteScope(mode, month, year);
+export function previewBulkDelete({ mode, month, year, include }) {
+  const scope = bulkDeleteScope(mode, month, year, include);
   const totalExpense = scope.transactions.filter((t) => t.type === "expense").reduce((s, t) => s + (Number(t.amount) || 0), 0);
   const totalIncome = scope.transactions.filter((t) => t.type === "income").reduce((s, t) => s + (Number(t.amount) || 0), 0);
   const dates = scope.transactions.map((t) => t.date).sort();
@@ -563,10 +568,10 @@ export function previewBulkDelete({ mode, month, year }) {
 // importAll() (lihat Known Quirks CLAUDE.md). Efek debtId TETAP dikembalikan (konsisten sama
 // hapus 1 transaksi via remove()), TAPI diagregasi per debt dulu (bukan 1 patch per transaksi)
 // — ratusan patch berturut ke dokumen debt yang sama itu lambat & rawan race kalau lewat hook.
-export async function bulkDelete({ mode, month, year, includeMaster, keepApiKeys, onProgress }) {
+export async function bulkDelete({ mode, month, year, include, includeMaster, keepApiKeys, onProgress }) {
   if (!navigator.onLine) throw new Error("Butuh koneksi internet buat bulk delete.");
 
-  const scope = bulkDeleteScope(mode, month, year);
+  const scope = bulkDeleteScope(mode, month, year, include);
   const masterScope = includeMaster ? {
     accounts: state.accounts.slice(),
     categories: state.categories.slice(),
