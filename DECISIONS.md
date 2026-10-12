@@ -1134,15 +1134,16 @@ TASKS.md #1 masih berlaku).
 
 ---
 
-## Tambah Asset sekalian potong akun (2026-10)
+## Tambah Asset: cuma daftarin, pembelian lewat Catat Pembelian (2026-10)
 
 Bug yang ketemu owner: beli saham baru lewat Tambah Asset (isi lot + avg buy) → nilai asset
 nambah tapi cash ga kepotong, karena form itu cuma bikin dokumen asset; transaksi beli cuma ada
-di "Catat Pembelian" yang baru muncul SETELAH asset ada. Net worth jadi naik palsu sebesar
-modalnya. Dibenerin dengan section "Catat pembelian dari akun" di form Tambah Asset (default ON,
-sama kayak Claim Baru / Hutang Baru yang udah wajib pilih akun). Dibikin checkbox (bukan wajib)
-karena ada kasus legit posisi lama: uangnya udah keluar sebelum pakai app, saldo awal akun udah
-mencerminkan itu — kalau dipaksa catat, cash kepotong dua kali. Transaksinya pakai jalur yang
-sama persis kayak Catat Pembelian (transfer `assetDir:"buy"`), jadi reversal/bulk delete/
-integrity otomatis; bond & capex yang sebelumnya ga pernah punya transaksi buy butuh pengecualian
-kecil di integrity & bulkDelete (lump-sum, tanpa qty).
+di "Catat Pembelian" yang baru muncul SETELAH asset ada. Net worth naik palsu sebesar modalnya.
+
+Opsi pertama yang dirancang: section "catat pembelian dari akun" di dalam form Tambah Asset
+(nominal dihitung dari qty×avg). DITOLAK owner — dua jalur nulis pembelian (form asset + Catat
+Pembelian) bikin form-nya ngaco dan dobel logika weighted avg. Dipilih: form Tambah Asset cuma
+daftarin asset ke list (jumlah/harga boleh kosong, validasi dilepas), lalu sheet Catat Pembelian
+langsung kebuka — SATU jalur tulis pembelian, yang udah punya akun sumber, qty, harga, dan
+weighted avg. Data lama yang terlanjur masuk tanpa transaksi sengaja ga dimigrasi (owner: udah
+kelewat).

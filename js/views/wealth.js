@@ -830,14 +830,29 @@ export function openAssetSheet(existing, contentRoot, presetType = "") {
     // Piutang dibuat langsung dari form (posisi lama, tanpa transaksi "Kasih Pinjaman") dengan cuma
     // sisa yang diisi → total dipinjamkan default = sisa, biar ga ke-flag integrity "sisa > total".
     if (isRecvNow && !data.avgBuyPrice) data.avgBuyPrice = data.manualPrice;
-    if (!isBondNow && !data.quantity) return toast("Isi jumlah");
+    // Asset BARU boleh tanpa jumlah/harga (diisi lewat Catat Pembelian); existing qty-based tetap
+    // wajib qty biar nilai ga ngaco diam-diam.
+    if (existing && !isBondNow && !isCapexNow && !isJhtNow && !isQtylessNow && !data.quantity) return toast("Isi jumlah");
     if (isCapexNow && !data.avgBuyPrice) return toast("Isi harga beli");
     if (isBondNow && !data.principal) return toast("Isi nilai pokok/principal");
     if (isBondNow && !data.maturityDate) return toast("Isi tanggal jatuh tempo");
     closeSheet();
-    if (existing) await patch("assets", existing.id, data);
-    else await add("assets", data);
-    toast("Asset disimpan ✓");
+    if (existing) {
+      await patch("assets", existing.id, data);
+      toast("Asset disimpan ✓");
+      return;
+    }
+    // Asset BARU: cuma masuk list (jumlah/harga boleh kosong) — pembelian dicatat lewat "Catat
+    // Pembelian" (transaksi beli dari akun, weighted avg otomatis, cash kepotong). Sheet-nya
+    // langsung dibuka buat tipe yang punya jalur beli; tutup aja kalau cuma daftarin posisi lama.
+    const ref = await add("assets", data);
+    const hasBuyFlow = !isBondNow && !isCapexNow && !isJhtNow && !isRecvNow;
+    if (hasBuyFlow) {
+      toast("Asset ditambah ✓ — catat pembeliannya");
+      openAssetBuySheet({ id: ref.id, ...data });
+    } else {
+      toast("Asset disimpan ✓");
+    }
   };
 
   if (existing) {
