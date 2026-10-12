@@ -194,6 +194,15 @@ priceSource, manualOnly, qtyless, ...field per tipe}`. Tipe: `stock_id` (qty LOT
 `AUTO_TYPES` (prices.js) = stock_id/stock_us/crypto; `manualOnly:true` skip refresh.
 - **`nowMonth` WAJIB** dikirim ke `assetValueIDR()`/`totalAssetsIDR()`/`netWorthIDR()` — caller
   lewat store.js yang nyuntik `currentMonth()`.
+- **Tambah Asset = sekalian catat pembelian** (section "💰 Catat pembelian dari akun" di
+  `openAssetSheet()` buat asset BARU, default ON, cuma tipe selain jht/receivable): simpan =
+  `add("assets")` + transaksi transfer `assetDir:"buy"` dari akun yang dipilih, nominal = modal
+  awal (qty×avg, stock_id ×100; qtyless = modal total; bond = pokok; capex = harga beli),
+  `assetQty`/`assetPrice` cuma buat tipe qty-based. Matiin checkbox buat posisi lama yang uangnya
+  udah keluar sebelum pakai app. Transaksi buy bond/capex (lump-sum, tanpa qty) → integrity skip
+  syarat qty (LUMP = jht/bond/capex) & skip check qty-vs-transaksi; bulkDelete ga nyentuh
+  `quantity` bond/capex; detail-nya: bond lewat `openQtylessTradeSheet()` (dispatch di
+  `openAssetBuySheet()`), capex lewat `openFixedAssetSellSheet()` (label "Pembelian").
 - **Hapus asset ber-transaksi**: BOLEH kalau nilai udah 0, lewat `deleteAssetKeepHistory()`
   (db.js, raw batch): transaksi TIDAK ikut dihapus, ditandai `assetDeleted:true` + `assetSnapshot`
   ({symbol,name,type,currency,qtyless,debtorName}). Nilai > 0 diblok. Tanpa transaksi →

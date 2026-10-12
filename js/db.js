@@ -651,7 +651,8 @@ export async function bulkDelete({ mode, month, year, include, includeMaster, ke
       } else if (asset.type === "jht") {
         // Pencairan sebagian (sell) di-reverse: saldo balik naik (netValueAmount = Σbuy − Σsell, negatif).
         data.manualPrice = Math.max(0, (Number(asset.manualPrice) || 0) - agg.netValueAmount);
-      } else if (asset.type !== "capex") {
+      } else if (asset.type !== "capex" && asset.type !== "bond") {
+        // Bond/capex: transaksi beli awal/jual tanpa qty, quantity selalu 1 — jangan disentuh.
         data.quantity = Math.max(0, (Number(asset.quantity) || 0) - agg.netQty);
       }
       await patch("assets", assetId, data);

@@ -1030,13 +1030,14 @@ export function openFixedAssetSellSheet(asset, existingTx = null) {
   if (existingTx) {
     const acct = state.accounts.find((a) => a.id === existingTx.accountId);
     const partial = existingTx.assetDir === "sell";
+    const isBuy = existingTx.assetDir === "buy"; // pembelian awal dari Tambah Asset (capex)
     const el = openSheet(`
-      ${sheetHead(`Detail ${verb}: ${escapeHtml(asset.name || asset.symbol)}`)}
+      ${sheetHead(`Detail ${isBuy ? "Pembelian" : verb}: ${escapeHtml(asset.name || asset.symbol)}`)}
       <div class="sub" style="margin-bottom:10px">Ga bisa diedit — hapus &amp; catat ulang.</div>
       <div class="table-like">
-        <div style="display:flex; justify-content:space-between; padding:6px 0"><span class="sub">Jenis</span><span>${partial ? "Pencairan sebagian" : isCapex ? "Dijual (penuh)" : "Pencairan penuh"}</span></div>
+        <div style="display:flex; justify-content:space-between; padding:6px 0"><span class="sub">Jenis</span><span>${isBuy ? "Pembelian" : partial ? "Pencairan sebagian" : isCapex ? "Dijual (penuh)" : "Pencairan penuh"}</span></div>
         <div style="display:flex; justify-content:space-between; padding:6px 0"><span class="sub">Nominal</span><span>${fmtMoney(existingTx.amount, acct?.currency)}</span></div>
-        <div style="display:flex; justify-content:space-between; padding:6px 0"><span class="sub">Ke Akun</span><span>${escapeHtml(acct?.name || "?")}</span></div>
+        <div style="display:flex; justify-content:space-between; padding:6px 0"><span class="sub">${isBuy ? "Dari" : "Ke"} Akun</span><span>${escapeHtml(acct?.name || "?")}</span></div>
         <div style="display:flex; justify-content:space-between; padding:6px 0"><span class="sub">Tanggal</span><span>${existingTx.date}${existingTx.time ? ` ${existingTx.time}` : ""}</span></div>
         ${existingTx.note ? `<div style="display:flex; justify-content:space-between; padding:6px 0"><span class="sub">Catatan</span><span>${escapeHtml(existingTx.note)}</span></div>` : ""}
       </div>
@@ -1044,7 +1045,7 @@ export function openFixedAssetSellSheet(asset, existingTx = null) {
     `);
     el.querySelector("[data-close]").onclick = closeSheet;
     el.querySelector("#fs-delete").onclick = async () => {
-      if (!confirmDialog(partial ? "Hapus pencairan ini? Saldo JHT dibalikin." : `Hapus transaksi ini? Asset bakal aktif lagi (belum ${isCapex ? "dijual" : "dicairkan"}).`)) return;
+      if (!confirmDialog(isBuy ? "Hapus transaksi pembelian ini? Saldo akun balik, asset-nya tetap ada." : partial ? "Hapus pencairan ini? Saldo JHT dibalikin." : `Hapus transaksi ini? Asset bakal aktif lagi (belum ${isCapex ? "dijual" : "dicairkan"}).`)) return;
       closeSheet();
       await remove("transactions", existingTx.id); // reversal lewat hook db.js
       toast("Dihapus, asset disesuaikan");
@@ -1145,12 +1146,14 @@ export function openFixedAssetSellSheet(asset, existingTx = null) {
 // Asset qtyless (lump-sum, "Jumlah N/A") dispatch ke sheet KHUSUS (openQtylessTradeSheet, di
 // bawah) — bukan openAssetTradeSheet biasa, field-nya beda total (nominal langsung, ga ada
 // qty×harga/unit).
+// Bond ikut jalur qtyless buat DETAIL transaksi (pembelian awal dari Tambah Asset = lump-sum tanpa
+// qty) — tombol trade bond sendiri di-hide, jadi path "new" ga pernah kepanggil buat bond.
 export function openAssetBuySheet(asset, existingTx = null, opts = {}) {
-  if (asset.qtyless === true) return openQtylessTradeSheet(asset, "buy", existingTx, opts);
+  if (asset.qtyless === true || asset.type === "bond") return openQtylessTradeSheet(asset, "buy", existingTx, opts);
   openAssetTradeSheet(asset, "buy", existingTx, opts);
 }
 export function openAssetSellSheet(asset, existingTx = null, opts = {}) {
-  if (asset.qtyless === true) return openQtylessTradeSheet(asset, "sell", existingTx, opts);
+  if (asset.qtyless === true || asset.type === "bond") return openQtylessTradeSheet(asset, "sell", existingTx, opts);
   openAssetTradeSheet(asset, "sell", existingTx, opts);
 }
 

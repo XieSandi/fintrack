@@ -1131,3 +1131,18 @@ otomatis jalan. Yang beda cuma label di UI (Pokok cair / Dijual / Dicairkan). JH
 cabang reversal khusus jht di `applyAssetQtyEffect()` & `bulkDelete()` (saldo balik naik).
 Selisih harga jual vs nilai buku CAPEX sengaja cuma insight di sheet, bukan realized P&L (roadmap
 TASKS.md #1 masih berlaku).
+
+---
+
+## Tambah Asset sekalian potong akun (2026-10)
+
+Bug yang ketemu owner: beli saham baru lewat Tambah Asset (isi lot + avg buy) → nilai asset
+nambah tapi cash ga kepotong, karena form itu cuma bikin dokumen asset; transaksi beli cuma ada
+di "Catat Pembelian" yang baru muncul SETELAH asset ada. Net worth jadi naik palsu sebesar
+modalnya. Dibenerin dengan section "Catat pembelian dari akun" di form Tambah Asset (default ON,
+sama kayak Claim Baru / Hutang Baru yang udah wajib pilih akun). Dibikin checkbox (bukan wajib)
+karena ada kasus legit posisi lama: uangnya udah keluar sebelum pakai app, saldo awal akun udah
+mencerminkan itu — kalau dipaksa catat, cash kepotong dua kali. Transaksinya pakai jalur yang
+sama persis kayak Catat Pembelian (transfer `assetDir:"buy"`), jadi reversal/bulk delete/
+integrity otomatis; bond & capex yang sebelumnya ga pernah punya transaksi buy butuh pengecualian
+kecil di integrity & bulkDelete (lump-sum, tanpa qty).
