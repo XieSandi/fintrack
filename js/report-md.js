@@ -135,7 +135,7 @@ function buildPosition(month, isCurrentMonth) {
     })),
     // activeDebts() — hutang arsip (ditutup) ga ditabelin, outstanding-nya udah 0 di totalDebtIDR.
     debts: activeDebts().map((d) => ({
-      name: d.name, outstanding: Number(d.totalOutstanding) || 0,
+      name: d.name, viaCredit: !!d.creditAccountId, outstanding: Number(d.totalOutstanding) || 0,
       monthlyInstalment: Number(d.monthlyInstalment) || 0,
       remainingMonths: d.remainingMonths ?? null, dueDay: d.dueDay ?? null,
     })),
@@ -393,12 +393,13 @@ export function buildMonthlyReport(month) {
   // tabel yang sama — field-nya beda konsep (Terpakai/Limit, bukan Cicilan/bln atau Jatuh Tempo).
   lines.push(`## 7. Hutang (${position.label})`);
   const debtRows = position.debts.map((d) => [
-    d.name, fmtIDRPlain(d.outstanding), fmtIDRPlain(d.monthlyInstalment),
+    `${d.name}${d.viaCredit ? " (via kartu kredit — udah termasuk utang kartu)" : ""}`, fmtIDRPlain(d.outstanding), fmtIDRPlain(d.monthlyInstalment),
     d.dueDay ? `tgl ${d.dueDay}` : NA, d.remainingMonths ?? NA,
   ]);
   lines.push(mdTable(["Nama", "Outstanding", "Cicilan/bln", "Jatuh Tempo", "Sisa Bulan"], debtRows));
   if (position.debts.length > 0) {
-    const totalOutstanding = position.debts.reduce((s, d) => s + d.outstanding, 0);
+    // Cicilan via kartu kredit ga dijumlah (udah di subsection Kartu Kredit / Debt total).
+    const totalOutstanding = position.debts.filter((d) => !d.viaCredit).reduce((s, d) => s + d.outstanding, 0);
     const totalInstalment = position.debts.reduce((s, d) => s + d.monthlyInstalment, 0);
     const dti = sum.income > 0 ? (totalInstalment / sum.income) * 100 : null;
     lines.push(`**Total cicilan** — Outstanding: ${fmtIDRPlain(totalOutstanding)} · Cicilan/bln: ${fmtIDRPlain(totalInstalment)} · DTI (vs income ${monthLabel(month)}): ${dti !== null ? dti.toFixed(1) + "%" : NA}`);

@@ -337,13 +337,28 @@ export const includeFixedAssetsSetting = (state) => state.settings.includeCapexI
 // outstanding NAIK) vs pembayaran (expense biasa ber-debtId, outstanding TURUN — perilaku lama,
 // `debtDir` kosong/undefined = pembayaran, jadi data lama ga berubah arti). Helper `debtTxDelta(t)`
 // = kontribusi transaksi ke outstanding (signed), SATU sumber dipakai db.js hook & bulkDelete.
-export const isDebtBorrow = (t) => !!t.debtId && t.debtDir === "borrow";
-export const debtTxDelta = (t) => (isDebtBorrow(t) ? 1 : -1) * (Number(t.amount) || 0);
+// Jenis transaksi ber-debtId: "borrow" (dana masuk, outstanding naik), "purchase" (pembelian
+// barang pakai KARTU KREDIT buat cicilan ber-`creditAccountId` — expense di akun CC yang motong
+// limit; outstanding TIDAK disentuh karena udah di-set pas debt dibuat, sisa bulan juga ga),
+// "payment" (default/kosong: outstanding turun, sisa bulan −1).
+export const debtTxKind = (t) => (!t.debtId ? null : t.debtDir === "borrow" ? "borrow" : t.debtDir === "purchase" ? "purchase" : "payment");
+export const isDebtBorrow = (t) => debtTxKind(t) === "borrow";
+export const isDebtPayment = (t) => debtTxKind(t) === "payment";
+export const debtTxDelta = (t) => {
+  const k = debtTxKind(t);
+  if (k === "borrow") return Number(t.amount) || 0;
+  if (k === "payment") return -(Number(t.amount) || 0);
+  return 0;
+};
 export const debtOutstanding = (d) => (d.isArchived === true ? 0 : Math.max(0, Number(d.totalOutstanding) || 0));
 export const activeDebts = (state) => state.debts.filter((d) => d.isArchived !== true);
+// Cicilan kartu kredit: debt ber-`creditAccountId` (akun tipe credit). Utangnya UDAH ada di saldo
+// negatif akun CC (`totalCreditDebtIDR()`), jadi outstanding-nya cuma JADWAL cicilan — JANGAN
+// dijumlah lagi ke totalDebtIDR (double count).
+export const isCreditDebt = (d) => !!d.creditAccountId;
 
 export const totalDebtIDR = (state) =>
-  state.debts.reduce((s, d) => s + debtOutstanding(d), 0) + totalCreditDebtIDR(state);
+  state.debts.filter((d) => !isCreditDebt(d)).reduce((s, d) => s + debtOutstanding(d), 0) + totalCreditDebtIDR(state);
 
 // Goal yang diarsipkan (`isArchived`, pola sama `activeAccounts()`) — TAPI beda konsekuensi:
 // `activeAccounts()` dipakai LANGSUNG di totalCashIDR() (akun diarsip = ditutup, saldo-nya

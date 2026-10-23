@@ -43,7 +43,9 @@ export function openTxSheet(existing = null) {
   const existingFee = existing ? state.transactions.find((t) => t.feeOfTxId === existing.id) : null;
   const expenseCats = state.categories.filter((c) => c.type === "expense");
   // Dropdown "Potong hutang?": hutang arsip disembunyiin (kecuali yang lagi dipakai transaksi ini).
-  const debtOptions = state.debts.filter((d) => d.isArchived !== true || d.id === existing?.debtId);
+  // Cicilan kartu kredit (creditAccountId) juga disembunyiin — bayarnya lewat sheet Bayar Cicilan
+  // (transfer ke kartu), bukan expense; kalau lewat sini outstanding turun tapi saldo kartu ga.
+  const debtOptions = state.debts.filter((d) => (d.isArchived !== true && !d.creditAccountId) || d.id === existing?.debtId);
   const feeCatDefault = existingFee?.categoryId || (expenseCats.find((c) => c.id === "cat_fee") ? "cat_fee" : expenseCats[0]?.id || "");
 
   const el = openSheet(`

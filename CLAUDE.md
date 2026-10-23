@@ -130,8 +130,9 @@ accountNumber?, creditLimit?, isArchived?, sortOrder?}`.
   (warning). Warning over-limit di `openTxSheet()` SETELAH tersimpan (toast, non-blocking), ikut
   ngitung biaya tambahan. Wealth: tab Liquid ga nampilin CC; tab Debt section "🪪 Kartu Kredit"
   (klik → `openAcctSheet()`), breakdown Total misahin "🪪 Kartu Kredit" dari "💳 Cicilan"
-  (`debtsOnly = totalDebtIDR() − totalCreditDebtIDR()`). Cicilan 0% CC kalau nanti ada = konsep
-  terpisah dari `debtId`, jangan dicampur.
+  (`debtsOnly = totalDebtIDR() − totalCreditDebtIDR()`). **Cicilan kartu kredit** = debt biasa
+  ber-`creditAccountId` (lihat bullet `debts`) — utangnya tetap lewat saldo CC, debt-nya cuma
+  jadwal.
 
 ### `categories`
 `{name, icon, type: expense|income, isPreset}`. `seedIfNeeded()` = sekali (first-run);
@@ -289,9 +290,24 @@ Link bukti: `linkUrl` di transaksi, `normalizeLink()` (tanpa skema → https://,
 anchor `target=_blank rel=noopener`, bisa nyusul dari detail (`renderTxLink()`).
 
 ### `debts`
-`{name, totalOutstanding, monthlyInstalment, dueDay, remainingMonths, isArchived?}`. Cicilan
-TETAP, beda dari CC (revolving, derived). Mengurangi net worth via `debtOutstanding()` (0 kalau
-arsip).
+`{name, totalOutstanding, monthlyInstalment, dueDay, remainingMonths, isArchived?,
+creditAccountId?}`. Cicilan TETAP, beda dari CC (revolving, derived). Mengurangi net worth via
+`debtOutstanding()` (0 kalau arsip) — KECUALI yang ber-`creditAccountId` (lihat bawah).
+- **Cicilan kartu kredit** (`creditAccountId` = akun tipe credit; `isCreditDebt(d)`): barang
+  dibeli pakai CC, dicicil. Pembelian = expense BIASA di akun CC (motong limit, masuk cashflow
+  bulan beli) ber-`debtId` + **`debtDir:"purchase"`** → `debtTxDelta()` = 0, sisa bulan ga
+  disentuh (outstanding udah di-set pas debt dibuat). **Outstanding-nya TIDAK dijumlah ke
+  `totalDebtIDR()`** (utangnya udah ada di `totalCreditDebtIDR()` — kalau dijumlah dobel); debt-nya
+  cuma jadwal cicilan (badge "💳 {kartu}" + "udah termasuk utang kartu" di tab Debt, report
+  section 7 ditandai & di-exclude dari total outstanding, snapshot `viaCredit`). Pembayaran
+  (`openDebtPaySheet()` buat debt ini) = **TRANSFER cash → akun CC** ber-`debtId` (kind payment:
+  outstanding turun, sisa bulan −1, saldo CC naik) — BUKAN expense (expense-nya udah pas beli).
+  Dibuat lewat `openNewDebtSheet()` jenis "💳 Cicilan kartu" (pilih CC + kategori pembelian).
+  Transaksi purchase & payment-nya read-only lewat `openDebtCcTxSheet()` (exported, di-route
+  `openTxDetail()`: `debtDir:"purchase"` atau transfer ber-debtId non-borrow); dropdown "Potong
+  hutang?" (tx-sheet & recurring) nge-exclude debt ini. Jenis transaksi ber-debtId SEKARANG tiga:
+  `debtTxKind(t)` = borrow | purchase | payment (`isDebtPayment()` yang nentuin remainingMonths
+  −1). Integrity (kind "debt"): `creditAccountId` harus akun credit yang ada.
 - **Arah transaksi ber-`debtId`** — SATU sumber `isDebtBorrow(t)`/`debtTxDelta(t)` (calc.js):
   `debtDir:"borrow"` = transfer, dana MASUK (akun dikredit, BUKAN income), outstanding NAIK,
   `remainingMonths` ga disentuh; `debtDir` kosong = pembayaran (expense biasa, outstanding turun,

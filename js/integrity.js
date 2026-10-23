@@ -125,6 +125,14 @@ export function scanIntegrity(state) {
     if (problems.length > 0) issues.push({ kind: "asset", ref: a, problems });
   }
 
+  // Cicilan kartu kredit: `creditAccountId` harus nunjuk akun tipe credit yang masih ada.
+  for (const d of state.debts) {
+    if (!d.creditAccountId) continue;
+    const cc = state.accounts.find((a) => a.id === d.creditAccountId);
+    if (!cc) issues.push({ kind: "debt", ref: d, problems: ["akun kartu kredit yang di-link ga ketemu"] });
+    else if (!isCreditAccount(cc)) issues.push({ kind: "debt", ref: d, problems: [`di-link ke "${cc.name}" yang bukan akun kartu kredit`] });
+  }
+
   // Qtyless ("Jumlah N/A") — quantity WAJIB selalu persis 1 (dipaksa di semua jalur tulis: form
   // Edit Asset, openQtylessTradeSheet, reversal-nya di db.js). Kalau ketemu beda, itu tanda ada
   // penulisan langsung yang bypass app (mis. Firestore console) — read-only info, bukan auto-fix.

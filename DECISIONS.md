@@ -1147,3 +1147,25 @@ daftarin asset ke list (jumlah/harga boleh kosong, validasi dilepas), lalu sheet
 langsung kebuka — SATU jalur tulis pembelian, yang udah punya akun sumber, qty, harga, dan
 weighted avg. Data lama yang terlanjur masuk tanpa transaksi sengaja ga dimigrasi (owner: udah
 kelewat).
+
+---
+
+## Cicilan kartu kredit: debt ber-`creditAccountId`, utang tetap di saldo CC (2026-10)
+
+Owner beli barang satuan pakai kartu kredit lalu dicicil, mau dicatat pakai pencatatan cicilan
+yang ada TAPI motong limit kartu. CLAUDE.md sebelumnya bilang "cicilan 0% CC = konsep terpisah
+dari debtId, jangan dicampur" — direvisi dengan batasan jelas biar ga double count:
+
+- **Utang CC tetap SATU sumber: saldo negatif akun credit.** Pembelian dicatat sebagai expense
+  biasa di akun CC (limit kepotong, masuk cashflow bulan beli — sama kayak belanja CC lain).
+- **Debt ber-`creditAccountId` = jadwal cicilan doang**, outstanding-nya TIDAK masuk
+  `totalDebtIDR()`. Kalau masuk, utang yang sama kehitung dua kali (di saldo CC dan di debt).
+- Transaksi pembelian pakai `debtDir:"purchase"` (jenis ketiga setelah borrow/payment) yang
+  `debtTxDelta()`-nya 0 — link ke debt buat riwayat, tapi ga nyentuh outstanding/sisa bulan.
+- Pembayaran cicilan = transfer cash → CC ber-`debtId` (pola Bayar Tagihan), BUKAN expense —
+  expense-nya udah tercatat pas beli, kalau bayar dicatat expense lagi cashflow dobel.
+- Konsekuensi: debt CC disembunyiin dari dropdown "Potong hutang?" (expense generik) — kalau
+  dibayar lewat situ, outstanding turun tapi saldo kartu ga, jadi ga sinkron.
+
+Alternatif yang ditolak: nambah field "installment" di akun CC sendiri (butuh model & UI baru,
+padahal `debts` udah punya cicilan/bln, jatuh tempo, sisa bulan, riwayat, arsip).

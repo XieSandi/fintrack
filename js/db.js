@@ -6,7 +6,7 @@ import {
 import {
   state, netWorthIDR, totalCashIDR, totalAssetsIDR, totalCapexIDR, totalFixedAssetsIDR, totalReceivablesIDR, totalDebtIDR, totalGoalSavingsIDR,
   accountBalances, assetValueIDR, assetCostIDR, capexLocalValue, effectiveRate, goalSavedIDR,
-  goalLinkedAssetsValueIDR, activeAccounts, activeGoals, activeDebts, isDebtBorrow, debtTxDelta,
+  goalLinkedAssetsValueIDR, activeAccounts, activeGoals, activeDebts, isDebtPayment, debtTxDelta,
 } from "./store.js";
 import { currentMonth } from "./utils.js";
 
@@ -30,7 +30,7 @@ export async function add(name, data, opts = {}) {
   if (name === "transactions" && data.debtId && !opts.skipDebtEffect) {
     // Pembayaran: outstanding turun + sisa bulan −1. Borrow (dana pinjaman masuk): outstanding
     // NAIK, sisa bulan ga disentuh (lihat calc.js debtTxDelta / isDebtBorrow).
-    await applyDebtEffect(data.debtId, debtTxDelta(data), !isDebtBorrow(data), -1);
+    await applyDebtEffect(data.debtId, debtTxDelta(data), isDebtPayment(data), -1);
   }
   return ref;
 }
@@ -46,7 +46,7 @@ export async function remove(name, id) {
   const before = name === "transactions" ? state.transactions.find((t) => t.id === id) : null;
   await deleteDoc(docRef(name, id));
   if (name === "transactions" && before?.debtId) {
-    await applyDebtEffect(before.debtId, -debtTxDelta(before), !isDebtBorrow(before), 1);
+    await applyDebtEffect(before.debtId, -debtTxDelta(before), isDebtPayment(before), 1);
   }
   if (name === "transactions" && before?.assetId) {
     await applyAssetQtyEffect(before);
@@ -104,8 +104,8 @@ async function handleDebtPatch(before, data) {
     }
     return;
   }
-  if (oldDebtId) await applyDebtEffect(oldDebtId, -oldDelta, !isDebtBorrow(oldTx), 1);
-  if (newDebtId) await applyDebtEffect(newDebtId, newDelta, !isDebtBorrow(newTx), -1);
+  if (oldDebtId) await applyDebtEffect(oldDebtId, -oldDelta, isDebtPayment(oldTx), 1);
+  if (newDebtId) await applyDebtEffect(newDebtId, newDelta, isDebtPayment(newTx), -1);
 }
 
 // ================= Efek qty asset dari beli/jual =================
@@ -348,6 +348,8 @@ export async function upsertSnapshot() {
     // activeDebts() — hutang arsip (ditutup) ga ikut breakdown, outstanding-nya udah 0 di total.
     debts: activeDebts().map((d) => ({
       name: d.name,
+      // Cicilan kartu kredit (additive): outstanding-nya udah ada di saldo CC, bukan debt terpisah.
+      viaCredit: !!d.creditAccountId,
       outstanding: Math.round(Number(d.totalOutstanding) || 0),
       monthlyInstalment: Math.round(Number(d.monthlyInstalment) || 0),
       remainingMonths: d.remainingMonths ?? null,
@@ -606,7 +608,7 @@ export async function bulkDelete({ mode, month, year, include, includeMaster, ke
       if (!t.debtId) continue;
       if (!debtAgg[t.debtId]) debtAgg[t.debtId] = { amount: 0, count: 0 };
       debtAgg[t.debtId].amount += -debtTxDelta(t);
-      if (!isDebtBorrow(t)) debtAgg[t.debtId].count += 1;
+      if (isDebtPayment(t)) debtAgg[t.debtId].count += 1;
     }
     for (const [debtId, agg] of Object.entries(debtAgg)) {
       const debt = state.debts.find((d) => d.id === debtId);

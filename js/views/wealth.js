@@ -6,7 +6,7 @@ import {
   monthsBetween, projectSeries, snapshotNetWorth,
   isCreditAccount, creditUsed, creditRemaining, totalCreditDebtIDR,
   isReceivable, receivableLocalValue, totalReceivablesIDR, includeReceivablesSetting,
-  activeDebts, isDebtBorrow, debtOutstanding,
+  activeDebts, isDebtBorrow, isDebtPayment, debtTxKind, isCreditDebt, debtOutstanding,
 } from "../store.js";
 import { add, patch, remove, updateSettings, deleteAssetKeepHistory, addAttachment, getAttachment } from "../db.js";
 
@@ -1849,8 +1849,8 @@ function renderDebts(root) {
     const dueSoon = !isPaidOff && d.dueDay && d.dueDay - today >= 0 && d.dueDay - today <= 3;
     div.innerHTML = `
       <div>
-        <div class="asset-sym" style="font-size:13px">${escapeHtml(d.name)} ${isPaidOff ? '<span class="badge badge-green">Lunas 🎉</span>' : ""}</div>
-        <div class="asset-meta">cicilan ${fmtIDR(d.monthlyInstalment)}/bln · sisa ${d.remainingMonths ?? "?"} bln</div>
+        <div class="asset-sym" style="font-size:13px">${escapeHtml(d.name)} ${isPaidOff ? '<span class="badge badge-green">Lunas 🎉</span>' : ""}${isCreditDebt(d) ? ` <span class="badge badge-blue">💳 ${escapeHtml(state.accounts.find((a) => a.id === d.creditAccountId)?.name || "kartu")}</span>` : ""}</div>
+        <div class="asset-meta">cicilan ${fmtIDR(d.monthlyInstalment)}/bln · sisa ${d.remainingMonths ?? "?"} bln${isCreditDebt(d) ? " · udah termasuk utang kartu" : ""}</div>
         ${d.dueDay && !isPaidOff ? `<div class="stale-note">jatuh tempo tgl ${d.dueDay} ${dueSoon ? '<span class="badge badge-yellow">SEGERA</span>' : ""}</div>` : ""}
         ${isPaidOff ? `<div class="stale-note">lunas — arsipkan lewat Edit</div>` : ""}
       </div>
@@ -1949,27 +1949,44 @@ function openDebtSheet(existing) {
 // akun" ON: debt dibuat dengan outstanding = nominal, PLUS transaksi transfer `debtDir:"borrow"`
 // (akun dikredit; ditulis dengan `skipDebtEffect` biar outstanding ga dobel — lihat db.js add()).
 // Non-cash (BNPL/cicilan barang: uangnya langsung jadi barang) → checkbox OFF, cuma dokumen debt.
+// Tiga jenis: 💵 pinjaman tunai (dana masuk akun, transfer borrow), 💳 cicilan KARTU KREDIT
+// (barang dibeli pakai CC: expense di akun CC motong limit, debt ber-`creditAccountId` cuma jadwal
+// cicilan — outstanding-nya ga dobel ke totalDebtIDR, pembayaran = transfer cash→CC), 📦 tanpa
+// transaksi (BNPL/cicilan barang yang uangnya ga lewat akun manapun).
 function openNewDebtSheet() {
   const accounts = activeAccounts().filter((a) => !isCreditAccount(a));
+  const creditAccounts = activeAccounts().filter(isCreditAccount);
+  const cats = state.categories.filter((c) => c.type === "expense");
+  const defaultCat = cats.find((c) => c.id === "cat_belanja")?.id || cats[0]?.id || "";
+  let kind = accounts.length > 0 ? "cash" : "none"; // cash | credit | none
   const el = openSheet(`
     ${sheetHead("💳 Hutang Baru")}
     <input id="nd-amount" class="amount-input" inputmode="numeric" placeholder="0" autocomplete="off" />
-    <div class="sub" style="margin-top:2px; margin-bottom:8px">nominal pinjaman / outstanding awal</div>
+    <div class="sub" style="margin-top:2px; margin-bottom:8px">nominal pinjaman / harga barang / outstanding awal</div>
+    <div class="type-toggle" id="nd-kind">
+      ${accounts.length > 0 ? `<button type="button" data-kind="cash">💵 Pinjaman tunai</button>` : ""}
+      ${creditAccounts.length > 0 ? `<button type="button" data-kind="credit">💳 Cicilan kartu</button>` : ""}
+      <button type="button" data-kind="none">📦 Tanpa transaksi</button>
+    </div>
     <label>Nama</label>
-    <input id="nd-name" placeholder="cth: KTA Bank / Shopee BNPL" />
+    <input id="nd-name" placeholder="cth: KTA Bank / HP cicilan 12x" />
     <div class="row">
       <div><label>Cicilan / bulan (Rp)</label><input id="nd-inst" inputmode="numeric" placeholder="0" /></div>
       <div><label>Sisa bulan</label><input id="nd-months" inputmode="numeric" placeholder="12" /></div>
     </div>
     <label>Jatuh tempo (tgl tiap bulan)</label>
     <input id="nd-due" inputmode="numeric" placeholder="15" />
-    ${accounts.length > 0 ? `
-    <label style="margin-top:14px; font-size:12px; text-transform:none; letter-spacing:0; color:var(--muted2)">
-      <input type="checkbox" id="nd-cash" style="width:auto" checked/> 💵 Dana pinjaman masuk ke akun
-    </label>
-    <div id="nd-cash-fields">
-      <label>Ke Akun</label>
-      <select id="nd-account">${accounts.map((a) => `<option value="${a.id}">${escapeHtml(a.name)} (${a.currency})</option>`).join("")}</select>
+    <div id="nd-cash-fields" class="${kind === "none" ? "hidden" : ""}">
+      <div id="nd-acct-cash" class="${kind === "cash" ? "" : "hidden"}">
+        <label>Ke Akun (dana masuk)</label>
+        <select id="nd-account">${accounts.map((a) => `<option value="${a.id}">${escapeHtml(a.name)} (${a.currency})</option>`).join("")}</select>
+      </div>
+      <div id="nd-acct-credit" class="${kind === "credit" ? "" : "hidden"}">
+        <label>Kartu Kredit (dibebankan ke)</label>
+        <select id="nd-credit-account">${creditAccounts.map((a) => `<option value="${a.id}">${escapeHtml(a.name)} (${a.currency})</option>`).join("")}</select>
+        <label>Kategori pembelian</label>
+        <select id="nd-cat">${cats.map((c) => `<option value="${c.id}" ${c.id === defaultCat ? "selected" : ""}>${c.icon || "📦"} ${escapeHtml(c.name)}</option>`).join("")}</select>
+      </div>
       <div class="row">
         <div><label>Tanggal</label><input id="nd-date" type="date" value="${todayStr()}" /></div>
         <div><label>Jam</label><input id="nd-time" type="time" value="${nowTimeStr()}" /></div>
@@ -1978,7 +1995,7 @@ function openNewDebtSheet() {
       <input id="nd-note" type="text" placeholder="cth: pencairan KTA" />
       ${photoFieldHtml("nd")}
       ${linkFieldHtml("nd")}
-    </div>` : ""}
+    </div>
     <button id="nd-save" class="btn btn-primary btn-block" style="margin-top:18px">Simpan</button>
   `);
   const amountInput = el.querySelector("#nd-amount");
@@ -1986,24 +2003,29 @@ function openNewDebtSheet() {
   attachThousands(el.querySelector("#nd-inst"));
   setTimeout(() => amountInput.focus(), 250);
   el.querySelector("[data-close]").onclick = closeSheet;
-  const cashBox = el.querySelector("#nd-cash");
-  const cashFields = el.querySelector("#nd-cash-fields");
-  if (cashBox) cashBox.onchange = () => cashFields.classList.toggle("hidden", !cashBox.checked);
-  const photo = cashBox ? attachPhotoInput(el, "nd") : null;
+  const syncKind = () => {
+    el.querySelectorAll("#nd-kind button").forEach((b) => b.classList.toggle("active", b.dataset.kind === kind));
+    el.querySelector("#nd-cash-fields").classList.toggle("hidden", kind === "none");
+    el.querySelector("#nd-acct-cash").classList.toggle("hidden", kind !== "cash");
+    el.querySelector("#nd-acct-credit").classList.toggle("hidden", kind !== "credit");
+  };
+  el.querySelectorAll("#nd-kind button").forEach((b) => { b.onclick = () => { kind = b.dataset.kind; syncKind(); }; });
+  syncKind();
+  const photo = attachPhotoInput(el, "nd");
 
   el.querySelector("#nd-save").onclick = async () => {
     const amount = parseAmount(amountInput.value);
     const name = el.querySelector("#nd-name").value.trim();
     if (!name) return toast("Isi nama hutang");
     if (!amount || amount <= 0) return toast("Isi nominal pinjamannya");
-    const withCash = !!cashBox?.checked;
-    const accountId = withCash ? el.querySelector("#nd-account").value : null;
-    const acct = withCash ? accounts.find((a) => a.id === accountId) : null;
-    const date = withCash ? el.querySelector("#nd-date").value : null;
-    const time = withCash ? (el.querySelector("#nd-time").value || DEFAULT_TX_TIME) : null;
-    const note = withCash ? el.querySelector("#nd-note").value.trim() : "";
-    const linkUrl = withCash ? normalizeLink(el.querySelector("#nd-link").value) : null;
-    if (withCash && !date) return toast("Tanggal belum diisi");
+    const withTx = kind !== "none";
+    const accountId = kind === "cash" ? el.querySelector("#nd-account").value : kind === "credit" ? el.querySelector("#nd-credit-account").value : null;
+    const acct = accountId ? state.accounts.find((a) => a.id === accountId) : null;
+    const date = withTx ? el.querySelector("#nd-date").value : null;
+    const time = withTx ? (el.querySelector("#nd-time").value || DEFAULT_TX_TIME) : null;
+    const note = withTx ? el.querySelector("#nd-note").value.trim() : "";
+    const linkUrl = withTx ? normalizeLink(el.querySelector("#nd-link").value) : null;
+    if (withTx && !date) return toast("Tanggal belum diisi");
     if (linkUrl === false) return toast("Link ga valid (harus http/https)");
     closeSheet();
     const debtRef = await add("debts", {
@@ -2012,16 +2034,34 @@ function openNewDebtSheet() {
       dueDay: parseInt(el.querySelector("#nd-due").value) || null,
       remainingMonths: parseInt(el.querySelector("#nd-months").value) || null,
       isArchived: false,
+      // Cicilan kartu kredit: link ke akun CC (additive, null buat jenis lain).
+      creditAccountId: kind === "credit" ? accountId : null,
     });
-    if (withCash) {
+    if (kind === "cash") {
       const txRef = await add("transactions", {
         type: "transfer", amount, date, time, month: monthOf(date),
         accountId, toAccountId: null, categoryId: null,
         debtId: debtRef.id, debtDir: "borrow", linkUrl,
         note: note || `Pinjaman masuk: ${name}`,
       }, { skipDebtEffect: true });
-      await savePhoto(photo?.get(), txRef.id);
+      await savePhoto(photo.get(), txRef.id);
       toast(`Hutang ${name} dicatat ✓ — ${acct?.name || "akun"} +${fmtMoneyPlain(amount, acct?.currency)}`, 3500);
+    } else if (kind === "credit") {
+      // Pembelian = expense BIASA di akun CC (motong limit, masuk cashflow bulan ini) ber-debtId
+      // + debtDir:"purchase" → hook debt ga nyentuh outstanding/sisa bulan (debtTxDelta = 0).
+      const bal = accountBalances();
+      const limit = Number(acct?.creditLimit) || 0;
+      const usedAfter = Math.max(0, -((bal[accountId] || 0) - amount));
+      const txRef = await add("transactions", {
+        type: "expense", amount, date, time, month: monthOf(date),
+        accountId, toAccountId: null, categoryId: el.querySelector("#nd-cat").value || null,
+        debtId: debtRef.id, debtDir: "purchase", linkUrl,
+        note: note || name,
+      });
+      await savePhoto(photo.get(), txRef.id);
+      toast(limit > 0 && usedAfter > limit
+        ? `Cicilan ${name} dicatat ✓ ⚠️ melewati limit ${acct?.name} (terpakai ${fmtMoneyPlain(usedAfter, acct?.currency)})`
+        : `Cicilan ${name} dicatat ✓ — limit ${acct?.name || "kartu"} terpakai ${fmtMoneyPlain(usedAfter, acct?.currency)}`, 4000);
     } else {
       toast(`Hutang ${name} dicatat ✓`);
     }
@@ -2029,10 +2069,13 @@ function openNewDebtSheet() {
 }
 
 // ---- Detail satu hutang: progress + riwayat (pola sama openReceivableDetailSheet) ----
-function openDebtDetailSheet(d) {
+// Export — dipakai settings.js (tombol "Buka" finding integrity level debt).
+export function openDebtDetailSheet(d) {
   const outstanding = Math.max(0, Number(d.totalOutstanding) || 0);
   const txs = state.transactions.filter((t) => t.debtId === d.id);
-  const totalPaid = txs.filter((t) => !isDebtBorrow(t)).reduce((s, t) => s + (Number(t.amount) || 0), 0);
+  const totalPaid = txs.filter(isDebtPayment).reduce((s, t) => s + (Number(t.amount) || 0), 0);
+  const viaCredit = isCreditDebt(d);
+  const ccAcct = viaCredit ? state.accounts.find((a) => a.id === d.creditAccountId) : null;
   const principal = outstanding + totalPaid; // basis progress: yang udah dibayar + yang masih sisa
   const pct = principal > 0 ? Math.min(100, (totalPaid / principal) * 100) : 0;
   const isPaidOff = outstanding <= 0;
@@ -2044,6 +2087,7 @@ function openDebtDetailSheet(d) {
     <div class="sub" style="margin-top:4px">Dibayar ${fmtIDR(totalPaid)} dari ${fmtIDR(principal)} · ${pct.toFixed(0)}%</div>
     <div class="table-like" style="margin-top:10px">
       ${row("Outstanding", `<b style="color:${isPaidOff ? "var(--green)" : "var(--red)"}">${fmtIDR(outstanding)}</b>`)}
+      ${viaCredit ? row("Via kartu", `💳 ${escapeHtml(ccAcct?.name || "?")} <span class="sub">(udah termasuk utang kartu)</span>`) : ""}
       ${row("Cicilan / bulan", fmtIDR(d.monthlyInstalment))}
       ${row("Jatuh tempo", d.dueDay ? `tgl ${d.dueDay}` : "—")}
       ${row("Sisa bulan", d.remainingMonths ?? "—")}
@@ -2052,25 +2096,28 @@ function openDebtDetailSheet(d) {
     <div id="dd-list">${txs.length === 0 ? `<div class="empty">Belum ada transaksi.</div>` : ""}</div>
     <div style="margin-top:14px; display:flex; gap:8px;">
       ${isPaidOff || d.isArchived ? "" : `<button id="dd-pay" class="btn btn-primary" style="flex:1">💵 Bayar Cicilan</button>`}
-      ${d.isArchived ? "" : `<button id="dd-borrow" class="btn" style="flex:1">➕ Tambah Pinjaman</button>`}
+      ${d.isArchived || viaCredit ? "" : `<button id="dd-borrow" class="btn" style="flex:1">➕ Tambah Pinjaman</button>`}
       <button id="dd-edit" class="btn">✎</button>
     </div>
   `);
   el.querySelector("[data-close]").onclick = closeSheet;
   const list = el.querySelector("#dd-list");
   txs.forEach((t) => {
-    const isBorrow = isDebtBorrow(t);
+    const kind = debtTxKind(t); // borrow | purchase | payment
+    const isBorrow = kind === "borrow";
     const acct = state.accounts.find((x) => x.id === t.accountId);
     const div = document.createElement("div");
     div.className = "tx-item";
     div.innerHTML = `
-      <div class="tx-ic">${isBorrow ? "🏦" : "💵"}</div>
+      <div class="tx-ic">${isBorrow ? "🏦" : kind === "purchase" ? "🛒" : "💵"}</div>
       <div class="tx-main">
-        <div class="tx-cat">${isBorrow ? "Pinjaman masuk" : "Pembayaran"}${t.attachmentId ? " 📎" : ""}${t.linkUrl ? " 🔗" : ""}</div>
+        <div class="tx-cat">${isBorrow ? "Pinjaman masuk" : kind === "purchase" ? "Pembelian (kartu kredit)" : "Pembayaran"}${t.attachmentId ? " 📎" : ""}${t.linkUrl ? " 🔗" : ""}</div>
         <div class="tx-note">${escapeHtml(t.date)}${t.time ? ` · ${escapeHtml(t.time)}` : ""} · ${escapeHtml(acct?.name || "?")}${t.note ? ` · ${escapeHtml(t.note)}` : ""}</div>
       </div>
       <div class="tx-amt ${isBorrow ? "income" : "expense"}">${isBorrow ? "+" : "−"} ${fmtMoney(t.amount, acct?.currency)}</div>`;
-    div.onclick = () => (isBorrow ? openDebtBorrowSheet(d, t) : openTxSheet(t));
+    // Transaksi cicilan CC (purchase / transfer payment) → detail read-only (openTxSheet generik
+    // bakal ngilangin debtId/debtDir pas save); expense payment biasa tetap editable.
+    div.onclick = () => (isBorrow ? openDebtBorrowSheet(d, t) : (kind === "purchase" || t.type === "transfer") ? openDebtCcTxSheet(d, t) : openTxSheet(t));
     list.appendChild(div);
   });
   el.querySelector("#dd-pay")?.addEventListener("click", () => openDebtPaySheet(d));
@@ -2080,8 +2127,13 @@ function openDebtDetailSheet(d) {
 
 // ---- Bayar cicilan: expense BIASA ber-debtId (jalur lama tetap: openTxSheet "Potong hutang?")
 // — sheet ini cuma pre-fill + foto/link bukti. Efek ke outstanding lewat hook db.js add().
+// Cicilan kartu kredit (`creditAccountId`): pembayaran = TRANSFER cash → akun CC ber-debtId
+// (pola sama "Bayar Tagihan", tapi nurunin outstanding cicilan lewat hook) — BUKAN expense, karena
+// expense-nya udah dicatat pas pembelian (jangan dobel di cashflow).
 function openDebtPaySheet(d) {
-  const accounts = activeAccounts();
+  const viaCredit = isCreditDebt(d);
+  const ccAcct = viaCredit ? state.accounts.find((a) => a.id === d.creditAccountId) : null;
+  const accounts = viaCredit ? activeAccounts().filter((a) => !isCreditAccount(a)) : activeAccounts();
   if (accounts.length === 0) {
     toast("Buat akun dulu di Settings ⚙️");
     location.hash = "#/settings";
@@ -2094,10 +2146,11 @@ function openDebtPaySheet(d) {
     ${sheetHead(`Bayar Cicilan: ${escapeHtml(d.name)}`)}
     <input id="dp-amount" class="amount-input" inputmode="numeric" placeholder="0" value="${d.monthlyInstalment ? fmtNum(d.monthlyInstalment) : ""}" autocomplete="off" />
     <div class="sub" style="margin-top:2px">outstanding sekarang ${fmtIDR(d.totalOutstanding)}</div>
+    ${viaCredit ? `<div class="sub" style="margin-bottom:6px">💳 Bayar ke kartu ${escapeHtml(ccAcct?.name || "?")} (transfer, bukan expense)</div>` : ""}
     <label>Dari Akun</label>
     <select id="dp-account">${accounts.map((a) => `<option value="${a.id}" ${a.id === last.accountId ? "selected" : ""}>${escapeHtml(a.name)} (${a.currency})</option>`).join("")}</select>
-    <label>Kategori</label>
-    <select id="dp-cat">${cats.map((c) => `<option value="${c.id}" ${c.id === defaultCat ? "selected" : ""}>${c.icon || "📦"} ${escapeHtml(c.name)}</option>`).join("")}</select>
+    ${viaCredit ? "" : `<label>Kategori</label>
+    <select id="dp-cat">${cats.map((c) => `<option value="${c.id}" ${c.id === defaultCat ? "selected" : ""}>${c.icon || "📦"} ${escapeHtml(c.name)}</option>`).join("")}</select>`}
     <div class="row">
       <div><label>Tanggal</label><input id="dp-date" type="date" value="${todayStr()}" /></div>
       <div><label>Jam</label><input id="dp-time" type="time" value="${nowTimeStr()}" /></div>
@@ -2116,24 +2169,59 @@ function openDebtPaySheet(d) {
   el.querySelector("#dp-save").onclick = async () => {
     const amount = parseAmount(amountInput.value);
     const accountId = el.querySelector("#dp-account").value;
-    const categoryId = el.querySelector("#dp-cat").value;
+    const categoryId = viaCredit ? null : el.querySelector("#dp-cat").value;
     const date = el.querySelector("#dp-date").value;
     const time = el.querySelector("#dp-time").value || DEFAULT_TX_TIME;
     const note = el.querySelector("#dp-note").value.trim();
     const linkUrl = normalizeLink(el.querySelector("#dp-link").value);
     if (!amount || amount <= 0) return toast("Isi nominal cicilannya");
-    if (!categoryId) return toast("Pilih kategori");
+    if (!viaCredit && !categoryId) return toast("Pilih kategori");
+    if (viaCredit && !ccAcct) return toast("Akun kartu kreditnya ga ketemu");
     if (!date) return toast("Tanggal belum diisi");
     if (linkUrl === false) return toast("Link ga valid (harus http/https)");
     const over = amount > (Number(d.totalOutstanding) || 0) + 0.5;
     closeSheet();
-    const txRef = await add("transactions", {
-      type: "expense", amount, date, time, month: monthOf(date),
-      accountId, categoryId, toAccountId: null, debtId: d.id, linkUrl,
-      note: note || `Cicilan ${d.name}`,
-    });
+    const txRef = await add("transactions", viaCredit
+      ? { type: "transfer", amount, date, time, month: monthOf(date), accountId, toAccountId: d.creditAccountId, categoryId: null, debtId: d.id, linkUrl, note: note || `Cicilan ${d.name}` }
+      : { type: "expense", amount, date, time, month: monthOf(date), accountId, categoryId, toAccountId: null, debtId: d.id, linkUrl, note: note || `Cicilan ${d.name}` });
     await savePhoto(photo.get(), txRef.id);
     toast(over ? "Cicilan tercatat ✓ — lebih dari outstanding, sisa jadi 0" : "Cicilan tercatat ✓", over ? 3500 : 2200);
+  };
+}
+
+// ---- Detail read-only transaksi cicilan kartu kredit: pembelian (expense di CC, debtDir
+// "purchase") atau pembayaran (transfer cash→CC ber-debtId). Export — dipakai home.js
+// openTxDetail(). Cuma Hapus (hook db.js: purchase ga nyentuh outstanding, payment dibalikin).
+export function openDebtCcTxSheet(debt, tx) {
+  const isPurchase = debtTxKind(tx) === "purchase";
+  const acct = state.accounts.find((a) => a.id === tx.accountId);
+  const toAcct = tx.toAccountId ? state.accounts.find((a) => a.id === tx.toAccountId) : null;
+  const cat = isPurchase ? state.categories.find((c) => c.id === tx.categoryId) : null;
+  const el = openSheet(`
+    ${sheetHead(isPurchase ? `Pembelian: ${escapeHtml(debt.name)}` : `Cicilan: ${escapeHtml(debt.name)}`)}
+    <div class="sub" style="margin-bottom:10px">Ga bisa diedit — hapus &amp; catat ulang.</div>
+    <div class="table-like">
+      <div style="display:flex; justify-content:space-between; padding:6px 0"><span class="sub">Jenis</span><span>${isPurchase ? "Pembelian pakai kartu kredit" : "Pembayaran cicilan (transfer ke kartu)"}</span></div>
+      <div style="display:flex; justify-content:space-between; padding:6px 0"><span class="sub">Nominal</span><span>${fmtMoney(tx.amount, acct?.currency)}</span></div>
+      <div style="display:flex; justify-content:space-between; padding:6px 0"><span class="sub">${isPurchase ? "Kartu" : "Dari Akun"}</span><span>${escapeHtml(acct?.name || "?")}</span></div>
+      ${toAcct ? `<div style="display:flex; justify-content:space-between; padding:6px 0"><span class="sub">Ke Kartu</span><span>${escapeHtml(toAcct.name)}</span></div>` : ""}
+      ${cat ? `<div style="display:flex; justify-content:space-between; padding:6px 0"><span class="sub">Kategori</span><span>${cat.icon || ""} ${escapeHtml(cat.name)}</span></div>` : ""}
+      <div style="display:flex; justify-content:space-between; padding:6px 0"><span class="sub">Tanggal</span><span>${tx.date}${tx.time ? ` ${tx.time}` : ""}</span></div>
+      ${tx.note ? `<div style="display:flex; justify-content:space-between; padding:6px 0"><span class="sub">Catatan</span><span>${escapeHtml(tx.note)}</span></div>` : ""}
+    </div>
+    <div id="dc-link-wrap" style="margin-top:10px"></div><div id="dc-photo-wrap" style="margin-top:10px"></div>
+    <button id="dc-delete" class="btn btn-danger btn-block" style="margin-top:18px">Hapus Transaksi</button>
+  `);
+  el.querySelector("[data-close]").onclick = closeSheet;
+  renderTxPhoto(el.querySelector("#dc-photo-wrap"), tx);
+  renderTxLink(el.querySelector("#dc-link-wrap"), tx);
+  el.querySelector("#dc-delete").onclick = async () => {
+    if (!confirmDialog(isPurchase
+      ? "Hapus pembelian ini? Limit kartu balik, outstanding cicilan TIDAK berubah (hapus/arsipkan hutangnya terpisah kalau perlu)."
+      : "Hapus pembayaran ini? Outstanding cicilan & saldo kartu dibalikin.")) return;
+    closeSheet();
+    await remove("transactions", tx.id);
+    toast("Dihapus");
   };
 }
 

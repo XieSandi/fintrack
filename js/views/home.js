@@ -9,7 +9,7 @@ import {
 } from "../utils.js";
 import { openTxSheet } from "../tx-sheet.js";
 import { openTopupSheet, openWithdrawSheet, goalDisplayStats } from "./goals.js";
-import { openAssetBuySheet, openAssetSellSheet, openBondRedeemSheet, openDebtBorrowSheet, openFixedAssetSellSheet } from "./wealth.js";
+import { openAssetBuySheet, openAssetSellSheet, openBondRedeemSheet, openDebtBorrowSheet, openFixedAssetSellSheet, openDebtCcTxSheet } from "./wealth.js";
 
 // Filter periode Home — persist selama sesi (module-level, bukan di store global)
 const period = { mode: "month", from: null, to: null };
@@ -274,6 +274,10 @@ export function openTxDetail(t) {
   // sendiri; openTxSheet() generik ga ngerti debtDir & cuma nulis debtId buat expense.
   const borrowDebt = t.debtId && t.debtDir === "borrow" ? state.debts.find((d) => d.id === t.debtId) : null;
   if (borrowDebt) return openDebtBorrowSheet(borrowDebt, t);
+  // Cicilan kartu kredit: pembelian (expense di CC, debtDir "purchase") & pembayaran (transfer
+  // cash→CC ber-debtId) → detail read-only; openTxSheet generik bakal ngilangin debtId/debtDir.
+  const ccDebt = t.debtId && (t.debtDir === "purchase" || t.type === "transfer") ? state.debts.find((d) => d.id === t.debtId) : null;
+  if (ccDebt) return openDebtCcTxSheet(ccDebt, t);
   // assetDir "redeem" (TASK-4, bond) — BEDA sheet dari beli/jual biasa (pencairan pokok, bukan
   // trade), lihat wealth.js openBondRedeemSheet().
   // Fixed asset (capex/jht): jual/cairkan (redeem = penuh, sell = JHT sebagian) → sheet sendiri.
@@ -302,6 +306,10 @@ export function txRow(t) {
   // Pinjaman masuk dari hutang (borrow) — tampil kayak income (+ hijau), tipe data tetap transfer.
   const isBorrow = t.type === "transfer" && !!t.debtId && t.debtDir === "borrow";
   const borrowDebt = isBorrow ? state.debts.find((d) => d.id === t.debtId) : null;
+  // Cicilan kartu kredit: pembayaran = transfer cash→CC ber-debtId (label "Bayar cicilan"),
+  // pembelian = expense biasa di CC + badge "cicilan".
+  const isCcPay = t.type === "transfer" && !!t.debtId && !isBorrow;
+  const ccDebt = (isCcPay || t.debtDir === "purchase") ? state.debts.find((d) => d.id === t.debtId) : null;
   const cat = t.type === "transfer" ? null : catById(t.categoryId);
   const acct = acctById(t.accountId);
   const toAcct = t.toAccountId ? acctById(t.toAccountId) : null;
@@ -317,6 +325,8 @@ export function txRow(t) {
     <div class="tx-main">
       <div class="tx-cat">${isBorrow
         ? `Pinjaman masuk: ${escapeHtml(borrowDebt?.name || "?")}`
+        : isCcPay
+        ? `Bayar cicilan: ${escapeHtml(ccDebt?.name || "?")}`
         : asset
         ? isRecv
           ? `${isSell ? "Pembayaran claim" : "Pinjamkan"}: ${escapeHtml(recvWho)}`
@@ -324,7 +334,7 @@ export function txRow(t) {
         : goal
         ? `${isWithdraw ? "Pencairan" : "Topup"}: ${escapeHtml(goal.name)}`
         : t.type === "transfer" ? `Transfer` : escapeHtml(cat?.name || "—")}${
-        asset?.deleted ? ` <span class="badge badge-yellow">asset dihapus</span>` : ""}${t.attachmentId ? " 📎" : ""}${t.linkUrl ? " 🔗" : ""}${
+        asset?.deleted ? ` <span class="badge badge-yellow">asset dihapus</span>` : ""}${t.debtDir === "purchase" ? ` <span class="badge badge-blue">cicilan</span>` : ""}${t.attachmentId ? " 📎" : ""}${t.linkUrl ? " 🔗" : ""}${
         // Transaksi biaya tambahan (ber-feeOfTxId) dikasih badge biar kelihatan dia nempel ke
         // transaksi lain, bukan expense berdiri sendiri — induknya persis di sebelahnya di list
         // (tanggal & jam-nya sama). Sengaja badge doang, ga lookup induknya per baris (O(n) per

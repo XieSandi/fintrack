@@ -873,6 +873,29 @@ function makeState() {
   assertEqual(calc.activeDebts(s).length, 1, "activeDebts: arsip ga ikut");
   assertEqual(calc.totalDebtIDR(s), 5_000_000, "totalDebtIDR: hutang arsip ga ikut");
 }
+{
+  // Cicilan kartu kredit: debt ber-creditAccountId — pembelian = expense di akun CC (motong
+  // limit), outstanding ga dobel ke totalDebtIDR, transaksi "purchase" ga nyentuh outstanding.
+  const s = makeState();
+  s.accounts.push({ id: "cc", type: "credit", currency: "IDR", initialBalance: 0, creditLimit: 10_000_000, isArchived: false });
+  s.debts = [{ id: "d1", name: "HP cicilan 12x", totalOutstanding: 6_000_000, monthlyInstalment: 500_000, remainingMonths: 12, creditAccountId: "cc" }];
+  s.transactions = [
+    { type: "expense", amount: 6_000_000, accountId: "cc", categoryId: "cat_belanja", debtId: "d1", debtDir: "purchase", month: "2026-10", date: "2026-10-05" },
+    { type: "transfer", amount: 500_000, accountId: "acc_idr", toAccountId: "cc", debtId: "d1", month: "2026-11", date: "2026-11-05" },
+  ];
+  const bal = calc.accountBalances(s);
+  assertEqual(bal.cc, -6_000_000 + 500_000, "cc installment: saldo CC = −pembelian + cicilan dibayar");
+  assertEqual(calc.creditUsed(s.accounts[3], bal), 5_500_000, "cc installment: limit terpakai = sisa tagihan CC");
+  assertEqual(calc.debtTxKind(s.transactions[0]), "purchase", "debtTxKind: purchase");
+  assertEqual(calc.debtTxDelta(s.transactions[0]), 0, "debtTxDelta: purchase ga nyentuh outstanding");
+  assertEqual(calc.isDebtPayment(s.transactions[1]), true, "transfer cash→CC ber-debtId = payment");
+  assertEqual(calc.debtTxDelta(s.transactions[1]), -500_000, "debtTxDelta: payment = −amount");
+  assertEqual(calc.isCreditDebt(s.debts[0]), true, "isCreditDebt");
+  // totalDebtIDR = CC saja (5.5jt), outstanding cicilan 6jt TIDAK dijumlah lagi.
+  assertEqual(calc.totalDebtIDR(s), 5_500_000, "totalDebtIDR: cicilan CC ga dobel (cuma lewat saldo CC)");
+  assertEqual(calc.monthSummary(s, "2026-11").expense, 0, "bayar cicilan CC = transfer, bukan expense bulan itu");
+  assertEqual(calc.monthSummary(s, "2026-10").expense, 6_000_000, "pembelian pakai CC = expense bulan pembelian");
+}
 
 // ================= compareSortOrder (urutan manual drag) =================
 {
