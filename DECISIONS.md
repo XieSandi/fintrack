@@ -1169,3 +1169,10 @@ dari debtId, jangan dicampur" — direvisi dengan batasan jelas biar ga double c
 
 Alternatif yang ditolak: nambah field "installment" di akun CC sendiri (butuh model & UI baru,
 padahal `debts` udah punya cicilan/bln, jatuh tempo, sisa bulan, riwayat, arsip).
+
+**Tambahan (bayar tagihan = bayar cicilan sekalian).** Tagihan bulanan kartu udah termasuk porsi
+cicilan, jadi owner ga mau catat dua kali. Sheet Bayar Tagihan dikasih checklist cicilan kartu
+itu; total bayar dipecah jadi transfer per cicilan (ber-debtId, biar hook nurunin outstanding)
++ transfer sisa tagihan. Dipecah (bukan satu transfer dengan banyak debtId) karena model
+transaksi cuma punya SATU `debtId` dan hook debt per transaksi — satu transfer per cicilan adalah
+bentuk paling sederhana yang reversal-nya tetap benar pas salah satu dihapus.

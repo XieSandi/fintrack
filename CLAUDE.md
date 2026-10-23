@@ -303,6 +303,11 @@ creditAccountId?}`. Cicilan TETAP, beda dari CC (revolving, derived). Mengurangi
   (`openDebtPaySheet()` buat debt ini) = **TRANSFER cash → akun CC** ber-`debtId` (kind payment:
   outstanding turun, sisa bulan −1, saldo CC naik) — BUKAN expense (expense-nya udah pas beli).
   Dibuat lewat `openNewDebtSheet()` jenis "💳 Cicilan kartu" (pilih CC + kategori pembelian).
+  **"💳 Bayar Tagihan"** (`openPayCreditSheet()`, accounts.js) nampilin checklist cicilan kartu
+  itu (default dicentang kalau bulan ini belum ada pembayaran ber-debtId-nya, nominal default
+  cicilan/bln, bisa diedit): total bayar DIPECAH jadi satu transfer per cicilan dicentang
+  (ber-debtId) + satu transfer sisa tagihan tanpa debtId — saldo kartu naik total yang sama,
+  outstanding/sisa bulan cicilan ikut turun. Σ cicilan > nominal bayar diblok.
   Transaksi purchase & payment-nya read-only lewat `openDebtCcTxSheet()` (exported, di-route
   `openTxDetail()`: `debtDir:"purchase"` atau transfer ber-debtId non-borrow); dropdown "Potong
   hutang?" (tx-sheet & recurring) nge-exclude debt ini. Jenis transaksi ber-debtId SEKARANG tiga:

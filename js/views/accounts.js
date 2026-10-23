@@ -3,6 +3,7 @@ import { add, patch, remove, upsertSnapshot, saveOrder } from "../db.js";
 import {
   fmtNum, fmtMoney, blurNum, escapeHtml, toast, openSheet, closeSheet, sheetHead, confirmDialog,
   attachThousands, parseAmount, todayStr, monthOf, nowTimeStr, DEFAULT_TX_TIME, copyText, makeSortable,
+  currentMonth, fmtMoneyPlain,
 } from "../utils.js";
 
 export const ACCT_TYPES = { bank: "Bank", ewallet: "E-Wallet", cash: "Cash", rdn: "RDN Sekuritas", broker: "Broker (Bibit/Pluang)", credit: "Kartu Kredit" };
@@ -322,12 +323,35 @@ function openPayCreditSheet(ccAccount) {
   }
   const bal = accountBalances();
   const used = creditUsed(ccAccount, bal);
+  // Cicilan kartu kredit yang nempel di kartu ini (debt ber-`creditAccountId`, lihat wealth.js
+  // openNewDebtSheet jenis "Cicilan kartu"). Tagihan bulanan kartu UDAH termasuk porsi cicilan,
+  // jadi pas bayar tagihan, cicilan yang dicentang dicatat sebagai pembayaran cicilan (transfer
+  // ber-debtId → outstanding & sisa bulan turun), sisanya transfer tagihan biasa. Default
+  // dicentang kalau bulan ini belum ada pembayaran buat cicilan itu.
+  const month = currentMonth();
+  const ccDebts = state.debts.filter((d) => d.creditAccountId === ccAccount.id && d.isArchived !== true && (Number(d.totalOutstanding) || 0) > 0);
+  const paidThisMonth = (d) => state.transactions.some((t) => t.debtId === d.id && t.type === "transfer" && t.debtDir !== "borrow" && t.month === month);
 
   const el = openSheet(`
     ${sheetHead(`Bayar Tagihan: ${escapeHtml(ccAccount.name)}`)}
     <input id="pc-amount" class="amount-input" inputmode="numeric" placeholder="0"
       value="${used > 0 ? fmtNum(used) : ""}" autocomplete="off" />
     <div class="sub" style="margin-top:4px">Tagihan terpakai sekarang: <b>${fmtMoney(used, ccAccount.currency)}</b></div>
+    ${ccDebts.length > 0 ? `
+    <label style="margin-top:12px">Cicilan ikut terbayar</label>
+    <div id="pc-inst" style="display:flex; flex-direction:column; gap:6px">
+      ${ccDebts.map((d) => {
+        const paid = paidThisMonth(d);
+        const inst = Math.min(Number(d.monthlyInstalment) || 0, Number(d.totalOutstanding) || 0);
+        return `
+        <div style="display:flex; align-items:center; gap:8px" data-inst-row="${d.id}">
+          <input type="checkbox" data-inst-check="${d.id}" style="width:auto" ${paid ? "" : "checked"} />
+          <span style="flex:1; font-size:13px">${escapeHtml(d.name)}${paid ? ' <span class="badge badge-green">udah bulan ini</span>' : ""}<div class="sub" style="margin-top:0">sisa ${fmtMoney(d.totalOutstanding, ccAccount.currency)} · ${d.remainingMonths ?? "?"} bln</div></span>
+          <input data-inst-amount="${d.id}" inputmode="numeric" autocomplete="off" value="${inst > 0 ? fmtNum(inst) : ""}" style="width:120px; margin:0" />
+        </div>`;
+      }).join("")}
+    </div>
+    <div id="pc-inst-hint" class="sub"></div>` : ""}
     <label>Dari Akun</label>
     <select id="pc-account">
       ${sources.map((a) => `<option value="${a.id}">${escapeHtml(a.name)} (${a.currency})</option>`).join("")}
@@ -346,6 +370,25 @@ function openPayCreditSheet(ccAccount) {
   setTimeout(() => amountInput.focus(), 250);
   el.querySelector("[data-close]").onclick = closeSheet;
 
+  // Cicilan yang dicentang + nominalnya (dibatasi outstanding masing-masing).
+  const checkedInstalments = () => ccDebts
+    .filter((d) => el.querySelector(`[data-inst-check="${d.id}"]`)?.checked)
+    .map((d) => ({ debt: d, amount: Math.min(parseAmount(el.querySelector(`[data-inst-amount="${d.id}"]`)?.value), Number(d.totalOutstanding) || 0) }))
+    .filter((x) => x.amount > 0);
+  const instHint = el.querySelector("#pc-inst-hint");
+  const updateInstHint = () => {
+    if (!instHint) return;
+    const sumInst = checkedInstalments().reduce((s, x) => s + x.amount, 0);
+    const total = parseAmount(amountInput.value);
+    instHint.innerHTML = sumInst > 0
+      ? `cicilan ${blurNum(fmtMoneyPlain(sumInst, ccAccount.currency))} + tagihan lain ${blurNum(fmtMoneyPlain(Math.max(0, total - sumInst), ccAccount.currency))}${sumInst > total + 0.5 ? ' · <span style="color:var(--red)">melebihi nominal bayar</span>' : ""}`
+      : "";
+  };
+  el.querySelectorAll("[data-inst-amount]").forEach((inp) => { attachThousands(inp); inp.addEventListener("input", updateInstHint); });
+  el.querySelectorAll("[data-inst-check]").forEach((c) => c.addEventListener("change", updateInstHint));
+  amountInput.addEventListener("input", updateInstHint);
+  updateInstHint();
+
   el.querySelector("#pc-save").onclick = async () => {
     const amount = parseAmount(amountInput.value);
     const accountId = el.querySelector("#pc-account").value;
@@ -353,16 +396,33 @@ function openPayCreditSheet(ccAccount) {
     const time = el.querySelector("#pc-time").value || DEFAULT_TX_TIME;
     if (!amount || amount <= 0) return toast("Isi nominal bayarnya dulu");
     if (!date) return toast("Tanggal belum diisi");
+    const instalments = checkedInstalments();
+    const sumInst = instalments.reduce((s, x) => s + x.amount, 0);
+    if (sumInst > amount + 0.5) return toast("Total cicilan melebihi nominal bayar");
 
     // Overpay TETAP boleh (saldo kartu jadi plus) — warning non-blocking, bukan blokir keras.
     const overpay = amount > used + 0.5;
+    const remainder = amount - sumInst;
 
     closeSheet();
-    await add("transactions", {
-      type: "transfer", amount, date, time, month: monthOf(date),
-      accountId, toAccountId: ccAccount.id,
-      categoryId: null, note: `Bayar Tagihan: ${ccAccount.name}`,
-    });
-    toast(overpay ? "Tersimpan ✓ — bayar lebih dari tagihan, saldo kartu jadi plus" : "Tagihan dibayar ✓");
+    // Dipecah: satu transfer per cicilan (ber-debtId → hook nurunin outstanding & sisa bulan)
+    // + satu transfer sisa tagihan tanpa debtId. Semuanya cash → kartu, saldo kartu naik total
+    // `amount` persis kayak sebelumnya.
+    for (const { debt, amount: instAmt } of instalments) {
+      await add("transactions", {
+        type: "transfer", amount: instAmt, date, time, month: monthOf(date),
+        accountId, toAccountId: ccAccount.id, categoryId: null, debtId: debt.id,
+        note: `Cicilan ${debt.name}`,
+      });
+    }
+    if (remainder > 0.5) {
+      await add("transactions", {
+        type: "transfer", amount: remainder, date, time, month: monthOf(date),
+        accountId, toAccountId: ccAccount.id,
+        categoryId: null, note: `Bayar Tagihan: ${ccAccount.name}`,
+      });
+    }
+    const instMsg = instalments.length > 0 ? ` · ${instalments.length} cicilan ikut tercatat` : "";
+    toast(overpay ? `Tersimpan ✓ — bayar lebih dari tagihan, saldo kartu jadi plus${instMsg}` : `Tagihan dibayar ✓${instMsg}`, instalments.length > 0 ? 3500 : 2200);
   };
 }
